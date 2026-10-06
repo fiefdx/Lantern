@@ -1,0 +1,22 @@
+project name: Lantern
+group name: group G
+project description:
+1. a windows chatting application based on c# and winforms
+2. it's a local chatting application networking through bluetooth connection
+3. one machine works as a server and other machines work as client
+4. the server can create/delete/modify rooms, every room has a name
+5. after client connect to a server, it can select a room from server's room list and start chat in that room
+6. chatting supports text and picture context
+7. chatting supports file sending and receiving
+8. no need chatting history persistence, chatting room list persisted on server machine in json file
+9. client can save received file on disk with selected path
+10. every time a new message received should trigger a sound notification
+11. when new user join or leave a room, there should be a notification message in that room
+12. every room has a room user list, shows all the users under that room
+group members:
+Haitao Yang 
+Julia Ferreira Moraes Welerson 
+Okechukwu Ebogu 
+Victory Oleru
+document format: APA7
+pages required: 1 cover page, at most 15 content pages, 1 reference page

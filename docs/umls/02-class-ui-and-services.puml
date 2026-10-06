@@ -1,0 +1,159 @@
+@startuml
+' Lantern - Class design, part 1 of 2: WinForms UI + the chat-service abstraction
+' (why one base form serves both the host and the client window)
+skinparam classAttributeIconSize 0
+left to right direction
+
+package "UI layer  (WinForms)" {
+  class StartupForm <<form>> {
+    - txtNickname : TextBox
+    - lstServers : ListBox
+    - btnScan : Button
+    - btnJoin : Button
+    - btnStartServer : Button
+    + ScanAsync() : Task
+    + StartServerAsync() : Task
+    + JoinAsync() : Task
+  }
+
+  abstract class ChatForm <<form>> {
+    # lstRooms : ListBox
+    # lstMembers : ListBox
+    # rtbChat : RichTextBox
+    # txtMessage : TextBox
+    # btnSend : Button
+    # btnShare : Button
+    # lblStatus : ToolStripStatusLabel
+    # service : IChatService
+    + OnSendClick()
+    + OnShareClick()
+    + OnRoomChanged()
+    + ConfirmQuit()
+    # BindServiceEvents()
+    # RunOnUiThread(a : Action)
+  }
+
+  class HostForm <<form>> {
+    - btnNew : Button
+    - btnDelete : Button
+    + OnNewRoomClick()
+    + OnDeleteRoomClick()
+    + OnRenameRoom(name)
+  }
+
+  class ClientForm <<form>> {
+    - btnLeave : Button
+  }
+
+  class NewRoomDialog <<dialog>> {
+    - txtRoomName : TextBox
+    + RoomName : string
+  }
+}
+
+interface IChatService <<interface>> {
+  + Nickname : string
+  + IsHost : bool
+  + Rooms : ObservableCollection~Room~
+  + Members : ObservableCollection~User~
+  + StartAsync() : Task
+  + ConnectAsync(e : ServerEndpoint) : Task
+  + CreateRoomAsync(name : string) : Task
+  + DeleteRoomAsync(name : string) : Task
+  + JoinRoomAsync(name : string) : Task
+  + SendAsync(m : Message) : Task
+  + SendFileAsync(path : string) : Task
+  + SaveReceivedFileAsync(job, path) : Task
+  + ShutdownAsync() : Task
+  + MessageReceived(Message)
+  + RoomsChanged()
+  + MembersChanged()
+  + IncomingFile(FileTransferJob)
+  + StatusChanged(string)
+  + ConnectionLost(Exception)
+}
+
+package "Application core" {
+  class ChatServer <<service>> {
+    - rooms : List~Room~
+    - sessions : ConcurrentDictionary~IClientLink, ClientSession~
+    - store : IRoomStore
+    - listener : IBtServer
+    + StartAsync() : Task
+    + CreateRoomAsync(name) : Task
+    + DeleteRoomAsync(name) : Task
+    + BroadcastAsync(room, m) : Task
+    + SendToAsync(s, m) : Task
+    # AcceptLoop() : Task
+    # PersistAndBroadcastRooms()
+  }
+
+  class ChatClient <<service>> {
+    - link : IClientLink
+    - currentRoom : string
+    + ConnectAsync(e) : Task
+    + JoinRoomAsync(name) : Task
+    + SendAsync(m) : Task
+    + SendFileAsync(path) : Task
+    + CreateRoomAsync(name) : Task
+    ' rejected: only the host may edit rooms
+    # ReadLoopAsync() : Task
+  }
+
+  class ClientSession {
+    - link : IClientLink
+    - user : User
+    - currentRoom : string
+    + ReadLoopAsync() : Task
+    + WriteAsync(f : Frame) : Task
+    + Close()
+  }
+
+  class ServerBrowser <<service>> {
+    + DiscoverAsync(t : TimeSpan) : Task
+    ' returns List~ServerEndpoint~
+  }
+
+  class ServerEndpoint {
+    + ServerName : string
+    + DeviceAddress : string
+    + ServiceId : Guid
+  }
+
+  class SoundNotifier <<service>> {
+    - player : SoundPlayer
+    + PlayAsync(wav : string) : Task
+  }
+}
+
+ChatForm <|-- HostForm
+ChatForm <|-- ClientForm
+StartupForm ..> ChatForm : opens HostForm or ClientForm
+StartupForm ..> ChatServer : role = host
+StartupForm ..> ChatClient : role = client
+StartupForm ..> ServerBrowser : "Scan"
+HostForm ..> NewRoomDialog : "New"
+ChatForm o--> IChatService : never touches Bluetooth
+
+ChatServer ..|> IChatService
+ChatClient ..|> IChatService
+ChatServer o--> ClientSession : 0..*
+ChatServer ..> ServerEndpoint
+ChatClient ..> ServerEndpoint : ConnectAsync(e)
+ChatServer o--> SoundNotifier
+ChatClient o--> SoundNotifier
+
+note bottom of IChatService
+  The host process builds a ChatServer, a client process builds a
+  ChatClient; both are handed to the same ChatForm through
+  IChatService. That is why the two wireframes are identical apart
+  from New / Delete: only HostForm exposes room management.
+end note
+
+note top of ChatForm
+  Events arrive from a background read loop, so every handler uses
+  RunOnUiThread (Control.Invoke / IProgress~Double~). Send and Share
+  are disabled while a Task is in flight to stop double sends.
+end note
+
+@enduml

@@ -1,0 +1,86 @@
+@startuml
+' Lantern - Use Case Diagram (proposal: project description / use-case examples)
+left to right direction
+skinparam packageStyle rectangle
+
+actor "User\n(anyone with Bluetooth)" as USER
+actor "Host user\n(the server machine)" as HOST
+actor "Client user\n(a friend's machine)" as CLIENT
+actor "Windows Bluetooth\nstack (RFCOMM)" as BT <<system>>
+
+HOST --|> USER
+CLIENT --|> USER
+
+rectangle "Lantern - local Bluetooth group chat" {
+  usecase "Start chat server" as UC_START
+  usecase "Scan for nearby\nservers" as UC_SCAN
+  usecase "Join server" as UC_JOIN
+
+  usecase "Manage rooms" as UC_MANAGE
+  usecase "Create room" as UC_CREATE
+  usecase "Rename room" as UC_RENAME
+  usecase "Delete room" as UC_DELETE
+  usecase "Quit server /\ndisconnect" as UC_QUIT
+  usecase "Confirm dialog\n(OK / Cancel)" as UC_CONFIRM
+
+  usecase "Enter nickname" as UC_NICK
+  usecase "Select / switch room" as UC_SELECT
+  usecase "View room member list" as UC_MEMBERS
+
+  usecase "Chat in room" as UC_CHAT
+  usecase "Send text message" as UC_TEXT
+  usecase "Send picture" as UC_PIC
+  usecase "Hear sound alert on\nnew message" as UC_SOUND
+
+  usecase "See join / leave\nnotice in room" as UC_NOTICE
+
+  usecase "Send file" as UC_FILE
+  usecase "Choose folder &\nsave received file" as UC_SAVEFILE
+
+  usecase "Persist room list\nto rooms.json" as UC_SAVE
+}
+
+' ---- shared behaviour
+USER --> UC_NICK
+USER --> UC_SELECT
+USER --> UC_MEMBERS
+USER --> UC_CHAT
+USER --> UC_FILE
+
+' ---- host only
+HOST --> UC_START
+HOST --> UC_MANAGE
+HOST --> UC_QUIT
+
+' ---- client only
+CLIENT --> UC_SCAN
+CLIENT --> UC_JOIN
+CLIENT --> UC_SAVEFILE
+
+' ---- specialisation
+UC_MANAGE <|-- UC_CREATE
+UC_MANAGE <|-- UC_DELETE
+UC_MANAGE <|-- UC_RENAME
+UC_CHAT <|-- UC_TEXT
+UC_CHAT <|-- UC_PIC
+
+' ---- include / extend
+UC_CHAT ..> UC_SOUND : <<include>>
+UC_JOIN ..> UC_NOTICE : <<include>>
+UC_MANAGE ..> UC_SAVE : <<include>>
+UC_FILE ..> UC_SAVEFILE : <<include>>
+UC_QUIT ..> UC_CONFIRM : <<extend>>
+UC_DELETE ..> UC_CONFIRM : <<extend>>
+
+' ---- the only external dependency
+BT ^.. UC_START
+BT ^.. UC_JOIN
+BT ^.. UC_FILE
+
+note bottom of UC_SELECT
+  Rooms are the only grouping unit. A user is in at most one
+  room at a time and may switch rooms freely. Room names are
+  the only thing saved to disk - chat history is not persisted.
+end note
+
+@enduml

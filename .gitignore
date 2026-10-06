@@ -1,0 +1,52 @@
+# ---- .NET / Visual Studio (per T0.1) ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]og/
+[Tt]emp/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.userprefs
+*.pidb
+*.cache
+*.log
+project.lock.json
+.dotnet/
+.msbuild/
+
+# Rider / VS Code / VS
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!**/packages/build/
+nuget/
+
+# Test / coverage
+coverage*.json
+coverage*.xml
+coverage*.info
+*.trx
+*.coverage
+
+# App runtime data produced by Lantern
+rooms.json
+Lantern/received/
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Backup / scratch
+*.bak
+*.tmp
+*~

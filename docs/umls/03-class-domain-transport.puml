@@ -1,0 +1,191 @@
+@startuml
+' Lantern - Class design, part 2 of 2: domain model, JSON persistence, Bluetooth transport
+skinparam classAttributeIconSize 0
+
+package "Domain model" {
+  abstract class Message <<abstract>> {
+    + Id : Guid
+    + SenderNickname : string
+    + SentAt : DateTime
+    + RoomName : string
+    + Kind : MessageKind
+  }
+
+  class TextMessage <<message>> {
+    + Body : string
+  }
+  class PictureMessage <<message>> {
+    + FileName : string
+    + Data : byte[]
+    + ToThumbnail() : Image
+  }
+  class FileMessage <<message>> {
+    + FileName : string
+    + SizeBytes : long
+  }
+  class SystemMessage <<message>> {
+    + Body : string
+    ' "User 3 - join this chat"
+  }
+
+  enum MessageKind {
+    TEXT
+    PICTURE
+    FILE
+    JOIN_LEAVE_NOTICE
+  }
+
+  class Room {
+    + Name : string
+    + Members : ObservableCollection~User~
+    + AddMember(u : User)
+    + RemoveMember(u : User)
+    ' transcript lives in memory only
+  }
+
+  class User {
+    + ConnectionId : string
+    + Nickname : string
+  }
+
+  class FileTransferJob {
+    + Id : Guid
+    + FileName : string
+    + SizeBytes : long
+    + BytesDone : long
+    + Progress : IProgress~Double~
+    + Cancel : CancellationTokenSource
+  }
+}
+
+package "Persistence (rooms only)" {
+  interface IRoomStore <<interface>> {
+    + Load() : List~Room~
+    + SaveAsync(rooms) : Task
+  }
+  class JsonRoomStore {
+    - path : string
+    + Load() : List~Room~
+    + SaveAsync(rooms) : Task
+    ' corrupt / missing file -> default room list
+  }
+  class RoomDto {
+    + Name : string
+  }
+}
+
+package "Bluetooth transport & wire protocol" {
+  interface IBtServer <<interface>> {
+    + StartAsync(serviceId : Guid) : Task
+    + AcceptAsync() : Task~IClientLink~
+    + Stop()
+  }
+  interface IBtClient <<interface>> {
+    + ConnectAsync(e : ServerEndpoint) : Task~IClientLink~
+    + DiscoverAsync(t : TimeSpan) : Task
+  }
+  interface IClientLink <<interface>> {
+    + Input : Stream
+    + Output : Stream
+    + RemoteName : string
+    + Close()
+    + Closed(err : Exception)
+  }
+  class BtRfcommServer {
+    - listener : BluetoothListener~Guid~
+    ' 32feet.NET / InTheHand.Bluetooth
+  }
+  class BtRfcommClient {
+    - client : BluetoothClient
+  }
+  class Frame {
+    + Type : FrameType
+    + JsonHeader : string
+    + Body : byte[]
+  }
+  enum FrameType {
+    HELLO
+    HELLO_ACK
+    ROOM_LIST
+    JOIN_ROOM
+    TEXT
+    PICTURE
+    FILE_META
+    FILE_CHUNK
+    FILE_DONE
+    MEMBER_LIST
+    SYSTEM_NOTICE
+    ERROR
+  }
+  class FrameCodec <<static>> {
+    + WriteAsync(s : Stream, f : Frame) : Task
+    + ReadAsync(s : Stream) : Task~Frame~
+    ' 4-byte length + UTF8 JSON header + binary body
+  }
+}
+
+package "Application core (full detail in part 1)" {
+  class ChatServer <<boundary>> {
+    - store : IRoomStore
+    - listener : IBtServer
+    + BroadcastAsync(room, m) : Task
+  }
+  class ChatClient <<boundary>> {
+    - link : IClientLink
+    + SendAsync(m : Message) : Task
+  }
+}
+
+Message <|-- TextMessage
+Message <|-- PictureMessage
+Message <|-- FileMessage
+Message <|-- SystemMessage
+Message --> MessageKind
+Room o--> User : 0..*
+Room o--> Message : in-memory transcript,\nnever written to disk
+FileTransferJob ..> FileMessage : metadata
+
+IRoomStore <|.. JsonRoomStore
+JsonRoomStore ..> RoomDto : serializes
+RoomDto ..> Room : maps to / from
+ChatServer ..> IRoomStore : save on room CRUD
+
+IBtServer <|.. BtRfcommServer
+IBtClient <|.. BtRfcommClient
+BtRfcommServer ..> IClientLink : AcceptAsync() yields
+BtRfcommClient ..> IClientLink : ConnectAsync() yields
+ChatServer ..> IBtServer
+ChatClient ..> IBtClient
+ChatServer ..> FrameCodec
+ChatClient ..> FrameCodec
+IClientLink ..> FrameCodec : frames read / written on its streams
+Frame --> FrameType
+FrameCodec --> Frame
+FileTransferJob ..> FrameType : FILE_META / FILE_CHUNK / FILE_DONE
+
+note right of FrameCodec
+  Bluetooth RFCOMM 
+  delivers one 
+  continuous byte 
+  stream, so every 
+  message is 
+  length-prefixed
+   - otherwise a 
+  picture could 
+  be split and 
+  parsed as two 
+  chat messages. 
+  Chat JSON stays 
+  small; pictures 
+  and files use a 
+  binary body instead 
+  of base64.
+end note
+
+note top of Room
+  Only room names are persisted (rooms.json). Users and messages
+  exist while the process runs; on restart the room list is reloaded
+  and every user re-joins by name.
+end note
+
+@enduml
