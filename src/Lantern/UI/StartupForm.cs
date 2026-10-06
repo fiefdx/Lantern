@@ -33,8 +33,8 @@ public partial class StartupForm : Form
             return;
         }
 
-        // T0.7 replaces this with ChatServer + HostForm.
-        SetStatus($"ready to host as \"{Nickname}\" (not wired up yet)");
+        // T0.7 replaces the construction with a ChatServer-backed HostForm.
+        Open(new HostForm(Nickname));
     }
 
     private void BtnScan_Click(object? sender, EventArgs e)
@@ -61,8 +61,8 @@ public partial class StartupForm : Form
             return;
         }
 
-        // T0.7 replaces this with ChatClient + ClientForm.
-        SetStatus($"ready to join {lstServers.SelectedItem} (not wired up yet)");
+        // T0.7 replaces the construction with a ChatClient-backed ClientForm.
+        Open(new ClientForm(Nickname));
     }
 
     private void LstServers_SelectedIndexChanged(object? sender, EventArgs e)
@@ -82,6 +82,14 @@ public partial class StartupForm : Form
         txtNickname.SelectAll();
         SetStatus(error);
         return false;
+    }
+
+    /// <summary>Swaps this window for the chat window; closing the chat window ends the app.</summary>
+    private void Open(ChatForm chat)
+    {
+        chat.FormClosed += (_, _) => Close();
+        chat.Show();
+        Hide();
     }
 
     private void SetStatus(string message)
