@@ -408,22 +408,55 @@ public abstract partial class ChatForm : Form
 
     private void QuitMenuItem_Click(object? sender, EventArgs e) => OnQuitRequested();
 
-    /// <summary>File ▸ Quit. Subclasses add their own confirmation.</summary>
-    protected virtual void OnQuitRequested()
+    /// <summary>File ▸ Quit. The asking happens in <see cref="OnFormClosing"/>, the stopping in <see cref="OnFormClosed"/>.</summary>
+    protected virtual void OnQuitRequested() => Close();
+
+    /// <summary>
+    /// Whether the user really means it. The host window asks, because everybody else is connected to
+    /// it.
+    /// </summary>
+    protected virtual bool ConfirmClosing() => true;
+
+    /// <summary>
+    /// The question is asked here rather than on the menu item, because the ✕ on the title bar and
+    /// Alt+F4 come through here as well - and a host closing the window disconnects everybody, which is
+    /// not something a keystroke should be able to skip past.
+    /// </summary>
+    protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        _ = Service.ShutdownAsync();
-        Close();
+        if (!ConfirmClosing())
+        {
+            e.Cancel = true;
+        }
+
+        base.OnFormClosing(e);
     }
 
     /// <summary>
-    /// The close box is as much an exit as File ▸ Quit, and a chat still running behind a closed
-    /// window is a chat the user cannot stop: clients would keep their connection to a host with no
-    /// face.
+    /// The close box is as much an exit as File ▸ Quit, and a chat still running behind a closed window
+    /// is a chat the user cannot stop: clients would keep their connection to a host with no face.
     /// </summary>
+    /// <remarks>
+    /// The wait is the part that matters. A shutdown started fire-and-forget on the way out has no
+    /// reason to finish before the process goes, and the host's room list may still be on its way to
+    /// the file (F9) - so a room created seconds earlier, or renamed, or deleted, quietly comes back.
+    /// The service bounds its own stopping; this only declines to walk away before it is done.
+    /// </remarks>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         base.OnFormClosed(e);
-        _ = Service.ShutdownAsync();
+
+        try
+        {
+            // Off the UI thread on purpose: awaiting on this thread would need the message loop that is
+            // already on its way out, and blocking it directly would deadlock against the same loop.
+            Task.Run(() => Service.ShutdownAsync()).Wait(TimeSpan.FromSeconds(15));
+        }
+        catch (Exception)
+        {
+            // The window is going away and there is nobody left to tell. The service reports what it can
+            // while it is still up; a shutdown that cannot finish is not worth throwing over.
+        }
     }
 
     /// <summary>Scenario 5: the host has gone, so this window has nothing left to do.</summary>

@@ -2,6 +2,7 @@ using Lantern.Core;
 using Lantern.Domain;
 using Lantern.Storage;
 using Lantern.Transport;
+using Lantern.UI;
 using Xunit;
 
 namespace Lantern.Tests;
@@ -132,6 +133,103 @@ public sealed class RoomPersistenceTests
         await Watch.UntilAsync(() => client.Rooms.Any(r => r.Name == "Garden"), "the client to be told the rooms");
 
         Assert.DoesNotContain("Ignored", client.Rooms.Select(r => r.Name));
+    }
+
+    // ----------------------------------------------- the window is the quit button (F9)
+
+    [Fact]
+    public async Task ClosingTheHostWindowWritesWhatItPromisedBeforeTheProcessGoesAway()
+    {
+        using var file = new TempRoomFile();
+        using var store = new SlowStore(file.Path);
+        await using var server = new ChatServer(new BtLoopbackServer("Test Host"), "Test Host", roomStore: store);
+        await server.StartAsync();
+        await using var host = new HostChatService(server, "Haitao");
+        await host.StartAsync();
+
+        Assert.True(server.TryCreateRoom("Written while closing", out _));
+
+        // The ✕ on the title bar, Alt+F4 and File ▸ Quit all end in the same place. This write takes a
+        // moment, so a close that does not wait for the service to finish stopping leaves it behind - the
+        // room comes back on the next start, which is the half of F9 that only restarting reveals.
+        Sta.Run(() =>
+        {
+            // A plain HostForm would ask whether the user is sure, and a question nobody is there to
+            // answer is a test that never ends - so the answer is supplied.
+            using var form = new AnsweringHost(host) { Confirms = true };
+            form.Show();
+            form.Close();
+        });
+
+        Assert.False(server.IsRunning);
+        Assert.True(File.Exists(file.Path), "the room list had not been written by the time the window had closed");
+        Assert.Contains("Written while closing", File.ReadAllText(file.Path));
+    }
+
+    [Fact]
+    public async Task ClosingTheHostWindowIsAskedForWhicheverWayItWasAsked()
+    {
+        await using var server = new ChatServer(new BtLoopbackServer("Test Host"), "Test Host");
+        await server.StartAsync();
+        await using var host = new HostChatService(server, "Haitao");
+        await host.StartAsync();
+
+        Sta.Run(() =>
+        {
+            using var form = new AnsweringHost(host) { Confirms = false };
+            form.Show();
+            form.Close();
+
+            // "Are you sure" answered no has to mean the window is still there and everybody connected
+            // stays connected - the ✕ is not an escape hatch out of that question.
+            Assert.True(form.Visible);
+            Assert.True(server.IsRunning);
+
+            form.Confirms = true;
+            form.Close();
+
+            Assert.False(form.Visible);
+            Assert.False(server.IsRunning);
+        });
+    }
+
+    /// <summary>A host window with a person answering the "are you sure" question.</summary>
+    private sealed class AnsweringHost : HostForm
+    {
+        public AnsweringHost(IChatService service)
+            : base(service)
+        {
+        }
+
+        public bool Confirms = true;
+
+        protected override bool ConfirmQuit() => Confirms;
+    }
+
+    /// <summary>
+    /// A store that writes, slowly - so that a shutdown which does not wait can be caught not waiting.
+    /// </summary>
+    private sealed class SlowStore : IRoomStore, IDisposable
+    {
+        private readonly JsonRoomStore inner;
+
+        public SlowStore(string path) => inner = new JsonRoomStore(path);
+
+        public event EventHandler<string>? SaveFailed
+        {
+            add { }
+            remove { }
+        }
+
+        public List<Room> Load() => inner.Load();
+
+        public async Task SaveAsync(IEnumerable<Room> rooms, CancellationToken cancel = default)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1500), cancel).ConfigureAwait(false);
+            await inner.SaveAsync(rooms, cancel).ConfigureAwait(false);
+        }
+
+        public void Dispose() => inner.Dispose();
     }
 
     /// <summary>A store that cannot write and says so, which is what <see cref="IRoomStore"/> asks for.</summary>

@@ -98,14 +98,11 @@ public partial class HostForm : ChatForm
             ? "A room with that name already exists."
             : null;
 
-    /// <summary>File ▸ Quit asks first, because everybody else is connected to this window.</summary>
-    protected override void OnQuitRequested()
-    {
-        if (ConfirmQuit())
-        {
-            base.OnQuitRequested();
-        }
-    }
+    /// <summary>
+    /// Closing this window asks first - by menu, by the ✕ or by Alt+F4 alike - because everybody else
+    /// is connected to it.
+    /// </summary>
+    protected override bool ConfirmClosing() => ConfirmQuit();
 
     /// <summary>The asking part of quitting, separate for the same reason as <see cref="AskForRoomName"/>.</summary>
     protected virtual bool ConfirmQuit() => ConfirmDialog.ConfirmQuit(this);
