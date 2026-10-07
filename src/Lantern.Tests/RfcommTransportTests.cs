@@ -44,6 +44,7 @@ public sealed class RfcommTransportTests
     [InlineData("F8E4E3F9603G")]         // not hexadecimal
     [InlineData("F8E4E3F9603BZZ")]       // hexadecimal, but not address-shaped: not quietly trimmed
     [InlineData("F8E4E3-F9603B")]        // partly grouped
+    [InlineData("F8e4 E3-f9:603b")]      // three separator styles and four groups: not cleaned up into something dialable
     [InlineData("127.0.0.1:43797")]      // a loopback address, which is a different transport's business
     [InlineData("localhost")]
     [InlineData("haitao-iPhone")]
