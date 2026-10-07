@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Lantern.Domain;
+using Lantern.Storage;
 using Lantern.Transport;
 
 namespace Lantern.Core;
@@ -21,20 +22,49 @@ namespace Lantern.Core;
 public sealed class ChatServer : IAsyncDisposable
 {
     private readonly IBtServer transport;
+    private readonly IRoomStore? roomStore;
     private readonly object gate = new();
+    private readonly object savesGate = new();
     private readonly List<Room> rooms = [];
     private readonly Dictionary<string, IParticipant> participants = [];
+    private Task saves = Task.CompletedTask;
     private CancellationTokenSource? lifetime;
     private Task? acceptLoop;
 
-    public ChatServer(IBtServer transport, string? serverName = null, IEnumerable<string>? roomNames = null)
+    /// <param name="serverName">What the server list calls this chat; defaults to the machine name.</param>
+    /// <param name="roomNames">
+    /// The rooms to start with. Ignored when a <paramref name="roomStore"/> is given — the file is the
+    /// host's room list, and silently overriding what somebody left there would be rude (F9).
+    /// </param>
+    /// <param name="roomStore">
+    /// Where the room list is kept between runs (F9, T3.2). Null means the rooms live and die with the
+    /// process, which is what a test or a demo wants.
+    /// </param>
+    /// <remarks>
+    /// Reading the store happens here rather than in <see cref="StartAsync"/> because the rooms have to
+    /// exist before the first connection is accepted, and it is a small local file: a chat that opened
+    /// with an empty room list while the file loaded in the background would look broken.
+    /// </remarks>
+    public ChatServer(IBtServer transport, string? serverName = null, IEnumerable<string>? roomNames = null, IRoomStore? roomStore = null)
     {
         this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ServerName = string.IsNullOrWhiteSpace(serverName) ? Environment.MachineName : serverName.Trim();
+        this.roomStore = roomStore;
 
-        foreach (var name in roomNames ?? LanternProtocol.DefaultRoomNames)
+        var names = roomStore is null
+            ? roomNames ?? LanternProtocol.DefaultRoomNames
+            : roomStore.Load().Select(r => r.Name);
+
+        foreach (var name in names)
         {
             rooms.Add(new Room(name));
+        }
+
+        if (roomStore is not null)
+        {
+            // A save that could not happen is worth a line on the host's status bar: the rooms are right
+            // for now and wrong after a restart, which is otherwise invisible.
+            roomStore.SaveFailed += (_, message) => Status(message);
         }
     }
 
@@ -79,6 +109,18 @@ public sealed class ChatServer : IAsyncDisposable
             {
                 return participants.Count;
             }
+        }
+    }
+
+    /// <summary>
+    /// Every room-list write started so far. Awaiting it is how a shutdown makes sure the last room the
+    /// host created outlives the process, and how a test knows the file is written.
+    /// </summary>
+    public Task SavesCompletedAsync()
+    {
+        lock (savesGate)
+        {
+            return saves;
         }
     }
 
@@ -147,6 +189,19 @@ public sealed class ChatServer : IAsyncDisposable
             }
 
             acceptLoop = null;
+        }
+
+        // Whatever the host last did to the rooms should outlive the process, so a room created a second
+        // before quitting is not quietly lost. Bounded: a window that stops responding because a disk is
+        // busy is a worse bug than a room list that is one change out of date, and the store reports the
+        // failure either way.
+        try
+        {
+            await SavesCompletedAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Status("The room list was still being written when the server stopped.");
         }
 
         source?.Dispose();
@@ -366,6 +421,7 @@ public sealed class ChatServer : IAsyncDisposable
         if (error is null)
         {
             BroadcastRooms();
+            PersistRooms();
         }
 
         return error is null;
@@ -410,6 +466,7 @@ public sealed class ChatServer : IAsyncDisposable
 
         BroadcastRooms();
         BroadcastMemberLists();
+        PersistRooms();
         return true;
     }
 
@@ -451,6 +508,7 @@ public sealed class ChatServer : IAsyncDisposable
         }
 
         BroadcastRooms();
+        PersistRooms();
         return true;
     }
 
@@ -470,6 +528,7 @@ public sealed class ChatServer : IAsyncDisposable
         }
 
         BroadcastRooms();
+        PersistRooms();
     }
 
     // -------------------------------------------------------- frame handling
@@ -668,6 +727,56 @@ public sealed class ChatServer : IAsyncDisposable
     /// <summary>Sends the current room list to one member (after a handshake or a join).</summary>
     private void SendRooms(IParticipant participant)
         => participant.Receive(Frame.RoomList(Rooms.Select(r => r.Name).ToArray()));
+
+    /// <summary>
+    /// Writes the room list to the store in the background (T3.2): the window that asked for a new room
+    /// is not waiting for a disk, and a slow or blocked file cannot stall the chat.
+    /// </summary>
+    /// <remarks>
+    /// Each write waits for the one before it, so the file ends up holding the <em>last</em> change and
+    /// not whichever write happened to finish last — the difference between a room list and a lottery.
+    /// The snapshot is a list of <see cref="Room"/> objects whose names never change, so nothing here
+    /// reads the live room list while the server is mutating it.
+    /// </remarks>
+    private void PersistRooms()
+    {
+        var store = roomStore;
+
+        if (store is null)
+        {
+            return;
+        }
+
+        var snapshot = Rooms;
+
+        lock (savesGate)
+        {
+            var previous = saves;
+
+            saves = Task.Run(async () =>
+            {
+                try
+                {
+                    await previous.ConfigureAwait(false);
+                }
+                catch
+                {
+                    // A failed write has already been reported by whoever failed. What matters is that
+                    // this one still goes ahead.
+                }
+
+                try
+                {
+                    await store.SaveAsync(snapshot).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // A store that throws instead of reporting is still not allowed to be a crash.
+                    Status($"Could not save the room list: {ex.Message}");
+                }
+            });
+        }
+    }
 
     private void AnnounceLeave(Room room, string who, string? exceptConnectionId = null)
     {

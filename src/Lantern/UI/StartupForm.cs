@@ -1,5 +1,6 @@
 using Lantern.Core;
 using Lantern.Domain;
+using Lantern.Storage;
 using Lantern.Transport;
 
 namespace Lantern.UI;
@@ -46,7 +47,8 @@ public partial class StartupForm : Form
         try
         {
             // T4.3 swaps the transport for BtRfcommServer; nothing below this line changes with it.
-            var server = new ChatServer(new BtLoopbackServer(ServerName), ServerName);
+            // Only the host owns a room list, so only the host is given somewhere to keep it (F9).
+            var server = new ChatServer(new BtLoopbackServer(ServerName), ServerName, roomStore: new JsonRoomStore());
             await server.StartAsync();
             Hosting = server;
 
