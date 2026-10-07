@@ -44,13 +44,13 @@ core logic.
 
 **Goal:** a compiling, runnable, clickable app with no real logic.
 
-- [ ] **T0.1 [Ops]** Git repo hygiene: `main`/feature-branch rules, `.gitignore` (VS/.NET), issue board, "one owner + one backup per module" note. *(repo: github.com/fiefdx/Lantern)*
-- [ ] **T0.2 [Ops]** Solution skeleton (F1): `Lantern` WinForms project targeting **.NET 10**, folder layout `UI/`, `Core/`, `Domain/`, `Storage/`, `Transport/`; plus `Lantern.Tests` unit-test project.
-- [ ] **T0.3 [Net]** Add NuGet packages (32feet.NET as Bluetooth fallback; System.Text.Json is built in). Record the System.IO.Ports-vs-32feet decision as a short note.
-- [ ] **T0.4 [UI]** `StartupForm` per Figure 2: nickname box, **Host a chat** / **Scan** / **Join** buttons, server list, status bar. Buttons validated but not yet functional.
-- [ ] **T0.5 [UI]** `ChatForm` base + `HostForm` (adds **New**/**Delete**) + `ClientForm` (adds **Leave**) per Figures 3–4: rooms list, chat pane (`RichTextBox`), members list, message box, **Send**/**Share**. Note: use the word **“Room”** everywhere (wireframes say “Groups”).
-- [ ] **T0.6 [UI]** Dialogs per Figure 5: `NewRoomDialog` (room name input), confirm dialogs for **Quit Server**, **Delete Room**, **Leave Room** — all OK/Cancel.
-- [ ] **T0.7 [Core]** Interfaces from the design: `IChatService`, `IRoomStore`, `IBtServer`, `IBtClient`, `IClientLink`. Add `FakeChatService` (in-memory rooms/messages) so the UI can be developed and demoed without any networking.
+- [x] **T0.1 [Ops]** Git repo hygiene: `main`/feature-branch rules, `.gitignore` (VS/.NET), issue board, "one owner + one backup per module" note. *(repo: github.com/fiefdx/Lantern)*
+- [x] **T0.2 [Ops]** Solution skeleton (F1): `Lantern` WinForms project targeting **.NET 10**, folder layout `UI/`, `Core/`, `Domain/`, `Storage/`, `Transport/`; plus `Lantern.Tests` unit-test project.
+- [x] **T0.3 [Net]** Add NuGet packages (32feet.NET as Bluetooth fallback; System.Text.Json is built in). Record the System.IO.Ports-vs-32feet decision as a short note.
+- [x] **T0.4 [UI]** `StartupForm` per Figure 2: nickname box, **Host a chat** / **Scan** / **Join** buttons, server list, status bar. Buttons validated but not yet functional.
+- [x] **T0.5 [UI]** `ChatForm` base + `HostForm` (adds **New**/**Delete**) + `ClientForm` (adds **Leave**) per Figures 3–4: rooms list, chat pane (`RichTextBox`), members list, message box, **Send**/**Share**. Note: use the word **“Room”** everywhere (wireframes say “Groups”).
+- [x] **T0.6 [UI]** Dialogs per Figure 5: `NewRoomDialog` (room name input), confirm dialogs for **Quit Server**, **Delete Room**, **Leave Room** — all OK/Cancel.
+- [x] **T0.7 [Core]** Interfaces from the design: `IChatService`, `IRoomStore`, `IBtServer`, `IBtClient`, `IClientLink`. Add `FakeChatService` (in-memory rooms/messages) so the UI can be developed and demoed without any networking.
 
 **Exit criteria:** `main` builds clean; startup form validates a nickname and opens the right window wired to `FakeChatService` dummy data.
 
@@ -60,11 +60,11 @@ core logic.
 
 **Goal:** the domain classes of Figure 7 exist, are tested, and are used by the fake service.
 
-- [ ] **T1.1 [Core]** `Message` (abstract: Id, SenderNickname, SentAt, RoomName, Kind) + `TextMessage`, `PictureMessage`, `FileMessage`, `SystemMessage`, `MessageKind` enum.
-- [ ] **T1.2 [Core]** `User` (ConnectionId, Nickname) and `Room` (Name, `ObservableCollection<User>` members, in-memory transcript only — never persisted).
-- [ ] **T1.3 [Core]** `FileTransferJob` (Id, FileName, SizeBytes, BytesDone, `IProgress<double>`, `CancellationTokenSource`).
-- [ ] **T1.4 [Core]** Validation rules: non-empty nickname (length limits), room name non-empty + unique, non-empty message, sensible max picture size.
-- [ ] **T1.5 [QA]** Unit tests for T1.1–T1.4. Replace `FakeChatService` internals with the real domain classes.
+- [x] **T1.1 [Core]** `Message` (abstract: Id, SenderNickname, SentAt, RoomName, Kind) + `TextMessage`, `PictureMessage`, `FileMessage`, `SystemMessage`, `MessageKind` enum.
+- [x] **T1.2 [Core]** `User` (ConnectionId, Nickname) and `Room` (Name, `ObservableCollection<User>` members, in-memory transcript only — never persisted).
+- [x] **T1.3 [Core]** `FileTransferJob` (Id, FileName, SizeBytes, BytesDone, `IProgress<double>`, `CancellationTokenSource`).
+- [x] **T1.4 [Core]** Validation rules: non-empty nickname (length limits), room name non-empty + unique, non-empty message, sensible max picture size.
+- [x] **T1.5 [QA]** Unit tests for T1.1–T1.4. Replace `FakeChatService` internals with the real domain classes.
 
 **Exit criteria:** test suite green; UI still works against the domain-backed fake service.
 
@@ -74,14 +74,14 @@ core logic.
 
 **Goal:** a complete chat engine over a **loopback transport** (localhost TCP), which proves the protocol and threading before Bluetooth enters the picture. This is the hardest milestone — start it early.
 
-- [ ] **T2.1 [Net]** `Frame`, `FrameType` (HELLO, HELLO_ACK, ROOM_LIST, JOIN_ROOM, TEXT, PICTURE, FILE_META, FILE_CHUNK, FILE_DONE, MEMBER_LIST, SYSTEM_NOTICE, ERROR) and `FrameCodec`: 4-byte length prefix + UTF-8 JSON header + optional binary body.
-- [ ] **T2.2 [QA]** Codec tests that specifically cover RFCOMM stream quirks: frames split across reads, two frames in one read, empty body, large body.
-- [ ] **T2.3 [Net]** `IClientLink` implementation over localhost TCP + `BtLoopbackServer` (`IBtServer`) with an accept loop.
-- [ ] **T2.4 [Core]** `ChatServer`: accept loop, `ClientSession` per connection (read loop + write queue), HELLO handshake carrying the nickname, sessions dictionary, join/leave a room, `BroadcastAsync(room, msg)` to members only, join/leave `SystemMessage` notices (F11), member-list update per room (F12).
-- [ ] **T2.5 [Core]** `ChatClient`: `ConnectAsync`, background `ReadLoopAsync`, `JoinRoomAsync`, `SendAsync` (text only for now), `ConnectionLost` event.
-- [ ] **T2.6 [Core]** `ServerBrowser` + `ServerEndpoint` (name, address, service id) — loopback version: fixed list or TCP probe.
-- [ ] **T2.7 [UI]** Bind `ChatForm` to real `IChatService` events (`MessageReceived`, `RoomsChanged`, `MembersChanged`, `StatusChanged`, `ConnectionLost`); marshal to UI thread via `RunOnUiThread` (`Control.Invoke` / `IProgress`); disable **Send**/**Share** while a send is in flight.
-- [ ] **T2.8 [QA]** End-to-end test: two app instances on one machine (host + client) exchange text messages in a room; notices and member lists correct.
+- [x] **T2.1 [Net]** `Frame`, `FrameType` (HELLO, HELLO_ACK, ROOM_LIST, JOIN_ROOM, TEXT, PICTURE, FILE_META, FILE_CHUNK, FILE_DONE, MEMBER_LIST, SYSTEM_NOTICE, ERROR) and `FrameCodec`: 4-byte length prefix + UTF-8 JSON header + optional binary body.
+- [x] **T2.2 [QA]** Codec tests that specifically cover RFCOMM stream quirks: frames split across reads, two frames in one read, empty body, large body.
+- [x] **T2.3 [Net]** `IClientLink` implementation over localhost TCP + `BtLoopbackServer` (`IBtServer`) with an accept loop.
+- [x] **T2.4 [Core]** `ChatServer`: accept loop, `ClientSession` per connection (read loop + write queue), HELLO handshake carrying the nickname, sessions dictionary, join/leave a room, `BroadcastAsync(room, msg)` to members only, join/leave `SystemMessage` notices (F11), member-list update per room (F12).
+- [x] **T2.5 [Core]** `ChatClient`: `ConnectAsync`, background `ReadLoopAsync`, `JoinRoomAsync`, `SendAsync` (text only for now), `ConnectionLost` event.
+- [x] **T2.6 [Core]** `ServerBrowser` + `ServerEndpoint` (name, address, service id) — loopback version: fixed list or TCP probe.
+- [x] **T2.7 [UI]** Bind `ChatForm` to real `IChatService` events (`MessageReceived`, `RoomsChanged`, `MembersChanged`, `StatusChanged`, `ConnectionLost`); marshal to UI thread via `RunOnUiThread` (`Control.Invoke` / `IProgress`); disable **Send**/**Share** while a send is in flight.
+- [x] **T2.8 [QA]** End-to-end test: two app instances on one machine (host + client) exchange text messages in a room; notices and member lists correct.
 
 **Exit criteria:** use-case scenario 4 (text-only chat) works over loopback with 2+ instances; **F3–F7 (text), F11, F12** functionally covered.
 
