@@ -184,7 +184,10 @@ public abstract partial class ChatForm : Form
         }
     }
 
-    private void QuitMenuItem_Click(object? sender, EventArgs? e) => QuitRequested?.Invoke(this, EventArgs.Empty);
+    private void QuitMenuItem_Click(object? sender, EventArgs? e) => OnQuitRequested();
+
+    /// <summary>File ▸ Quit. Role forms override this to confirm and shut the service down.</summary>
+    protected virtual void OnQuitRequested() => QuitRequested?.Invoke(this, EventArgs.Empty);
 
     private void ClearChatMenuItem_Click(object? sender, EventArgs? e) => rtbChat.Clear();
 

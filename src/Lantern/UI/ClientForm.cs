@@ -30,12 +30,25 @@ public partial class ClientForm : ChatForm
         SetStatus("connected");
     }
 
+    /// <summary>"Leave" → <see cref="ConfirmDialog.ConfirmLeaveRoom"/> → service call.</summary>
     private void OnLeaveClick(object? sender, EventArgs e)
     {
-        // Wired to the confirm dialog in T0.6.
-        if (SelectedRoom is { } room)
+        if (SelectedRoom is not { } room)
+        {
+            SetStatus("you are not in a room");
+            return;
+        }
+
+        if (ConfirmDialog.ConfirmLeaveRoom(this, room))
         {
             LeaveRoomRequested?.Invoke(this, room);
         }
+    }
+
+    /// <summary>A client leaves the server by disconnecting; the menu item needs no extra confirm.</summary>
+    protected override void OnQuitRequested()
+    {
+        base.OnQuitRequested();
+        Close();
     }
 }
