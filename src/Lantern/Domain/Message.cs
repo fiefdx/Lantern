@@ -6,9 +6,15 @@ namespace Lantern.Domain;
 /// </summary>
 public abstract class Message
 {
-    protected Message(string senderNickname, string roomName, MessageKind kind, DateTime? sentAt = null)
+    /// <param name="sentAt">Defaults to now.</param>
+    /// <param name="id">
+    /// Defaults to a new Guid. The wire layer passes the id that arrived in the frame, so the
+    /// message a receiver shows is the same message the sender sent — which is what makes a
+    /// duplicate frame recognisable.
+    /// </param>
+    protected Message(string senderNickname, string roomName, MessageKind kind, DateTime? sentAt = null, Guid? id = null)
     {
-        Id = Guid.NewGuid();
+        Id = id ?? Guid.NewGuid();
         SenderNickname = senderNickname ?? string.Empty;
         RoomName = roomName ?? string.Empty;
         Kind = kind;

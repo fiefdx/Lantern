@@ -9,8 +9,8 @@ public sealed class SystemMessage : Message
     public const string LeaveSuffix = "left this chat";
     public const string KickSuffix = "was removed from this chat";
 
-    public SystemMessage(string roomName, string body, DateTime? sentAt = null)
-        : base(string.Empty, roomName, MessageKind.JOIN_LEAVE_NOTICE, sentAt)
+    public SystemMessage(string roomName, string body, DateTime? sentAt = null, Guid? id = null)
+        : base(string.Empty, roomName, MessageKind.JOIN_LEAVE_NOTICE, sentAt, id)
         => Body = body ?? string.Empty;
 
     public string Body { get; }

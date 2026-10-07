@@ -8,8 +8,8 @@ public sealed class PictureMessage : Message
     /// <summary>Longest edge of the inline thumbnail, in pixels.</summary>
     public const int ThumbnailEdge = 160;
 
-    public PictureMessage(string senderNickname, string roomName, string fileName, byte[] data, DateTime? sentAt = null)
-        : base(senderNickname, roomName, MessageKind.PICTURE, sentAt)
+    public PictureMessage(string senderNickname, string roomName, string fileName, byte[] data, DateTime? sentAt = null, Guid? id = null)
+        : base(senderNickname, roomName, MessageKind.PICTURE, sentAt, id)
     {
         FileName = fileName ?? string.Empty;
         Data = data ?? [];

@@ -7,8 +7,8 @@ namespace Lantern.Domain;
 public sealed class FileMessage : Message
 {
     public FileMessage(string senderNickname, string roomName, string fileName, long sizeBytes,
-        Guid? transferId = null, DateTime? sentAt = null)
-        : base(senderNickname, roomName, MessageKind.FILE, sentAt)
+        Guid? transferId = null, DateTime? sentAt = null, Guid? id = null)
+        : base(senderNickname, roomName, MessageKind.FILE, sentAt, id)
     {
         FileName = fileName ?? string.Empty;
         SizeBytes = sizeBytes;
