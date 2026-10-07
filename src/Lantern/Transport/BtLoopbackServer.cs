@@ -93,7 +93,10 @@ public sealed class BtLoopbackServer : IBtServer
     public bool IsListening { get; private set; }
 
     /// <summary>What a client needs to dial this host.</summary>
-    public ServerEndpoint Endpoint => new(ServerName, LoopbackPorts.Address(Port), ServiceId);
+    /// <inheritdoc />
+    public ServerEndpoint Endpoint => IsListening
+        ? new ServerEndpoint(ServerName, LoopbackPorts.Address(Port), ServiceId)
+        : throw new InvalidOperationException("The server is not listening yet, so it has no address.");
 
     /// <summary>Connections accepted so far and still open.</summary>
     public IReadOnlyList<IClientLink> Links

@@ -19,11 +19,19 @@ public sealed class SystemMessage : Message
 
     /// <summary>“Cara - join this chat”, matching the wireframe wording.</summary>
     public static SystemMessage Join(string roomName, string nickname)
-        => new(roomName, $"{nickname} - {JoinSuffix}");
+        => new(roomName, JoinBody(nickname));
 
     public static SystemMessage Leave(string roomName, string nickname)
-        => new(roomName, $"{nickname} - {LeaveSuffix}");
+        => new(roomName, LeaveBody(nickname));
 
     public static SystemMessage Kick(string roomName, string nickname)
-        => new(roomName, $"{nickname} - {KickSuffix}");
+        => new(roomName, KickBody(nickname));
+
+    // The wording is needed on its own as well: a SYSTEM_NOTICE frame carries the text, not an
+    // object, and the server builds those frames straight from a member list.
+    public static string JoinBody(string nickname) => $"{nickname} - {JoinSuffix}";
+
+    public static string LeaveBody(string nickname) => $"{nickname} - {LeaveSuffix}";
+
+    public static string KickBody(string nickname) => $"{nickname} - {KickSuffix}";
 }

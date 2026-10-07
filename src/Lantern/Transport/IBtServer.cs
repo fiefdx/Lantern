@@ -1,3 +1,5 @@
+using Lantern.Core;
+
 namespace Lantern.Transport;
 
 /// <summary>
@@ -20,4 +22,10 @@ public interface IBtServer : IAsyncDisposable
 
     /// <summary>True while <see cref="StartAsync"/> has succeeded and Stop has not been called.</summary>
     bool IsListening { get; }
+
+    /// <summary>
+    /// How to reach this server. Throws until <see cref="StartAsync"/> has picked an address, because
+    /// a server that is not listening has nothing to advertise.
+    /// </summary>
+    ServerEndpoint Endpoint { get; }
 }
