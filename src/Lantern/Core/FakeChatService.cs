@@ -57,6 +57,12 @@ public sealed class FakeChatService : IChatService
 
     public ObservableCollection<User> Members { get; } = [];
 
+    // The UI sees snapshots: on a real client these lists are rewritten by a background read loop,
+    // and handing out the live collection would let a window enumerate it half-updated.
+    IReadOnlyList<Room> IChatService.Rooms => Rooms.ToArray();
+
+    IReadOnlyList<User> IChatService.Members => Members.ToArray();
+
     /// <summary>Everything recorded so far, oldest first. Used by tests.</summary>
     public IReadOnlyList<Message> Transcript => transcript.ToArray();
 

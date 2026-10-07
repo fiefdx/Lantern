@@ -1,5 +1,3 @@
-using System.Collections.ObjectModel;
-using Lantern.Core;
 using Lantern.Domain;
 using Lantern.Transport;
 
@@ -18,11 +16,17 @@ public interface IChatService
     /// <summary>True on the host process, false on a client process.</summary>
     bool IsHost { get; }
 
-    /// <summary>Room names to show in the left panel.</summary>
-    ObservableCollection<Room> Rooms { get; }
+    /// <summary>
+    /// Rooms to show in the left panel. A snapshot, not a live collection: on a connected client this
+    /// state is rewritten by a background read loop, and handing out the live list would let the UI
+    /// enumerate it mid-update. Listen to <see cref="RoomsChanged"/> and read again.
+    /// </summary>
+    IReadOnlyList<Room> Rooms { get; }
 
-    /// <summary>Members of the room the local user is currently in (F12).</summary>
-    ObservableCollection<User> Members { get; }
+    /// <summary>
+    /// Members of the room the local user is currently in (F12). Snapshot for the same reason.
+    /// </summary>
+    IReadOnlyList<User> Members { get; }
 
     /// <summary>Start the host side (bind + accept). Host only.</summary>
     Task StartAsync(CancellationToken cancel = default);
