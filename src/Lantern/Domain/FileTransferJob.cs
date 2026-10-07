@@ -50,9 +50,9 @@ public sealed class FileTransferJob
         private set => Interlocked.Exchange(ref bytesDone, value);
     }
 
-    /// <summary>0..1; 1 when <see cref="SizeBytes"/> is 0 so an empty file still completes.</summary>
+    /// <summary>0..1; always 1 for a zero-length file, which is complete before it starts.</summary>
     public double Fraction
-        => SizeBytes == 0 ? (BytesDone > 0 ? 1 : 0) : Math.Clamp((double)BytesDone / SizeBytes, 0, 1);
+        => SizeBytes == 0 ? 1 : Math.Clamp((double)BytesDone / SizeBytes, 0, 1);
 
     public bool IsComplete => BytesDone >= SizeBytes;
 
