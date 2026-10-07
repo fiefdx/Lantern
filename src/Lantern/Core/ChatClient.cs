@@ -154,11 +154,14 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
             throw new InvalidOperationException("The server did not answer the Lantern handshake. Is it a Lantern host?");
         }
 
-        var frame = await ack.Task.ConfigureAwait(false);
+        var acknowledged = await ack.Task.ConfigureAwait(false);
 
-        // HELLO_ACK echoes the nickname back; the server's display name comes from discovery (T2.6),
-        // not from the handshake, so there is nothing to update on Endpoint here.
-        _ = frame;
+        // Discovery can only report an address; HELLO_ACK is where the host says what to call it.
+        if (acknowledged.Header.ServerName is { Length: > 0 } hostName)
+        {
+            Endpoint = Endpoint with { ServerName = hostName };
+        }
+
         Status($"connected to {Endpoint}");
     }
 

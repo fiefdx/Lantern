@@ -38,6 +38,13 @@ public sealed record FrameHeader
     [JsonPropertyName("nick")]
     public string? Nickname { get; init; }
 
+    /// <summary>
+    /// What the host prefers to be called, echoed in HELLO_ACK. Discovery hands a client an address;
+    /// this is what turns <c>127.0.0.1:43797</c> into a name in the status bar.
+    /// </summary>
+    [JsonPropertyName("server")]
+    public string? ServerName { get; init; }
+
     /// <summary>Text of a TEXT frame, or of a SYSTEM_NOTICE.</summary>
     [JsonPropertyName("text")]
     public string? Text { get; init; }

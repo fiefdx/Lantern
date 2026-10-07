@@ -95,7 +95,7 @@ public sealed class ChatServerSession : IParticipant
         }
 
         Nickname = nickname;
-        Receive(Frame.HelloAck(nickname));
+        Receive(Frame.HelloAck(nickname, server.ServerName));
         return true;
     }
 

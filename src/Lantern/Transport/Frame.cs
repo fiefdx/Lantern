@@ -35,10 +35,11 @@ public sealed class Frame
         Nickname = nickname,
     });
 
-    public static Frame HelloAck(string nickname) => new(new FrameHeader
+    public static Frame HelloAck(string nickname, string? serverName = null) => new(new FrameHeader
     {
         Type = FrameType.HELLO_ACK,
         Nickname = nickname,
+        ServerName = serverName,
     });
 
     public static Frame RoomList(IEnumerable<string> roomNames) => new(new FrameHeader
