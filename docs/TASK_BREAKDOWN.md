@@ -91,13 +91,13 @@ core logic.
 
 **Goal:** the host manages rooms and the room list survives restarts.
 
-- [ ] **T3.1 [Data]** `RoomDto` + `JsonRoomStore.Load()` from `rooms.json` on the host machine; missing or corrupt file → default room list, never crash (F9).
-- [ ] **T3.2 [Data]** `SaveAsync(rooms)` called right after every room CRUD; save runs in background so the UI stays responsive.
-- [ ] **T3.3 [Core]** `ChatServer.CreateRoomAsync` / `DeleteRoomAsync` (host only) + `PersistAndBroadcastRooms()`; handle a client currently inside a deleted room (kicked with a system notice).
-- [ ] **T3.4 [UI]** `HostForm`: **New** (→ `NewRoomDialog`), rename, **Delete** (→ confirm dialog) — scenario 3.
-- [ ] **T3.5 [UI]** `ClientForm`: read-only room list, click-to-join / switch rooms (one room at a time, F6), **Leave** with confirm dialog.
-- [ ] **T3.6 [Net]** ROOM_LIST frame broadcast so clients update their lists live while the host edits rooms.
-- [ ] **T3.7 [QA]** Tests: JSON round-trip, corrupt/missing file, duplicate-name rejection, client kicked from deleted room.
+- [x] **T3.1 [Data]** `RoomDto` + `JsonRoomStore.Load()` from `rooms.json` on the host machine; missing or corrupt file → default room list, never crash (F9).
+- [x] **T3.2 [Data]** `SaveAsync(rooms)` called right after every room CRUD; save runs in background so the UI stays responsive.
+- [x] **T3.3 [Core]** `ChatServer.CreateRoomAsync` / `DeleteRoomAsync` (host only) + `PersistAndBroadcastRooms()`; handle a client currently inside a deleted room (kicked with a system notice).
+- [x] **T3.4 [UI]** `HostForm`: **New** (→ `NewRoomDialog`), rename, **Delete** (→ confirm dialog) — scenario 3.
+- [x] **T3.5 [UI]** `ClientForm`: read-only room list, click-to-join / switch rooms (one room at a time, F6), **Leave** with confirm dialog.
+- [x] **T3.6 [Net]** ROOM_LIST frame broadcast so clients update their lists live while the host edits rooms.
+- [x] **T3.7 [QA]** Tests: JSON round-trip, corrupt/missing file, duplicate-name rejection, client kicked from deleted room.
 
 **Exit criteria:** scenario 1 + scenario 3 fully work; rooms reload after app restart. **F5, F9** covered.
 

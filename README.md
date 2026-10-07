@@ -49,15 +49,17 @@ only ever sees `IChatService`.
 
 ## Roadmap
 
-| Milestone | Theme |
-|:--|:--|
-| M0 | Project skeleton & app shell |
-| M1 | Domain model & validation |
-| M2 | Chat engine + wire protocol over loopback |
-| M3 | Room persistence & room management |
-| M4 | Real Bluetooth transport |
-| M5 | Pictures, file transfer, sounds |
-| M6 | Hardening, testing, release (`v1.0`) |
+| Milestone | Theme | State |
+|:--|:--|:--|
+| M0 | Project skeleton & app shell | done |
+| M1 | Domain model & validation | done |
+| M2 | Chat engine + wire protocol over loopback | done |
+| M3 | Room persistence & room management | done |
+| M4 | Real Bluetooth transport | next — until then the radio is never touched, and windows talk to 127.0.0.1 |
+| M5 | Pictures, file transfer, sounds | not started |
+| M6 | Hardening, testing, release (`v1.0`) | not started |
+
+The test suite is 215 tests; `docs/testing/` holds the manual checklists that go with each milestone.
 
 See [docs/TASK_BREAKDOWN.md](docs/TASK_BREAKDOWN.md) for the full task list and
 [docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md) for the specification.
