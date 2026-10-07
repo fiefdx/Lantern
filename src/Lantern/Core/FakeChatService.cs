@@ -140,6 +140,30 @@ public sealed class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Closes a room the way a host's delete looks from a client's window: whoever was inside — this
+    /// window's own user included — is left standing nowhere, and the room stops being listed. A client
+    /// does not edit rooms, so this is how a test shows a window what its host did.
+    /// </summary>
+    public void SimulateRoomClosed(string name)
+    {
+        var room = Find(name);
+
+        if (room is null)
+        {
+            return;
+        }
+
+        var wasCurrent = IsCurrent(room);
+        room.ClearMembers();
+        Rooms.Remove(room);
+
+        if (wasCurrent)
+        {
+            Members.Clear();
+        }
+    }
+
     public Task JoinRoomAsync(string? name, CancellationToken cancel = default)
     {
         var previous = CurrentRoom();

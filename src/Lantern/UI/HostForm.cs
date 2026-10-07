@@ -24,20 +24,21 @@ public partial class HostForm : ChatForm
         btnDelete.Enabled = Service.IsHost;
     }
 
-    /// <summary>"New" → <see cref="NewRoomDialog"/> → <see cref="IChatService.CreateRoomAsync"/>.</summary>
+    /// <summary>"New" → <see cref="AskForRoomName"/> → <see cref="IChatService.CreateRoomAsync"/>.</summary>
     private async void OnNewRoomClick(object? sender, EventArgs e)
     {
         // Duplicate names are refused by the dialog as they are typed, not after the OK click.
-        using var dialog = new NewRoomDialog("New Room", string.Empty, IsDuplicate);
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        var name = AskForRoomName("New Room", string.Empty, IsDuplicate);
+
+        if (name is null)
         {
             return;
         }
 
-        await RunAsync(() => Service.CreateRoomAsync(dialog.RoomName));
+        await RunAsync(() => Service.CreateRoomAsync(name));
     }
 
-    /// <summary>"Delete" → <see cref="ConfirmDialog.ConfirmDeleteRoom"/> → <see cref="IChatService.DeleteRoomAsync"/>.</summary>
+    /// <summary>"Delete" → <see cref="ConfirmDeleteRoom"/> → <see cref="IChatService.DeleteRoomAsync"/>.</summary>
     private async void OnDeleteRoomClick(object? sender, EventArgs e)
     {
         if (SelectedRoom is not { } room)
@@ -46,7 +47,7 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        if (!ConfirmDialog.ConfirmDeleteRoom(this, room))
+        if (!ConfirmDeleteRoom(room))
         {
             return;
         }
@@ -63,16 +64,33 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        using var dialog = new NewRoomDialog("Rename Room", current, name =>
-            name == current ? null : IsDuplicate(name));
+        var renamed = AskForRoomName("Rename Room", current, name => name == current ? null : IsDuplicate(name));
 
-        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.RoomName == current)
+        if (renamed is null || renamed == current)
         {
             return;
         }
 
-        await RunAsync(() => Service.RenameRoomAsync(current, dialog.RoomName));
+        await RunAsync(() => Service.RenameRoomAsync(current, renamed));
     }
+
+    /// <summary>
+    /// Asks for a room name, returning null if the user cancelled.
+    /// </summary>
+    /// <remarks>
+    /// A method rather than a dialog inlined in the click handler so that a test can answer instead of a
+    /// person. The interesting parts are the button, the service call and the list refreshing; a modal
+    /// sitting in front of them would stop any of that being tested at all. The dialog itself has its own
+    /// tests (<c>NewRoomDialogTests</c>).
+    /// </remarks>
+    protected virtual string? AskForRoomName(string title, string current, Func<string, string?> validate)
+    {
+        using var dialog = new NewRoomDialog(title, current, validate);
+        return dialog.ShowDialog(this) == DialogResult.OK ? dialog.RoomName : null;
+    }
+
+    /// <summary>Asks before destroying a room, because everybody inside is about to be put out.</summary>
+    protected virtual bool ConfirmDeleteRoom(string roomName) => ConfirmDialog.ConfirmDeleteRoom(this, roomName);
 
     /// <summary>A second room of the same name is refused before it reaches the service.</summary>
     private string? IsDuplicate(string name)
@@ -83,9 +101,12 @@ public partial class HostForm : ChatForm
     /// <summary>File ▸ Quit asks first, because everybody else is connected to this window.</summary>
     protected override void OnQuitRequested()
     {
-        if (ConfirmDialog.ConfirmQuit(this))
+        if (ConfirmQuit())
         {
             base.OnQuitRequested();
         }
     }
+
+    /// <summary>The asking part of quitting, separate for the same reason as <see cref="AskForRoomName"/>.</summary>
+    protected virtual bool ConfirmQuit() => ConfirmDialog.ConfirmQuit(this);
 }

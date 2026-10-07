@@ -27,18 +27,26 @@ public partial class ClientForm : ChatForm
             return;
         }
 
-        if (!ConfirmDialog.ConfirmLeaveRoom(this, room))
+        if (!ConfirmLeaveRoom(room))
         {
             return;
         }
 
         await RunAsync(async () =>
         {
+            // Joining "nothing" is how leaving travels on the wire; the notice the room sees is the
+            // host's doing, not this window writing its own epitaph (F11).
             await Service.JoinRoomAsync(string.Empty);
             LeaveRoom(announce: false);
             SetStatus("left the room");
         });
     }
+
+    /// <summary>
+    /// The asking part of leaving, separate from the click handler so a test can answer instead of a
+    /// person. See <see cref="HostForm.AskForRoomName"/> for the same seam.
+    /// </summary>
+    protected virtual bool ConfirmLeaveRoom(string roomName) => ConfirmDialog.ConfirmLeaveRoom(this, roomName);
 
     /// <summary>Renaming is the host's job, so the menu item stays disabled (see the base form).</summary>
     protected override void RenameMenuItem_Click(object? sender, EventArgs e) => SetStatus("only the host can rename rooms");
