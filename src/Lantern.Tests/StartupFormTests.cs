@@ -1,3 +1,4 @@
+using Lantern.Core;
 using Lantern.UI;
 using Xunit;
 
@@ -29,8 +30,13 @@ public class StartupFormTests
             using var form = new StartupForm();
             var join = Assert.IsType<Button>(Find(form, "btnJoin"));
             var list = Assert.IsType<ListBox>(Find(form, "lstServers"));
+
+            // Nothing is invented for the list: it fills from a scan (T2.6), so it starts empty and
+            // there is nothing to join.
+            Assert.Empty(list.Items);
             Assert.False(join.Enabled);
 
+            list.Items.Add(new ServerEndpoint("Kitchen Table", "127.0.0.1:43797", Guid.Empty));
             list.SelectedIndex = 0;
             Assert.True(join.Enabled);
         });

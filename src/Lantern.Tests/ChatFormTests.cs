@@ -145,11 +145,35 @@ public class ChatFormTests
         {
             var service = new FakeChatService("Haitao");
             using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
             var chat = (RichTextBox)Find(form, "rtbChat")!;
+
+            // A window that has not entered a room has nowhere to put traffic, so enter one first.
+            rooms.SelectedIndex = 0;
 
             service.SimulateIncoming(new TextMessage("User 2", "Room 1", "arrived from the wire"));
 
             Assert.Contains("User 2: arrived from the wire", chat.Text);
+        });
+    }
+
+    [Fact]
+    public void TrafficFromAnotherRoomIsNotDrawnOnTheOneShowing()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+            var chat = (RichTextBox)Find(form, "rtbChat")!;
+
+            rooms.SelectedIndex = 0;
+
+            // The service keeps a transcript per room, so traffic for somewhere else must not be
+            // drawn as though it belonged to the room on screen.
+            service.SimulateIncoming(new TextMessage("User 2", "Room 2", "somewhere else entirely"));
+
+            Assert.DoesNotContain("somewhere else entirely", chat.Text);
         });
     }
 

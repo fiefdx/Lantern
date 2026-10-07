@@ -9,24 +9,21 @@ namespace Lantern.Core;
 /// turning frames into state and events. It is an <see cref="IChatService"/>, so a window cannot tell
 /// it apart from a host except through <see cref="IsHost"/>.
 /// <para>
-/// The read loop is the only writer of <see cref="Rooms"/> and <see cref="Members"/>, and it runs on
-/// a thread-pool thread. That is why those two are snapshots: a window must never enumerate them
-/// while a MEMBER_LIST frame is half applied.
+/// The read loop is the only writer of the state, and it runs on a thread-pool thread. That is why
+/// <see cref="Rooms"/> and <see cref="Members"/> are snapshots and why every event is raised outside
+/// the lock: a window must never enumerate a list that a MEMBER_LIST frame is half way through
+/// replacing.
 /// </para>
 /// </summary>
 public sealed class ChatClient : IChatService, IAsyncDisposable
 {
     private readonly IBtClient transport;
-    private readonly object gate = new();
-    private readonly Dictionary<string, Room> roomsByName = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<Room> rooms = [];
-    private readonly List<User> members = [];
+    private readonly ClientState state = new();
     private readonly SemaphoreSlim writeLock = new(1, 1);
 
     private IClientLink? link;
     private Task? readLoop;
     private TaskCompletionSource<Frame>? helloAck;
-    private string? currentRoomName;
     private bool shuttingDown;
 
     public ChatClient(string nickname, IBtClient? transport = null)
@@ -39,6 +36,9 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         }
 
         this.transport = transport ?? new BtLoopbackClient();
+
+        state.RoomsChanged += (_, _) => RoomsChanged?.Invoke(this, EventArgs.Empty);
+        state.MembersChanged += (_, _) => MembersChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <inheritdoc />
@@ -48,43 +48,16 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     public bool IsHost => false;
 
     /// <inheritdoc />
-    public IReadOnlyList<Room> Rooms
-    {
-        get
-        {
-            lock (gate)
-            {
-                return rooms.ToArray();
-            }
-        }
-    }
+    public IReadOnlyList<Room> Rooms => state.Rooms;
 
     /// <inheritdoc />
-    public IReadOnlyList<User> Members
-    {
-        get
-        {
-            lock (gate)
-            {
-                return members.ToArray();
-            }
-        }
-    }
+    public IReadOnlyList<User> Members => state.Members;
 
     /// <summary>The server this client is, or was, talking to.</summary>
     public ServerEndpoint? Endpoint { get; private set; }
 
     /// <summary>Room this client is in, or null. Mirrors what the server believes.</summary>
-    public string? CurrentRoomName
-    {
-        get
-        {
-            lock (gate)
-            {
-                return currentRoomName;
-            }
-        }
-    }
+    public string? CurrentRoomName => state.CurrentRoomName;
 
     public bool IsConnected => link is not null;
 
@@ -100,8 +73,8 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     /// <inheritdoc />
     public event EventHandler? MembersChanged;
 
-    // Nothing on a client raises these until file transfer lands in M5 (T5.2, T5.3); they are part
-    // of the interface the UI binds to, so they exist now and stay quiet until then.
+    // Nothing on a client raises these until file transfer lands in M5 (T5.2, T5.3); they are part of
+    // the interface the UI binds to, so they exist now and stay quiet until then.
 #pragma warning disable CS0067
     /// <inheritdoc />
     public event EventHandler<FileTransferJob>? IncomingFile;
@@ -111,8 +84,8 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
 #pragma warning restore CS0067
 
     /// <summary>
-    /// The connection ended on its own (scenario 6). The exception's message is the reason, worded
-    /// for the status bar rather than for a log.
+    /// The connection ended on its own (scenario 6). The exception's message is the reason, worded for
+    /// the status bar rather than for a log.
     /// </summary>
     public event EventHandler<Exception>? ConnectionLost;
 
@@ -121,9 +94,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
 
     // ------------------------------------------------------------- connection
 
-    /// <summary>
-    /// Connects, says HELLO, waits for HELLO_ACK and starts the read loop (T2.5).
-    /// </summary>
+    /// <summary>Connects, says HELLO, waits for HELLO_ACK and starts the read loop (T2.5).</summary>
     public async Task ConnectAsync(ServerEndpoint endpoint, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
@@ -142,6 +113,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         var ack = new TaskCompletionSource<Frame>(TaskCreationOptions.RunContinuationsAsynchronously);
         helloAck = ack;
 
+        // The read loop has to be running before the HELLO goes out: the answer arrives on it.
         readLoop = Task.Run(() => ReadLoopAsync(newLink), CancellationToken.None);
 
         await WriteAsync(Frame.Hello(Nickname), cancel).ConfigureAwait(false);
@@ -173,11 +145,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     public async Task JoinRoomAsync(string? name, CancellationToken cancel = default)
     {
         var wanted = ValidationRules.Normalize(name);
-
-        lock (gate)
-        {
-            currentRoomName = wanted.Length == 0 ? null : wanted;
-        }
+        state.ExpectRoom(wanted);
 
         // An empty room name is how "leave the current room" travels on the wire.
         await WriteOrThrowAsync(Frame.JoinRoom(wanted), cancel).ConfigureAwait(false);
@@ -199,6 +167,10 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         }
 
         await WriteOrThrowAsync(Frame.FromMessage(text), cancel).ConfigureAwait(false);
+
+        // The host does not echo a message to its author, so this side keeps its own copy or the
+        // transcript would lose every line the user typed when they next enter the room.
+        state.Record(text);
     }
 
     // -------------------------------------------------------- host-only actions
@@ -307,13 +279,9 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         var wasCurrent = ReferenceEquals(Volatile.Read(ref link), owned);
         _ = Interlocked.CompareExchange(ref link, null, owned);
 
-        lock (gate)
-        {
-            members.Clear();
-            currentRoomName = null;
-        }
-
-        MembersChanged?.Invoke(this, EventArgs.Empty);
+        // Whatever the transcripts hold stays; who is in a room is the server's business, and there is
+        // no server any more.
+        state.ClearMembership();
 
         if (wasCurrent && !shuttingDown)
         {
@@ -331,26 +299,6 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 helloAck?.TrySetResult(frame);
                 break;
 
-            case FrameType.ROOM_LIST:
-                ApplyRoomList(frame.Header.Rooms);
-                break;
-
-            case FrameType.MEMBER_LIST:
-                ApplyMemberList(frame.Header.Room, frame.Header.Members);
-                break;
-
-            case FrameType.TEXT:
-            case FrameType.PICTURE:
-            case FrameType.FILE_META:
-            case FrameType.SYSTEM_NOTICE:
-                if (frame.ToMessage() is { } message)
-                {
-                    Record(message);
-                    MessageReceived?.Invoke(this, message);
-                }
-
-                break;
-
             case FrameType.ERROR:
                 var problem = frame.Header.Error ?? "The host rejected that.";
                 ServerError?.Invoke(this, problem);
@@ -358,86 +306,13 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 break;
 
             default:
-                // A client has no use for HELLO, JOIN_ROOM, FILE_CHUNK or FILE_DONE frames.
-                break;
-        }
-    }
-
-    private void ApplyRoomList(IReadOnlyList<string>? names)
-    {
-        if (names is null)
-        {
-            return;
-        }
-
-        string? notice = null;
-
-        lock (gate)
-        {
-            rooms.Clear();
-
-            foreach (var name in names)
-            {
-                // Rooms are kept by name across list updates so a room's transcript survives a rename
-                // of the list; a room that disappeared from the list stops being shown but is not
-                // thrown away, in case the host re-creates it.
-                if (!roomsByName.TryGetValue(name, out var room))
+                // ROOM_LIST, MEMBER_LIST and the traffic frames.
+                if (state.Apply(frame) is { } message)
                 {
-                    room = new Room(name);
-                    roomsByName[name] = room;
+                    MessageReceived?.Invoke(this, message);
                 }
 
-                rooms.Add(room);
-            }
-
-            if (currentRoomName is not null && !roomsByName.ContainsKey(currentRoomName))
-            {
-                notice = currentRoomName;
-                currentRoomName = null;
-            }
-        }
-
-        _ = notice;
-        RoomsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void ApplyMemberList(string? roomName, IReadOnlyList<FrameMember>? incoming)
-    {
-        lock (gate)
-        {
-            members.Clear();
-
-            if (incoming is not null)
-            {
-                members.AddRange(incoming.Select(m => new User(m.ConnectionId, m.Nickname)));
-            }
-
-            // The list is authoritative about which room it describes, including the empty list that
-            // says "nobody is anywhere": without the else, a list for the room you have just left —
-            // still in flight when you left — would put you back inside it.
-            currentRoomName = string.IsNullOrWhiteSpace(roomName) ? null : roomName;
-        }
-
-        MembersChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    /// <summary>Keeps a per-room history so re-entering a room replays it locally (F6).</summary>
-    private void Record(Message message)
-    {
-        if (string.IsNullOrWhiteSpace(message.RoomName))
-        {
-            return;
-        }
-
-        lock (gate)
-        {
-            if (!roomsByName.TryGetValue(message.RoomName, out var room))
-            {
-                room = new Room(message.RoomName);
-                roomsByName[message.RoomName] = room;
-            }
-
-            room.Append(message);
+                break;
         }
     }
 

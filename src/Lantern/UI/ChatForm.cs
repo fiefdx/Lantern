@@ -50,7 +50,7 @@ public abstract partial class ChatForm : Form
 
     private void BindService()
     {
-        Service.MessageReceived += (_, message) => OnUi(() => Append(message));
+        Service.MessageReceived += (_, message) => OnUi(() => ShowIncoming(message));
         Service.RoomsChanged += (_, _) => OnUi(ShowRooms);
         Service.MembersChanged += (_, _) => OnUi(ShowMembers);
         Service.StatusChanged += (_, status) => OnUi(() => SetStatus(status));
@@ -343,6 +343,22 @@ public abstract partial class ChatForm : Form
     // ------------------------------------------------------------- transcript
 
     /// <summary>
+    /// Shows an arriving message if it belongs to the room on screen. The service keeps transcripts
+    /// for every room, so a notice about a room this window is not in - the one the host just closed,
+    /// for instance - would otherwise be drawn as though it belonged here.
+    /// </summary>
+    private void ShowIncoming(Message message)
+    {
+        if (CurrentRoom is not { } room
+            || !string.Equals(message.RoomName, room.Name, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Append(message);
+    }
+
+    /// <summary>
     /// Appends one line to the transcript. Incoming traffic arrives here through
     /// <see cref="IChatService.MessageReceived"/>; something this window sent is appended directly,
     /// because there is no echo back from the service.
@@ -393,6 +409,17 @@ public abstract partial class ChatForm : Form
     {
         _ = Service.ShutdownAsync();
         Close();
+    }
+
+    /// <summary>
+    /// The close box is as much an exit as File ▸ Quit, and a chat still running behind a closed
+    /// window is a chat the user cannot stop: clients would keep their connection to a host with no
+    /// face.
+    /// </summary>
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        base.OnFormClosed(e);
+        _ = Service.ShutdownAsync();
     }
 
     /// <summary>Scenario 5: the host has gone, so this window has nothing left to do.</summary>
