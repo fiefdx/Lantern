@@ -397,7 +397,11 @@ public abstract partial class ChatForm : Form
     private void AboutMenuItem_Click(object? sender, EventArgs e)
         => MessageBox.Show(
             this,
-            "Lantern\nGroup chat over Bluetooth between two Windows machines.",
+            // Say what this build actually does. Until M4 the radio is never touched, and a demo where
+            // the About box claims Bluetooth while the windows talk to 127.0.0.1 is a demo that ends in
+            // an argument about whether anything was proven. M4: name the transport in use here.
+            "Lantern\nGroup chat between Windows machines.\n\nDevelopment build: messages travel over a "
+                + "local loopback transport (127.0.0.1), not Bluetooth yet.",
             "About Lantern",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
