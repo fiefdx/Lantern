@@ -36,4 +36,9 @@ public partial class ConfirmDialog : Form
     /// <summary>Generic variant for anything else that needs a yes/no.</summary>
     public static bool Confirm(IWin32Window? owner, string title, string message)
         => Ask(owner, title, message);
+
+    /// <summary>Scenario 5 — the host closed the server while a client was connected.</summary>
+    public static void ConnectionLost(IWin32Window? owner)
+        => MessageBox.Show(owner, "The server closed the connection.", "Connection lost",
+            MessageBoxButtons.OK, MessageBoxIcon.Warning);
 }

@@ -1,3 +1,4 @@
+using Lantern.Core;
 using Lantern.Domain;
 
 namespace Lantern.UI;
@@ -33,8 +34,8 @@ public partial class StartupForm : Form
             return;
         }
 
-        // T0.7 replaces the construction with a ChatServer-backed HostForm.
-        Open(new HostForm(Nickname));
+        // M2 replaces the fake with a ChatServer-backed host service.
+        Open(new HostForm(new FakeChatService(Nickname, isHost: true)));
     }
 
     private void BtnScan_Click(object? sender, EventArgs e)
@@ -61,8 +62,8 @@ public partial class StartupForm : Form
             return;
         }
 
-        // T0.7 replaces the construction with a ChatClient-backed ClientForm.
-        Open(new ClientForm(Nickname));
+        // M2 replaces the fake with a ChatClient-backed client service.
+        Open(new ClientForm(new FakeChatService(Nickname, isHost: false)));
     }
 
     private void LstServers_SelectedIndexChanged(object? sender, EventArgs e)

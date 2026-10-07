@@ -1,57 +1,44 @@
+using Lantern.Core;
+using Lantern.Domain;
+
 namespace Lantern.UI;
 
 /// <summary>
-/// Host flavour of the chat window (Figure 3): same layout as the client plus the
-/// <b>New</b> and <b>Delete</b> room-management buttons.
+/// Host flavour of the chat window (Figure 3): the shared layout plus the <b>New</b> and
+/// <b>Delete</b> buttons that make this side the one that owns the room list.
 /// </summary>
 public partial class HostForm : ChatForm
 {
-    public HostForm(string nickname)
-        : base(nickname)
+    public HostForm(IChatService service)
+        : base(service)
     {
         InitializeComponent();
 
-        // The two management buttons live in the base form's header strip so the
-        // two roles keep an identical layout (see Figures 3 and 4).
+        // The two management buttons live in the base form's header strip so both roles keep an
+        // identical layout (compare Figures 3 and 4).
         pnlRoomActions.Controls.Add(btnNew);
         pnlRoomActions.Controls.Add(btnDelete);
 
-        UpdateTitle("host");
-        SetRoomEditingEnabled(true);
-        LoadDemoData();
+        SetRoomEditingEnabled(Service.IsHost);
+        btnNew.Enabled = Service.IsHost;
+        btnDelete.Enabled = Service.IsHost;
     }
 
-    /// <summary>Raised when the user confirms deleting the selected room.</summary>
-    public event EventHandler<string>? DeleteRoomRequested;
-
-    /// <summary>Raised when the user supplies a name for a new room.</summary>
-    public event EventHandler<string>? CreateRoomRequested;
-
-    /// <summary>Raised when the user supplies a new name for the selected room.</summary>
-    public event EventHandler<(string Current, string NewName)>? RenameRoomRequested;
-
-    private void LoadDemoData()
+    /// <summary>"New" → <see cref="NewRoomDialog"/> → <see cref="IChatService.CreateRoomAsync"/>.</summary>
+    private async void OnNewRoomClick(object? sender, EventArgs e)
     {
-        SetRooms(["Room 1", "Room 2", "Room 3"]);
-        SetMembers([Nickname, "User 2", "User 3"]);
-        AppendMessage(string.Empty, "User 2 - join this chat", isNotice: true);
-        AppendMessage("User 3", "hi");
-        AppendMessage(Nickname, "hi");
-        SetStatus("server online");
-    }
-
-    /// <summary>"New" → <see cref="NewRoomDialog"/> → service call.</summary>
-    private void OnNewRoomClick(object? sender, EventArgs e)
-    {
-        using var dialog = new NewRoomDialog();
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        // Duplicate names are refused by the dialog as they are typed, not after the OK click.
+        using var dialog = new NewRoomDialog("New Room", string.Empty, IsDuplicate);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
         {
-            CreateRoomRequested?.Invoke(this, dialog.RoomName);
+            return;
         }
+
+        await RunAsync(() => Service.CreateRoomAsync(dialog.RoomName));
     }
 
-    /// <summary>"Delete" → confirm → service call.</summary>
-    private void OnDeleteRoomClick(object? sender, EventArgs e)
+    /// <summary>"Delete" → <see cref="ConfirmDialog.ConfirmDeleteRoom"/> → <see cref="IChatService.DeleteRoomAsync"/>.</summary>
+    private async void OnDeleteRoomClick(object? sender, EventArgs e)
     {
         if (SelectedRoom is not { } room)
         {
@@ -59,14 +46,16 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        if (ConfirmDialog.ConfirmDeleteRoom(this, room))
+        if (!ConfirmDialog.ConfirmDeleteRoom(this, room))
         {
-            DeleteRoomRequested?.Invoke(this, room);
+            return;
         }
+
+        await RunAsync(() => Service.DeleteRoomAsync(room));
     }
 
-    /// <summary>Same dialog as "New", pre-filled with the current name.</summary>
-    protected override void RenameMenuItem_Click(object? sender, EventArgs e)
+    /// <summary>Edit ▸ Rename: the same dialog, pre-filled (F3). Leaving the name alone is a no-op.</summary>
+    protected override async void RenameMenuItem_Click(object? sender, EventArgs e)
     {
         if (SelectedRoom is not { } current)
         {
@@ -74,14 +63,24 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        using var dialog = new NewRoomDialog("Rename Room", current);
-        if (dialog.ShowDialog(this) == DialogResult.OK && dialog.RoomName != current)
+        using var dialog = new NewRoomDialog("Rename Room", current, name =>
+            name == current ? null : IsDuplicate(name));
+
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.RoomName == current)
         {
-            RenameRoomRequested?.Invoke(this, (current, dialog.RoomName));
+            return;
         }
+
+        await RunAsync(() => Service.RenameRoomAsync(current, dialog.RoomName));
     }
 
-    /// <summary>File ▸ Quit asks before killing the server (scenario 6).</summary>
+    /// <summary>A second room of the same name is refused before it reaches the service.</summary>
+    private string? IsDuplicate(string name)
+        => ValidationRules.IsDuplicateRoomName(name, Service.Rooms.Select(r => r.Name))
+            ? "A room with that name already exists."
+            : null;
+
+    /// <summary>File ▸ Quit asks first, because everybody else is connected to this window.</summary>
     protected override void OnQuitRequested()
     {
         if (ConfirmDialog.ConfirmQuit(this))

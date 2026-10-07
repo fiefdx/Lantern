@@ -1,37 +1,25 @@
+using Lantern.Core;
+
 namespace Lantern.UI;
 
 /// <summary>
-/// Client flavour of the chat window (Figure 4): the room list is read-only (no
-/// New/Delete) and a single <b>Leave</b> button is added instead.
+/// Client flavour of the chat window (Figure 4): the room list is read-only — no New or Delete —
+/// and a single <b>Leave</b> button replaces them.
 /// </summary>
 public partial class ClientForm : ChatForm
 {
-    public ClientForm(string nickname)
-        : base(nickname)
+    public ClientForm(IChatService service)
+        : base(service)
     {
         InitializeComponent();
 
         pnlRoomActions.Controls.Add(btnLeave);
 
-        UpdateTitle("client");
         SetRoomEditingEnabled(false);
-        LoadDemoData();
     }
 
-    /// <summary>Raised when the user confirms leaving the current room.</summary>
-    public event EventHandler<string>? LeaveRoomRequested;
-
-    private void LoadDemoData()
-    {
-        SetRooms(["Room 1", "Room 2", "Room 3"]);
-        SetMembers(["User 1", Nickname]);
-        AppendMessage(string.Empty, $"{Nickname} - join this chat", isNotice: true);
-        AppendMessage("User 1", "hello");
-        SetStatus("connected");
-    }
-
-    /// <summary>"Leave" → <see cref="ConfirmDialog.ConfirmLeaveRoom"/> → service call.</summary>
-    private void OnLeaveClick(object? sender, EventArgs e)
+    /// <summary>"Leave" → <see cref="ConfirmDialog.ConfirmLeaveRoom"/> → join nothing.</summary>
+    private async void OnLeaveClick(object? sender, EventArgs e)
     {
         if (SelectedRoom is not { } room)
         {
@@ -39,16 +27,19 @@ public partial class ClientForm : ChatForm
             return;
         }
 
-        if (ConfirmDialog.ConfirmLeaveRoom(this, room))
+        if (!ConfirmDialog.ConfirmLeaveRoom(this, room))
         {
-            LeaveRoomRequested?.Invoke(this, room);
+            return;
         }
+
+        await RunAsync(async () =>
+        {
+            await Service.JoinRoomAsync(string.Empty);
+            LeaveRoom(announce: false);
+            SetStatus("left the room");
+        });
     }
 
-    /// <summary>A client leaves the server by disconnecting; the menu item needs no extra confirm.</summary>
-    protected override void OnQuitRequested()
-    {
-        base.OnQuitRequested();
-        Close();
-    }
+    /// <summary>Renaming is the host's job, so the menu item stays disabled (see the base form).</summary>
+    protected override void RenameMenuItem_Click(object? sender, EventArgs e) => SetStatus("only the host can rename rooms");
 }

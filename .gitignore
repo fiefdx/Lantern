@@ -50,3 +50,6 @@ Desktop.ini
 *.bak
 *.tmp
 *~
+
+# VS per-user state
+*.user

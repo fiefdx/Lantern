@@ -1,10 +1,14 @@
 using System.Reflection;
+using Lantern.Core;
+using Lantern.Domain;
 using Xunit;
 
 namespace Lantern.Tests;
 
 /// <summary>
-/// Smoke tests for the shared chat window and its two role flavours (Figures 3 and 4).
+/// Smoke tests for the shared chat window and its two role flavours (Figures 3 and 4), now driven
+/// by <see cref="FakeChatService"/> rather than hard-coded demo data: what the window shows must
+/// follow what the service holds.
 /// </summary>
 public class ChatFormTests
 {
@@ -13,9 +17,8 @@ public class ChatFormTests
     {
         Sta.Run(() =>
         {
-            using var form = new Lantern.UI.HostForm("Haitao");
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
             Assert.Equal("Lantern - host", form.Text);
-            Assert.Equal("Haitao", form.Nickname);
             Assert.NotNull(Find(form, "btnNew"));
             Assert.NotNull(Find(form, "btnDelete"));
             Assert.Null(Find(form, "btnLeave"));
@@ -28,7 +31,7 @@ public class ChatFormTests
     {
         Sta.Run(() =>
         {
-            using var form = new Lantern.UI.ClientForm("Victory");
+            using var form = new Lantern.UI.ClientForm(new FakeChatService("Victory", isHost: false));
             Assert.Equal("Lantern - client", form.Text);
             Assert.NotNull(Find(form, "btnLeave"));
             Assert.Null(Find(form, "btnNew"));
@@ -38,23 +41,131 @@ public class ChatFormTests
     }
 
     [Fact]
-    public void SendRequiresARoomAndText()
+    public void RoomListComesFromTheService()
     {
         Sta.Run(() =>
         {
-            using var form = new Lantern.UI.HostForm("Haitao");
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+
+            Assert.Equal(service.Rooms.Select(r => r.Name), rooms.Items.Cast<string>());
+        });
+    }
+
+    [Fact]
+    public void ARoomAddedToTheServiceAppearsInTheList()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+
+            service.Rooms.Add(new Room("Announced later"));
+
+            Assert.Contains("Announced later", rooms.Items.Cast<string>());
+        });
+    }
+
+    [Fact]
+    public void DeletingTheCurrentRoomDropsOutOfIt()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
             var send = (Button)Find(form, "btnSend")!;
-            var list = (ListBox)Find(form, "lstRooms")!;
-            var box = (TextBox)Find(form, "txtMessage")!;
 
-            list.SelectedIndex = 0;
-            Assert.False(send.Enabled);
-
-            box.Text = "hello";
+            rooms.SelectedIndex = 0;
             Assert.True(send.Enabled);
 
-            list.SelectedIndex = -1;
+            service.Rooms.RemoveAt(0);
+
             Assert.False(send.Enabled);
+        });
+    }
+
+    [Fact]
+    public void SelectingARoomFillsTheMemberListAndEnablesSend()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Victory", isHost: false);
+            using var form = new Lantern.UI.ClientForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+            var members = (ListBox)Find(form, "lstMembers")!;
+            var send = (Button)Find(form, "btnSend")!;
+            var message = (TextBox)Find(form, "txtMessage")!;
+
+            Assert.False(send.Enabled);
+            Assert.False(message.Enabled);
+
+            rooms.SelectedIndex = 0;
+
+            Assert.True(send.Enabled);
+            Assert.True(message.Enabled);
+            Assert.Equal(service.Members.Select(u => u.Nickname), members.Items.Cast<string>().Select(n => n.Replace(" (you)", string.Empty)));
+            Assert.Contains("Victory (you)", members.Items.Cast<string>());
+        });
+    }
+
+    [Fact]
+    public void SendingAppendsToTheTranscriptAndClearsTheBox()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+            var chat = (RichTextBox)Find(form, "rtbChat")!;
+            var box = (TextBox)Find(form, "txtMessage")!;
+            var send = (Button)Find(form, "btnSend")!;
+
+            // A control that has never been shown has no window handle, so PerformClick would do
+            // nothing; the click handler is called the way the button's own event would.
+            var onClick = typeof(Lantern.UI.ChatForm).GetMethod("BtnSend_Click",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            rooms.SelectedIndex = 0;
+            box.Text = "hello from the test";
+            onClick.Invoke(form, [null, EventArgs.Empty]);
+
+            Assert.Contains("hello from the test", chat.Text);
+            Assert.Equal(string.Empty, box.Text);
+            Assert.Contains("hello from the test", service.Transcript.OfType<TextMessage>().Select(m => m.Body));
+        });
+    }
+
+    [Fact]
+    public void IncomingTrafficFromTheServiceLandsInTheTranscript()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var chat = (RichTextBox)Find(form, "rtbChat")!;
+
+            service.SimulateIncoming(new TextMessage("User 2", "Room 1", "arrived from the wire"));
+
+            Assert.Contains("User 2: arrived from the wire", chat.Text);
+        });
+    }
+
+    [Fact]
+    public void ReEnteringARoomReplaysItsHistory()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+            var chat = (RichTextBox)Find(form, "rtbChat")!;
+
+            rooms.SelectedIndex = 0;
+
+            Assert.Contains("hi", chat.Text);
         });
     }
 
@@ -63,14 +174,12 @@ public class ChatFormTests
     {
         Sta.Run(() =>
         {
-            using var form = new Lantern.UI.HostForm("Haitao");
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
             var send = (Button)Find(form, "btnSend")!;
             var share = (Button)Find(form, "btnShare")!;
-            var list = (ListBox)Find(form, "lstRooms")!;
-            var box = (TextBox)Find(form, "txtMessage")!;
+            var rooms = (ListBox)Find(form, "lstRooms")!;
 
-            list.SelectedIndex = 0;
-            box.Text = "hello";
+            rooms.SelectedIndex = 0;
             Assert.True(share.Enabled);
 
             var setBusy = typeof(Lantern.UI.ChatForm).GetMethod("SetBusy",
@@ -91,12 +200,11 @@ public class ChatFormTests
     {
         Sta.Run(() =>
         {
-            using var form = new Lantern.UI.HostForm("Haitao");
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
             Assert.Equal("Rooms", ((Label)Find(form, "lblRoomsHeader")!).Text);
 
             var rooms = (ListBox)Find(form, "lstRooms")!;
-            Assert.All(rooms.Items.Cast<object>(), item =>
-                Assert.StartsWith("Room", item.ToString()));
+            Assert.All(rooms.Items.Cast<object>(), item => Assert.StartsWith("Room", item.ToString()));
         });
     }
 

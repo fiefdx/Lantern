@@ -1,164 +1,112 @@
+using Lantern.Core;
+using Lantern.Domain;
+
 namespace Lantern.UI;
 
 /// <summary>
-/// The main chat window, shared by both roles (Figures 3 and 4): rooms on the left,
-/// the transcript in the middle, the member list on the right, and the message box
-/// with <b>Send</b> / <b>Share</b> along the bottom.
+/// The window both roles share (Figures 3 and 4): rooms on the left, transcript in the middle,
+/// members on the right, message box along the bottom.
+/// <para>
+/// Nothing here knows where the data comes from: every room, member and message is read from
+/// <see cref="Service"/> and every change is pushed back through it. That is what lets the same
+/// window run on the in-memory <see cref="FakeChatService"/> today and on the real chat engine
+/// later — the UI never talks to the transport.
+/// </para>
+/// Roles differ only in which buttons the subclass drops into <see cref="pnlRoomActions"/>.
 /// </summary>
-/// <remarks>
-/// This base class knows nothing about Bluetooth or sockets — from T0.7 onwards it is
-/// driven only through <c>IChatService</c>. <see cref="HostForm"/> adds New/Delete,
-/// <see cref="ClientForm"/> adds Leave.
-/// </remarks>
 public abstract partial class ChatForm : Form
 {
+    /// <summary>True while a list is being rebuilt, so the rebuild does not re-enter itself.</summary>
+    private bool syncing;
+
     private bool busy;
 
-    /// <summary>Raised when the user picks a different room in the left panel.</summary>
-    public event EventHandler<string?>? RoomSelected;
-
-    /// <summary>Raised when the user asks to send <see cref="PendingText"/> to the room.</summary>
-    public event EventHandler<string>? SendRequested;
-
-    /// <summary>Raised by the Share button; the role form decides picture vs file.</summary>
-    public event EventHandler? ShareRequested;
-
-    /// <summary>Raised by File ▸ Quit; the role form confirms and shuts the service down.</summary>
-    public event EventHandler? QuitRequested;
-
-    protected ChatForm(string nickname)
+    protected ChatForm(IChatService service)
     {
-        Nickname = nickname;
+        ArgumentNullException.ThrowIfNull(service);
+        Service = service;
+
         InitializeComponent();
-        Load += (_, _) => RefreshSendEnabled();
-        txtMessage.TextChanged += (_, _) => RefreshSendEnabled();
+
+        txtMessage.MaxLength = ValidationRules.MessageMaxLength;
+        lblStatus.Text = service.IsHost ? "Status: hosting, waiting for clients" : "Status: connected to server";
+
+        BindService();
+        ShowRooms();
+        ShowMembers();
+        ShowTranscript(); // no room entered yet: Send, Share and the box all start disabled
     }
 
-    /// <summary>Nickname typed on the startup window; "me" in the transcript.</summary>
-    public string Nickname { get; }
+    /// <summary>Everything this window knows about rooms, members and traffic.</summary>
+    protected IChatService Service { get; }
 
-    /// <summary>The text currently typed in the message box.</summary>
-    protected string PendingText => txtMessage.Text;
+    /// <summary>The room this window is in, or <see langword="null"/> when none is selected.</summary>
+    protected Room? CurrentRoom { get; private set; }
 
-    /// <summary>The room highlighted in the left panel, or null when nothing is selected.</summary>
+    /// <summary>Name of the highlighted room in the list, whether or not it has been entered.</summary>
     protected string? SelectedRoom => lstRooms.SelectedItem as string;
 
-    /// <summary>Message box, so derived forms can clear it after a successful send.</summary>
-    protected void ClearPendingText() => txtMessage.Clear();
+    // ------------------------------------------------------------- plumbing
 
-    /// <summary>Replaces the left panel; selection is kept when the room still exists.</summary>
-    protected void SetRooms(IEnumerable<string> names, string? select = null)
+    private void BindService()
     {
-        var previous = lstRooms.SelectedItem as string;
-        lstRooms.BeginUpdate();
-        lstRooms.Items.Clear();
-        foreach (var name in names)
-        {
-            lstRooms.Items.Add(name);
-        }
-
-        lstRooms.EndUpdate();
-
-        var wanted = select ?? previous;
-        var index = wanted is null ? -1 : lstRooms.Items.IndexOf(wanted);
-        lstRooms.SelectedIndex = index >= 0 ? index : (lstRooms.Items.Count > 0 ? 0 : -1);
+        Service.MessageReceived += (_, message) => OnUi(() => Append(message));
+        Service.RoomsChanged += (_, _) => OnUi(ShowRooms);
+        Service.MembersChanged += (_, _) => OnUi(ShowMembers);
+        Service.StatusChanged += (_, status) => OnUi(() => SetStatus(status));
+        Service.IncomingFile += (_, job) => OnUi(() => ReceiveFile(job));
+        Service.ConnectionLost += (_, error) => OnUi(() => OnConnectionLost(error));
     }
 
-    /// <summary>Replaces the right panel and keeps the "(n)" count in the header.</summary>
-    protected void SetMembers(IEnumerable<string> nicknames)
+    /// <summary>Runs <paramref name="action"/> on the UI thread, dropping it if the window is closing.</summary>
+    private void OnUi(Action action)
     {
-        var names = nicknames.ToList();
-        lstMembers.BeginUpdate();
-        lstMembers.Items.Clear();
-        foreach (var name in names)
-        {
-            lstMembers.Items.Add(name);
-        }
-
-        lstMembers.EndUpdate();
-        lblMembersHeader.Text = $"Members ({names.Count})";
-    }
-
-    /// <summary>Appends one transcript entry; sender is bolded like the wireframe.</summary>
-    protected void AppendMessage(string sender, string body, bool isNotice = false)
-    {
-        if (sender.Length > 0)
-        {
-            rtbChat.SelectionStart = rtbChat.TextLength;
-            rtbChat.SelectionLength = 0;
-            rtbChat.SelectionFont = new Font(rtbChat.Font, isNotice ? FontStyle.Regular : FontStyle.Bold);
-            rtbChat.SelectionColor = isNotice ? SystemColors.GrayText : SystemColors.ControlText;
-            rtbChat.AppendText($"{sender}{Environment.NewLine}");
-        }
-
-        rtbChat.SelectionStart = rtbChat.TextLength;
-        rtbChat.SelectionLength = 0;
-        rtbChat.SelectionFont = rtbChat.Font;
-        rtbChat.SelectionColor = isNotice ? SystemColors.GrayText : SystemColors.ControlText;
-        rtbChat.AppendText($"{body}{Environment.NewLine}");
-        rtbChat.ScrollToCaret();
-    }
-
-    /// <summary>Writes the status bar; empty text restores "Status: idle".</summary>
-    protected void SetStatus(string message)
-        => lblStatus.Text = string.IsNullOrWhiteSpace(message) ? "Status: idle" : $"Status: {message}";
-
-    /// <summary>
-    /// Disables <b>Send</b> while a send is in flight (double-send guard, T2.7) and
-    /// whenever the message box is empty or no room is selected.
-    /// </summary>
-    protected void SetBusy(bool busy)
-    {
-        this.busy = busy;
-        RefreshSendEnabled();
-    }
-
-    private bool CanSend => !busy && SelectedRoom is not null && txtMessage.Text.Trim().Length > 0;
-
-    private void RefreshSendEnabled()
-    {
-        btnSend.Enabled = CanSend;
-        btnShare.Enabled = !busy && SelectedRoom is not null;
-    }
-
-    private void LstRooms_SelectedIndexChanged(object? sender, EventArgs? e)
-    {
-        RefreshSendEnabled();
-        RoomSelected?.Invoke(this, SelectedRoom);
-    }
-
-    private void BtnSend_Click(object? sender, EventArgs? e) => RequestSend();
-
-    private void TxtMessage_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.KeyCode == Keys.Enter && !e.Shift)
-        {
-            e.SuppressKeyPress = true;
-            RequestSend();
-        }
-    }
-
-    private void RequestSend()
-    {
-        var text = txtMessage.Text;
-        if (SelectedRoom is null || text.Trim().Length == 0)
+        if (IsDisposed || Disposing)
         {
             return;
         }
 
-        SetBusy(true);
         try
         {
-            if (SendRequested is null)
+            // Before the window has a handle there is nothing to marshal on to: the form was built
+            // on this very thread, so run it here.
+            if (IsHandleCreated && InvokeRequired)
             {
-                // Placeholder until the real IChatService is bound (T0.7): echo locally.
-                AppendMessage(Nickname, text);
-                ClearPendingText();
+                BeginInvoke(action);
             }
             else
             {
-                SendRequested.Invoke(this, text);
+                action();
             }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The window went away while the event was in flight.
+        }
+    }
+
+    /// <summary>A service call refuses something the user asked for (duplicate name, over-long message).</summary>
+    protected void SetStatus(string message)
+        => lblStatus.Text = message.Length == 0 ? "Status: idle" : $"Status: {message}";
+
+    /// <summary>
+    /// Runs a service call with Send and Share greyed out, and reports a refusal in the status bar
+    /// instead of letting it reach the message loop.
+    /// </summary>
+    protected async Task RunAsync(Func<Task> call)
+    {
+        SetBusy(true);
+        try
+        {
+            await call();
+        }
+        catch (InvalidOperationException ex)
+        {
+            SetStatus(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"failed: {ex.Message}");
         }
         finally
         {
@@ -166,46 +114,292 @@ public abstract partial class ChatForm : Form
         }
     }
 
-    private void BtnShare_Click(object? sender, EventArgs? e)
+    /// <summary>Grey out Send and Share while an operation is in flight.</summary>
+    protected bool IsBusy => busy;
+
+    private void SetBusy(bool value)
     {
-        if (SelectedRoom is null)
+        busy = value;
+        btnSend.Enabled = !value && CurrentRoom is not null;
+        btnShare.Enabled = !value && CurrentRoom is not null;
+        UseWaitCursor = value;
+    }
+
+    // ----------------------------------------------------------- room list
+
+    /// <summary>Rebuilds the room list from the service, keeping whatever is selected.</summary>
+    private void ShowRooms()
+    {
+        syncing = true;
+        var selected = SelectedRoom;
+        lstRooms.BeginUpdate();
+        lstRooms.Items.Clear();
+        foreach (var room in Service.Rooms)
+        {
+            lstRooms.Items.Add(room.Name);
+        }
+
+        lstRooms.EndUpdate();
+        syncing = false;
+
+        var index = lstRooms.Items.IndexOf((object?)selected ?? string.Empty);
+        if (index >= 0)
+        {
+            lstRooms.SelectedIndex = index;
+        }
+        else if (CurrentRoom is not null)
+        {
+            // The room we were in disappeared (the host deleted it).
+            LeaveRoom(announce: false);
+        }
+    }
+
+    private void LstRooms_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (!syncing && lstRooms.SelectedItem is string name && name != CurrentRoom?.Name)
+        {
+            _ = EnterRoomAsync(name);
+        }
+    }
+
+    private async Task EnterRoomAsync(string name)
+    {
+        await RunAsync(async () =>
+        {
+            await Service.JoinRoomAsync(name);
+            CurrentRoom = Service.Rooms.FirstOrDefault(r => r.Name == name);
+            ShowMembers();
+            ShowTranscript();
+            SetStatus(CurrentRoom is null ? $"failed: no room \"{name}\"" : $"in room \"{name}\"");
+        });
+    }
+
+    /// <summary>Redraws the transcript from the current room's own history (F6).</summary>
+    private void ShowTranscript()
+    {
+        rtbChat.Clear();
+        var editable = CurrentRoom is not null;
+        txtMessage.Enabled = editable;
+        if (!busy)
+        {
+            btnSend.Enabled = editable;
+            btnShare.Enabled = editable;
+        }
+
+        if (CurrentRoom is null)
+        {
+            lblMembersHeader.Text = "Members";
+            Append(new SystemMessage(string.Empty, $"Welcome, {Service.Nickname}! Select a room to enter."));
+            return;
+        }
+
+        lblMembersHeader.Text = $"Members ({CurrentRoom.Members.Count})";
+        foreach (var message in CurrentRoom.Transcript)
+        {
+            Append(message);
+        }
+    }
+
+    /// <summary>Drops out of the current room; <paramref name="announce"/> leaves a notice behind.</summary>
+    protected void LeaveRoom(bool announce)
+    {
+        if (announce && CurrentRoom is { } room)
+        {
+            room.Append(SystemMessage.Leave(room.Name, Service.Nickname));
+        }
+
+        CurrentRoom = null;
+        ShowTranscript();
+        ShowMembers();
+    }
+
+    // ---------------------------------------------------------- member list
+
+    private void ShowMembers()
+    {
+        lstMembers.BeginUpdate();
+        lstMembers.Items.Clear();
+        foreach (var user in Service.Members)
+        {
+            lstMembers.Items.Add(user.Nickname == Service.Nickname ? $"{user.Nickname} (you)" : user.Nickname);
+        }
+
+        lstMembers.EndUpdate();
+        if (CurrentRoom is not null)
+        {
+            lblMembersHeader.Text = $"Members ({Service.Members.Count})";
+        }
+    }
+
+    // --------------------------------------------------------------- sending
+
+    private void BtnSend_Click(object? sender, EventArgs e) => _ = SendMessageAsync();
+
+    private void TxtMessage_KeyDown(object? sender, KeyEventArgs e)
+    {
+        // Enter sends, Shift+Enter adds a line break (scenario 4).
+        if (e.KeyCode == Keys.Enter && !e.Shift)
+        {
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            _ = SendMessageAsync();
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        var body = txtMessage.Text.Trim();
+        if (CurrentRoom is not { } room || body.Length == 0)
         {
             return;
         }
 
-        SetBusy(true);
-        try
+        if (ValidationRules.MessageError(body) is { } error)
         {
-            ShareRequested?.Invoke(this, EventArgs.Empty);
+            SetStatus(error);
+            return;
         }
-        finally
+
+        var message = new TextMessage(Service.Nickname, room.Name, body);
+        await RunAsync(async () =>
         {
-            SetBusy(false);
+            await Service.SendAsync(message);
+            txtMessage.Clear();
+            Append(message);
+        });
+    }
+
+    private void BtnShare_Click(object? sender, EventArgs e) => _ = ShareFileAsync();
+
+    private async Task ShareFileAsync()
+    {
+        if (CurrentRoom is not { } room)
+        {
+            SetStatus("select a room first");
+            return;
+        }
+
+        using var picker = new OpenFileDialog
+        {
+            Title = "Send File",
+            Filter = "All files (*.*)|*.*",
+        };
+
+        if (picker.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        var file = new FileInfo(picker.FileName);
+        if (!file.Exists)
+        {
+            SetStatus("that file could not be read");
+            return;
+        }
+
+        var message = new FileMessage(Service.Nickname, room.Name, file.Name, file.Length);
+        await RunAsync(async () =>
+        {
+            await Service.SendAsync(message);
+            Append(message);
+            SetStatus($"sending {file.Name}");
+        });
+    }
+
+    // ------------------------------------------------------------- receiving
+
+    /// <summary>Scenario 6: name, size and sender, then Accept or Decline.</summary>
+    private void ReceiveFile(FileTransferJob job)
+    {
+        if (!ConfirmDialog.Confirm(this, "Incoming File", $"{job.SenderNickname} wants to send \"{job.FileName}\" ({FriendlySize(job.SizeBytes)}). Accept it?"))
+        {
+            job.CancelTransfer();
+            return;
+        }
+
+        using var picker = new SaveFileDialog { Title = "Save Incoming File", FileName = job.FileName };
+        if (picker.ShowDialog(this) != DialogResult.OK)
+        {
+            job.CancelTransfer();
+            return;
+        }
+
+        _ = RunAsync(async () =>
+        {
+            await Service.SaveReceivedFileAsync(job, picker.FileName);
+            Append(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes));
+            SetStatus($"saved {job.FileName}");
+        });
+    }
+
+    private static string FriendlySize(long bytes)
+        => bytes switch
+        {
+            < 1024 => $"{bytes} B",
+            < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+            _ => $"{bytes / (1024.0 * 1024.0):0.#} MB",
+        };
+
+    // ------------------------------------------------------------- transcript
+
+    /// <summary>
+    /// Appends one line to the transcript. Incoming traffic arrives here through
+    /// <see cref="IChatService.MessageReceived"/>; something this window sent is appended directly,
+    /// because there is no echo back from the service.
+    /// </summary>
+    protected void Append(Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        var line = message.SenderNickname.Length == 0
+            ? $"[{message.SentAt:HH:mm}] {message.Preview}"
+            : $"[{message.SentAt:HH:mm}] {message.SenderNickname}: {message.Preview}";
+
+        rtbChat.SelectionStart = rtbChat.TextLength;
+        rtbChat.SelectionLength = 0;
+        rtbChat.SelectionColor = message.Kind == MessageKind.JOIN_LEAVE_NOTICE ? Color.Gray : SystemColors.WindowText;
+        rtbChat.AppendText(line);
+        rtbChat.AppendText(Environment.NewLine);
+        rtbChat.ScrollToCaret();
+
+        if (message.Kind == MessageKind.JOIN_LEAVE_NOTICE)
+        {
+            ShowMembers();
         }
     }
 
-    private void QuitMenuItem_Click(object? sender, EventArgs? e) => OnQuitRequested();
+    // ------------------------------------------------------------------ menu
 
-    /// <summary>File ▸ Quit. Role forms override this to confirm and shut the service down.</summary>
-    protected virtual void OnQuitRequested() => QuitRequested?.Invoke(this, EventArgs.Empty);
+    /// <summary>Room management is host-only; clients see the menu item but cannot use it.</summary>
+    protected void SetRoomEditingEnabled(bool enabled) => renameMenuItem.Enabled = enabled;
 
-    private void ClearChatMenuItem_Click(object? sender, EventArgs? e) => rtbChat.Clear();
-
-    private void AboutMenuItem_Click(object? sender, EventArgs? e)
-        => MessageBox.Show(this, "Lantern — a local Bluetooth group chat for Windows.", "About Lantern",
-            MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-    /// <summary>Overridden by the host form; the base form exposes no room editing.</summary>
     protected virtual void RenameMenuItem_Click(object? sender, EventArgs e)
-        => MessageBox.Show(this, "Only the host can rename a room.", "Rename room",
-            MessageBoxButtons.OK, MessageBoxIcon.Information);
+        => SetStatus("only the host can rename rooms");
 
-    /// <summary>Called by role forms once the service has been bound.</summary>
-    protected void UpdateTitle(string role) => Text = $"Lantern - {role}";
+    private void ClearChatMenuItem_Click(object? sender, EventArgs e) => rtbChat.Clear();
 
-    /// <summary>Enables or greys out room editing (host only, scenario 3).</summary>
-    protected void SetRoomEditingEnabled(bool enabled)
+    private void AboutMenuItem_Click(object? sender, EventArgs e)
+        => MessageBox.Show(
+            this,
+            "Lantern\nGroup chat over Bluetooth between two Windows machines.",
+            "About Lantern",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+
+    private void QuitMenuItem_Click(object? sender, EventArgs e) => OnQuitRequested();
+
+    /// <summary>File ▸ Quit. Subclasses add their own confirmation.</summary>
+    protected virtual void OnQuitRequested()
     {
-        renameMenuItem.Enabled = enabled;
+        _ = Service.ShutdownAsync();
+        Close();
+    }
+
+    /// <summary>Scenario 5: the host has gone, so this window has nothing left to do.</summary>
+    protected virtual void OnConnectionLost(Exception error)
+    {
+        SetStatus(error.Message);
+        ConfirmDialog.ConnectionLost(this);
+        Close();
     }
 }

@@ -316,7 +316,7 @@ partial class ChatForm
     protected ListBox lstRooms;
     protected RichTextBox rtbChat;
     private Panel pnlMembersHeader;
-    private Label lblMembersHeader;
+    protected Label lblMembersHeader;
     protected ListBox lstMembers;
     protected Button btnShare;
     protected TextBox txtMessage;
