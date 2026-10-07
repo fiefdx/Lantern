@@ -184,14 +184,18 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
         if (frame.Type == FrameType.ERROR)
         {
             var problem = frame.Header.Error ?? "That was refused.";
-            ServerError?.Invoke(this, problem);
-            StatusChanged?.Invoke(this, problem);
+            Dispatch.Safe(() => ServerError?.Invoke(this, problem));
+            Dispatch.Safe(() => StatusChanged?.Invoke(this, problem));
             return;
         }
 
+        // The host's window is reached synchronously from the server's own threads, so a throwing
+        // handler there would otherwise unwind the server's broadcast. See Dispatch.
         if (state.Apply(frame) is { } message)
         {
-            MessageReceived?.Invoke(this, message);
+            Dispatch.Safe(
+                () => MessageReceived?.Invoke(this, message),
+                ex => Dispatch.Safe(() => StatusChanged?.Invoke(this, $"A message could not be shown: {ex.Message}")));
         }
     }
 

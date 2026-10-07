@@ -286,7 +286,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         if (wasCurrent && !shuttingDown)
         {
             reason ??= "Connection lost.";
-            ConnectionLost?.Invoke(this, new IOException(reason));
+            Dispatch.Safe(() => ConnectionLost?.Invoke(this, new IOException(reason)));
             Status(reason);
         }
     }
@@ -301,15 +301,19 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
 
             case FrameType.ERROR:
                 var problem = frame.Header.Error ?? "The host rejected that.";
-                ServerError?.Invoke(this, problem);
+                Dispatch.Safe(() => ServerError?.Invoke(this, problem));
                 Status(problem);
                 break;
 
             default:
                 // ROOM_LIST, MEMBER_LIST and the traffic frames.
+                // The state is updated first, so a window that throws has already been accounted for and
+                // nothing is left half-applied; only the notification is lost. See Dispatch.
                 if (state.Apply(frame) is { } message)
                 {
-                    MessageReceived?.Invoke(this, message);
+                    Dispatch.Safe(
+                        () => MessageReceived?.Invoke(this, message),
+                        ex => Status($"A message could not be shown: {ex.Message}"));
                 }
 
                 break;
@@ -361,7 +365,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         }
     }
 
-    private void Status(string text) => StatusChanged?.Invoke(this, text);
+    private void Status(string text) => Dispatch.Safe(() => StatusChanged?.Invoke(this, text));
 
     public override string ToString() => $"{Nickname} → {Endpoint}";
 }

@@ -493,6 +493,43 @@ public sealed class ChatEngineLoopbackTests
         Assert.Equal(1, server.ConnectedCount);
     }
 
+    // ------------------------------------------------------ a window that throws
+
+    [Fact]
+    public async Task AWindowThatThrowsWhileListeningDoesNotEndTheConnection()
+    {
+        await using var server = await StartAsync();
+        var local = await HostJoinsAsync(server, "Room 1");
+
+        await using var client = new ChatClient("Cara");
+        await client.ConnectAsync(server.Endpoint);
+        await client.JoinRoomAsync("Room 1");
+        await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
+
+        var heard = new Watch<string>();
+
+        client.MessageReceived += (_, message) =>
+        {
+            if (message.Preview.Contains("the bad one"))
+            {
+                // What a real window does when it is being closed: throw on the way out of the event.
+                // The delivery happens on the client's read loop, so this exception used to end the
+                // connection quietly - "connected", and nothing else ever arriving.
+                throw new InvalidOperationException("the window's handle has gone away");
+            }
+
+            heard.Add(message.Preview);
+        };
+
+        server.SendText(local, "the bad one");
+        server.SendText(local, "and the next one");
+
+        Assert.Equal("and the next one", await heard.ItemAsync(_ => true, "the message after the throw"));
+        Assert.True(client.IsConnected);
+        Assert.Equal(2, client.Members.Count);
+        Assert.Contains(server.Participants, p => p.Nickname == "Cara");   // still a member of the chat
+    }
+
     // ---------------------------------------------------------------- plumbing
 
     private static async Task<ChatServer> StartAsync()

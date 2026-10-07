@@ -523,7 +523,7 @@ public sealed class ChatServer : IAsyncDisposable
             {
                 if (!cancel.IsCancellationRequested)
                 {
-                    Faulted?.Invoke(this, ex);
+                    Dispatch.Safe(() => Faulted?.Invoke(this, ex));
                 }
 
                 break;
@@ -552,7 +552,7 @@ public sealed class ChatServer : IAsyncDisposable
 
             if (!introduced)
             {
-                ProbeRejected?.Invoke(this, link.RemoteName);
+                Dispatch.Safe(() => ProbeRejected?.Invoke(this, link.RemoteName));
                 link.Close();
                 return;
             }
@@ -661,7 +661,7 @@ public sealed class ChatServer : IAsyncDisposable
             }
         }
 
-        RoomsChanged?.Invoke(this, EventArgs.Empty);
+        Dispatch.Safe(() => RoomsChanged?.Invoke(this, EventArgs.Empty));
         Status($"{names.Length} rooms");
     }
 
@@ -675,5 +675,5 @@ public sealed class ChatServer : IAsyncDisposable
         SendMemberList(room);
     }
 
-    private void Status(string text) => StatusChanged?.Invoke(this, text);
+    private void Status(string text) => Dispatch.Safe(() => StatusChanged?.Invoke(this, text));
 }

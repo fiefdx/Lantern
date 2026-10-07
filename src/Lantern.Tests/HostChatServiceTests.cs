@@ -267,6 +267,43 @@ public sealed class HostChatServiceTests
         }
     }
 
+    // ------------------------------------------------------ a window that throws
+
+    [Fact]
+    public async Task AThrowingHostWindowLeavesTheServerIntact()
+    {
+        var (server, service) = await StartAsync();
+        await using (server)
+        await using (service)
+        {
+            await service.JoinRoomAsync("Room 1");
+
+            await using var client = new ChatClient("Cara");
+            await client.ConnectAsync(server.Endpoint);
+            await client.JoinRoomAsync("Room 1");
+            await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
+
+            // The host's window is reached synchronously, from the server's own threads: if its exception
+            // were allowed back in, it would unwind a broadcast or a join halfway through, and the room
+            // would be left holding whoever had been dealt with so far.
+            service.MessageReceived += (_, _) => throw new InvalidOperationException("the window is closed");
+
+            await client.SendAsync(new TextMessage("Cara", "Room 1", "first"));
+            await client.SendAsync(new TextMessage("Cara", "Room 1", "second"));
+
+            // The frames were still applied, because the state is changed before anybody is notified.
+            await Watch.UntilAsync(
+                () => service.Rooms.Single(r => r.Name == "Room 1").Transcript.Count(m => m is TextMessage) == 2,
+                "the host's transcript to hold both lines");
+
+            // And the chat carries on: a third line reaches the client's own window from the host.
+            var fromClient = WatchMessages(client);
+            await service.SendAsync(new TextMessage(service.Nickname, "Room 1", "third"));
+            await fromClient.ItemAsync(m => m.Preview == "third", "the client to hear the host afterwards");
+            Assert.True(client.IsConnected);
+        }
+    }
+
     // ---------------------------------------------------------------- plumbing
 
     /// <summary>The same sequence <see cref="Lantern.UI.StartupForm"/> runs when "Host" is clicked.</summary>

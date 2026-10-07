@@ -171,7 +171,7 @@ internal sealed class ClientState
             currentRoomName = null;
         }
 
-        MembersChanged?.Invoke(this, EventArgs.Empty);
+        Dispatch.Safe(() => MembersChanged?.Invoke(this, EventArgs.Empty));
     }
 
     private void ApplyRoomList(IReadOnlyList<string>? names)
@@ -205,7 +205,7 @@ internal sealed class ClientState
             }
         }
 
-        RoomsChanged?.Invoke(this, EventArgs.Empty);
+        Dispatch.Safe(() => RoomsChanged?.Invoke(this, EventArgs.Empty));
     }
 
     private void ApplyMemberList(string? roomName, IReadOnlyList<FrameMember>? incoming)
@@ -225,6 +225,9 @@ internal sealed class ClientState
             currentRoomName = string.IsNullOrWhiteSpace(roomName) ? null : roomName;
         }
 
-        MembersChanged?.Invoke(this, EventArgs.Empty);
+        // Raised outside the lock, and wrapped: the window showing this state is the thing most likely
+        // to throw (a form being closed, for instance), and it must not be able to stop the client that
+        // is telling it about itself. See Dispatch.
+        Dispatch.Safe(() => MembersChanged?.Invoke(this, EventArgs.Empty));
     }
 }

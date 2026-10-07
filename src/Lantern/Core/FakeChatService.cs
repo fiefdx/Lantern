@@ -215,6 +215,11 @@ public sealed class FakeChatService : IChatService
     }
 
     /// <summary>Pushes a message in "from the network": incoming traffic, sound notifier (F10).</summary>
+    /// <remarks>
+    /// Unlike <see cref="ChatClient"/>, the fake lets a handler's exception through on purpose: it
+    /// delivers on the caller's own thread, so a throw here is the test's own bug and should be seen
+    /// rather than swallowed.
+    /// </remarks>
     public void SimulateIncoming(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);

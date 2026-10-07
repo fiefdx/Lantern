@@ -47,5 +47,10 @@ public sealed class LocalParticipant : IParticipant
     public event EventHandler<Frame>? FrameReceived;
 
     /// <inheritdoc />
-    public void Receive(Frame frame) => FrameReceived?.Invoke(this, frame);
+    /// <remarks>
+    /// The host's window is reached this way, from inside the server's own code, so delivery is
+    /// wrapped: a window that throws while receiving a frame must not abort the server's join or
+    /// broadcast halfway through.
+    /// </remarks>
+    public void Receive(Frame frame) => Dispatch.Safe(() => FrameReceived?.Invoke(this, frame));
 }
