@@ -2,59 +2,167 @@
 
 A local Bluetooth group chat for Windows — C# / Windows Forms / .NET 10.
 
-One machine **hosts** a chat server, the other machines **scan** for it and join
-as clients. The host organises the chat into named **rooms**; every client picks
-one room at a time. No accounts, no Wi‑Fi, no internet.
+One machine **hosts** a chat, the others **scan** for it and join as clients. The host organises the chat into
+named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
+Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-## Requirements
+**v1.0.** 413 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)).
 
-* Windows 10 or 11
-* .NET 10 SDK (or Visual Studio 2022+ with the ".NET desktop development" workload)
-* A Bluetooth radio on each machine (only needed from milestone **M4** onwards)
+---
 
-## Build and run
+## 1. Install
+
+### Build from source (what the class will do)
 
 ```powershell
-dotnet build Lantern.sln
-dotnet test  Lantern.sln                                  # unit tests
-
-dotnet run --project src/Lantern/Lantern.csproj           # the app, over the Bluetooth radio
-dotnet run --project src/Lantern/Lantern.csproj -- --loopback   # ...or on this machine alone
+git clone <this repo> ; cd Lantern
+dotnet build Lantern.sln                # 0 warnings is a group rule, so read this line
+dotnet test  Lantern.sln                # 413 tests
+dotnet run --project src/Lantern/Lantern.csproj
 ```
 
-Two windows on one laptop (how the manual checklists are walked through) need `--loopback`: one machine
-cannot be both ends of a Bluetooth link. The status bar says which transport a window is on.
+Needs **.NET 10 SDK**, or Visual Studio 2022+ with the *".NET desktop development"* workload. Windows 10 or 11.
 
-The solution layout:
+### One exe to take to the lab
 
-```
-src/Lantern/            WinForms app (.NET 10)
-  UI/                   forms, dialogs, status bar — talks only to IChatService
-  Core/                 ChatServer, ChatClient, ClientSession, ServerBrowser,
-                        SoundNotifier, IChatService
-  Domain/               Message hierarchy, Room, User, FileTransferJob, validation
-  Storage/              RoomDto, IRoomStore, JsonRoomStore (rooms.json),
-                        IKnownHosts, JsonKnownHostsStore (known-hosts.json)
-  Transport/            IBtServer / IBtClient / IClientLink, FrameCodec,
-                        loopback (TCP) transport and the real RFCOMM transport,
-                        with 32feet.NET behind IRfcommListener / IRfcommConnector / IDeviceFinder
-src/Lantern.Tests/      xUnit unit + integration tests
-docs/                   proposal, task breakdown, UML, wireframes, module notes
+```powershell
+dotnet publish src/Lantern/Lantern.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-## Modes
+That leaves `Lantern.exe` (plus the two `.wav` files beside it, which are the message and file sounds) in
+`bin\Release\net10.0-windows\win-x64\publish\`. Copy the folder to each laptop — no SDK needed on them. There
+is no installer: Lantern is a folder you run, it does not register anything, and it puts its two files (below) in
+`%LOCALAPPDATA%\Lantern\`.
 
-| Mode | What it does |
+### On a machine with no Bluetooth, or one laptop doing both ends
+
+```powershell
+Lantern.exe --loopback             # or: set LANTERN_TRANSPORT=loopback
+```
+
+Loopback runs the same engine over localhost TCP (ports from 43797 up) instead of the radio, so two windows on
+one laptop can be host and client. **One machine cannot be both ends of a Bluetooth link**, which is why this
+switch exists. The status bar always says which transport a window is on — read it before blaming the radio.
+
+## 2. Pair the machines first
+
+Lantern only ever dials machines Windows already knows. It does not pair, prompt, or discover unpaired devices,
+so a machine missing from the scan list is nearly always a pairing problem, not a Lantern problem.
+
+The long version, with the screens and the error codes, is
+[docs/testing/bluetooth-pairing-how-to.md](docs/testing/bluetooth-pairing-how-to.md). In short:
+
+1. Windows Settings → **Bluetooth & devices** → turn Bluetooth **on** on both laptops.
+2. **Add device → Bluetooth** on one of them, and make the other discoverable (its Bluetooth page has the toggle).
+3. When the two find each other, accept the pairing prompt on **both**, and confirm the same code appears on both screens.
+4. Check the second machine now reads *"ready"* or *"connected"* in Settings.
+5. Then start Lantern and press **Scan** — the machine appears under the name Windows gives it.
+
+If a scan is empty, the status bar says so and the list stays empty; Lantern never invents a machine to fill the
+box. Two things to check in that case: is the other machine hosting yet (nothing is advertised until someone
+presses *Start a server*), and did step 3 finish on both sides.
+
+## 3. How to use it
+
+**Host a chat.** Type a nickname, press **Start a server**. The status bar says **server online**, and the rooms
+from last time are already in the list (`%LOCALAPPDATA%\Lantern\rooms.json`).
+
+**Join a chat.** Type a nickname, press **Scan**, pick the machine, press **Join**. The host's rooms appear on
+the left; choose one to be in it.
+
+**Rooms.** Only the host can change them: **New**, **Delete**, and Edit → **Rename room**. Every change is saved
+to disk immediately — not on quit — and appears in every connected client's list without anyone pressing
+anything. A client's New/Delete/Rename are greyed out, and the Edit menu says who can.
+
+**Talk.** Type in the box, press **Send** or Enter. Everyone in the room sees it; you do not see your own words
+twice. Only the room you are in sees it.
+
+**Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail, and clicking the thumbnail
+opens the file that arrived (up to 5 MB). Anything Share is given that is not an image is sent as a file instead.
+
+**Files.** Press **Share** and pick a non-image file (up to 512 MB). Everyone else in the room gets an offer
+strip naming the file, its size and who sent it — and can keep typing while they decide. **Save to…** asks for a
+*folder*, not a file name: the file keeps its own name inside the folder, which is the only thing that works when
+three files arrive in the same minute. **Decline** throws away what has arrived. **Stop** ends a transfer in
+progress, at the sender too. Progress is one bar for both directions. If a folder refuses the file, the offer
+comes back and another folder can be chosen — the sender does not have to send it again. A file that is only
+half there is never quietly saved under its real name.
+
+**Sound.** Two short cues: one for a new message, a different one for a file that has arrived and is ready.
+Nothing plays for your own words. If a machine must be silent, mute it — there is no in-app switch.
+
+**Leave.** File → **Quit** asks first, then the server shuts down and every client reports **connection lost**.
+The room is told when someone enters or leaves (`Cara - join this chat`, `Cara - left this chat`), and the
+member list on the right follows. A client's **Leave** button ends their membership without ending their chat.
+
+## 4. How it is put together, module by module
+
+| Module | What it is | How it behaves |
+|:--|:--|:--|
+| `UI/` | The three windows (`StartupForm`, `HostForm`, `ClientForm` over the shared `ChatForm`), the dialogs, the offer strip and the status bar | Talks to nothing but `IChatService`, so every window is testable against `FakeChatService` with no sockets. Layout lives in `*.Designer.cs` files, behaviour in the `.cs` files. All service events are marshalled back on to the window's thread, and a window that throws while listening does not end the connection |
+| `Core/` | `ChatServer`, `ChatClient`, `ClientState`, `HostChatService`, `ServerBrowser`, `SoundNotifier`, `FileTransfer`, `IChatService`, `FakeChatService` | The engine: who is in which room, what gets relayed to whom, what is refused and why. Decisions are made synchronously and I/O is async; nothing on this side of the line knows whether the bytes are moving over Bluetooth or localhost |
+| `Domain/` | `Message` hierarchy (`TextMessage`, `PictureMessage`, `FileMessage`, `SystemMessage`), `Room`, `User`, `FileTransferJob`, `ValidationRules`, `FileSize`, `Attachments` | What the program talks *about*, with the rules in it — the 16-character nickname, 24-character room name, 500-character message, 5 MB picture — so the same words come out of the frames and out of the transcript |
+| `Storage/` | `IRoomStore` / `JsonRoomStore` (`rooms.json`), `IKnownHosts` / `JsonKnownHostsStore` (`known-hosts.json`), `ReceivedPayloads` | Everything lands in `%LOCALAPPDATA%\Lantern\`. A save is written to `rooms.json.tmp` and then moved onto the file, so a power cut mid-write leaves the previous list intact. Incoming files are spooled to disk as they arrive, not held in memory |
+| `Transport/` | `IBtServer` / `IBtClient` / `IClientLink`, `FrameCodec`, the loopback transport, and the real RFCOMM transport with 32feet.NET behind small interfaces | The wire: a 13-frame protocol (`HELLO`, `JOIN_ROOM`, `ROOM_LIST`, `TEXT`, `PICTURE`, `FILE_META`/`FILE_CHUNK`/`FILE_DONE`/`FILE_CANCEL`, `MEMBER_LIST`, `SYSTEM_NOTICE`, `ERROR`), a length-prefixed codec that survives a byte at a time, and 8 KiB file chunks with back-pressure so a fast sender cannot outrun a slow receiver |
+| `tools/BtSpike/` | The M4 spike | The two-laptop RFCOMM experiment that decided the transport interfaces before the product depended on them |
+
+Nothing in `UI/` references `Transport/`; nothing in `Domain/` references either. That is why the loopback build
+and the Bluetooth build are the same program.
+
+## 5. Known limitations
+
+Said plainly, because a limitation found by a marker is worse than one admitted in the report.
+
+* **No automatic reconnection.** If the link goes, the window says so and stops. Lantern does not dial anybody
+  back: a program that quietly keeps retrying a machine that walked out of range is a program whose user cannot
+  tell whether they are in the chat. Joining again is a person's decision.
+* **The host is a single point of failure.** When the host's laptop closes, the chat closes; there is no host
+  election and no hand-over. Rooms survive on disk and clients rejoin after a restart.
+* **One room at a time per person**, and one host per chat. No private messages, no broadcast to all rooms.
+* **Nicknames are not unique**, and that is deliberate: a name is chosen once on the way in and cannot be
+  changed from inside a room, so refusing a second "Alex" would strand somebody outside with nothing they could
+  do. Both get in and the room is told there are now two of that name.
+* **A transfer cannot be resumed.** A stopped, declined or interrupted file is deleted and has to be sent again
+  from the start. Interrupted *uploads* also leave nothing behind on purpose — a half file under its real name is
+  worse than none.
+* **A killed process can leave a spool.** Bytes of a file in progress are kept in `%LOCALAPPDATA%\Lantern\incoming\`
+  as `*.part` while they arrive. A clean exit and a lost connection both clear them; pulling the power mid-transfer
+  can leave one there to be deleted by hand.
+* **Sizes are capped**: 5 MB per picture, 512 MB per file, 500 characters per message. A file bigger than the cap
+  is refused where it was picked, not halfway across the room.
+* **Range and rate are the radio's, not ours.** RFCOMM is a few tens of metres and a few hundred kilobits a
+  second; a dozen megabytes is minutes, not seconds, and walking away ends the transfer.
+* **Pairing is Windows' job.** Lantern will not pair, prompt, or repair a broken pairing.
+* **No encryption or authentication of Lantern's own.** Whatever Bluetooth provides is what there is; a nearby
+  machine that is paired and knows the service GUID can join a room. This is a class chat, not a secure channel.
+* **Windows only**, and only tested on Windows 11 laptops with Intel radios. Windows 10 is supported by the code
+  and untested by us.
+* **Rooms are per host.** `rooms.json` is one host's list; two hosts in one lab do not share or merge rooms.
+
+## 6. Tests and checklists
+
+```powershell
+dotnet test Lantern.sln                       # 413 tests: unit, integration, and WinForms UI smoke tests
+```
+
+The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no
+radio, no pairing and no second machine. `docs/testing/` holds the sheets that only hardware can close:
+
+| Sheet | What it walks through |
 |:--|:--|
-| **Live** | Real `ChatServer` / `ChatClient` over the selected transport |
-| **Loopback** | Same engine over localhost TCP — `--loopback`, or no Bluetooth radio found; demos, tests, and two windows on one laptop |
-| **Fake** | `FakeChatService`, in-memory dummy rooms/messages, no sockets at all — for UI work |
+| [m2-manual-checklist.md](docs/testing/m2-manual-checklist.md) | the engine over loopback |
+| [m3-manual-checklist.md](docs/testing/m3-manual-checklist.md) | rooms on disk and on screen |
+| [m4-field-test.md](docs/testing/m4-field-test.md) | two laptops and a radio |
+| [m5-manual-checklist.md](docs/testing/m5-manual-checklist.md) | pictures, files, sounds |
+| [m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md) | **the six use-case scenarios, signed off by a non-author** |
 
-The transport is chosen once at start-up by `Core/Transports.cs` (`--loopback`, or
-`LANTERN_TRANSPORT=loopback|bluetooth`); the UI is identical in all three because it
-only ever sees `IChatService`. The status bar always says which transport is in use.
+Module notes — what each task was for, what was learned, and what was got wrong first — are in
+[docs/notes/](docs/notes/). The specification is [docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md), the task
+list is [docs/TASK_BREAKDOWN.md](docs/TASK_BREAKDOWN.md), the diagrams are in [docs/umls/](docs/umls/), and the
+working rules (branch policy, module owners, Definition of Done) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Roadmap
+## 7. Milestones
 
 | Milestone | Theme | State |
 |:--|:--|:--|
@@ -62,12 +170,6 @@ only ever sees `IChatService`. The status bar always says which transport is in 
 | M1 | Domain model & validation | done |
 | M2 | Chat engine + wire protocol over loopback | done |
 | M3 | Room persistence & room management | done |
-| M4 | Real Bluetooth transport | in progress — RFCOMM transport, discovery, known hosts and the startup window are done; multi-client, lifecycle and the two-laptop field test are not |
-| M5 | Pictures, file transfer, sounds | not started |
-| M6 | Hardening, testing, release (`v1.0`) | not started |
-
-The test suite is 296 tests; `docs/testing/` holds the manual checklists that go with each milestone.
-
-See [docs/TASK_BREAKDOWN.md](docs/TASK_BREAKDOWN.md) for the full task list and
-[docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md) for the specification.
-Working rules, branch policy and module owners are in [CONTRIBUTING.md](CONTRIBUTING.md).
+| M4 | Real Bluetooth transport | done in code; the two-laptop field test (m4, m6 📶 steps) needs the lab booked |
+| M5 | Pictures, file transfer, sounds | done |
+| M6 | Hardening, testing, release (`v1.0`) | done — the sign-off table in the end-to-end sheet is the last thing to fill |
