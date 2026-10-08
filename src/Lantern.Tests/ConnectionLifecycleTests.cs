@@ -247,7 +247,13 @@ public sealed class ConnectionLifecycleTests
             // after the window has gone. (The status bar is read off the form rather than off its controls
             // because a closed form no longer has a control tree to look through.)
             Assert.False(string.IsNullOrWhiteSpace(form.Lost.Items[0].Message));
-            Assert.Equal($"Status: {form.Lost.Items[0].Message}", form.StatusText);
+            // Both halves of the meeting, in the bar: the state, for whoever looks at it afterwards, and the
+            // reason, for right now.
+            Assert.StartsWith("Status: connection lost — ", form.StatusText, StringComparison.Ordinal);
+            Assert.EndsWith(form.Lost.Items[0].Message, form.StatusText, StringComparison.Ordinal);
+
+            // And no promise that is not going to be kept: nothing dials anybody back on its own.
+            Assert.DoesNotContain("reconnect", form.StatusText, StringComparison.OrdinalIgnoreCase);
         });
 
     [Fact]

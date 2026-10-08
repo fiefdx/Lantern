@@ -111,9 +111,24 @@ public sealed class IncomingFileUiTests
             await Watch.UntilAsync(() => File.Exists(request.Path), "the file to be written once it had all arrived");
             Assert.Equal("simulated payload for notes.txt", await File.ReadAllTextAsync(request.Path));
 
-            await Watch.UntilAsync(
-                () => form.StatusText.Contains("saved notes.txt", StringComparison.Ordinal),
-                "the window to say where it put the file");
+            try
+            {
+                // Patient on purpose. The write itself is waited for above, so by here the only thing outstanding
+                // is the window being told, which is a message on a queue - and on a machine running four hundred
+                // tests at once a queue can take longer than eight seconds. Every other run of this test says the
+                // line, so the remedy is patience plus evidence, not a shorter fuse.
+                await Watch.UntilAsync(
+                    () => form.StatusText.Contains("saved notes.txt", StringComparison.Ordinal),
+                    "the window to say where it put the file",
+                    Watch.DefaultTimeoutMs * 3);
+            }
+            catch (TimeoutException)
+            {
+                // What the bar did say is the whole of the evidence about a failure that happens only in a full
+                // parallel run and nowhere else, so the failure has to carry it out of the test.
+                throw new Xunit.Sdk.XunitException(
+                    $"the window never said it had saved the file. The bar says: \"{form.StatusText}\"");
+            }
 
             Assert.Contains(folder, form.StatusText, StringComparison.Ordinal);
 

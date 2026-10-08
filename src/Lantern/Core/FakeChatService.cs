@@ -153,6 +153,13 @@ public class FakeChatService : IChatService
     /// window's own user included — is left standing nowhere, and the room stops being listed. A client
     /// does not edit rooms, so this is how a test shows a window what its host did.
     /// </summary>
+    /// <summary>
+    /// Says something in the status bar, the way a real service does while it is working. The window forwards
+    /// whatever it is told, so a test that cares about what the bar ends up showing needs to be able to make
+    /// the service speak first.
+    /// </summary>
+    public void SimulateStatus(string message) => StatusChanged?.Invoke(this, message);
+
     public void SimulateRoomClosed(string name)
     {
         var room = Find(name);

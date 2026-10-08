@@ -37,7 +37,12 @@ public abstract partial class ChatForm : Form
         InitializeComponent();
 
         txtMessage.MaxLength = ValidationRules.MessageMaxLength;
-        lblStatus.Text = service.IsHost ? "Status: hosting, waiting for clients" : "Status: connected to server";
+
+        // The state this window opens in, said out loud rather than left to be inferred from a room list that
+        // happens to be filled in. Scenario 1 asks for these words in the host's bar; the startup scenario
+        // asks the bar to report the connection state. Said here, after the service has been started and its
+        // news relayed, so that it is what a person reads when they look up.
+        SetStatus(service.IsHost ? ServerOnlineState : ConnectedState);
 
         BindService();
         ShowRooms();
@@ -117,6 +122,17 @@ public abstract partial class ChatForm : Form
     /// <summary>A service call refuses something the user asked for (duplicate name, over-long message).</summary>
     protected void SetStatus(string message)
         => lblStatus.Text = message.Length == 0 ? "Status: idle" : $"Status: {message}";
+
+    /// <summary>
+    /// The states a window can be in, in the words the scenario list and the figure use for them: scenario 1
+    /// asks for “server online” in the host's bar, and the startup scenario asks the bar to report the
+    /// connection state. There is deliberately no “reconnecting”: Lantern does not dial anybody back on its
+    /// own (M4, and <c>ConnectionLifecycleTests</c>), so the bar says the meeting is over instead of
+    /// promising an attempt that is not going to happen.
+    /// </summary>
+    protected const string ServerOnlineState = "server online";
+    protected const string ConnectedState = "connected";
+    protected const string ConnectionLostState = "connection lost";
 
     /// <summary>
     /// What the status bar says. Readable from outside because it is the only place this program explains
@@ -986,7 +1002,9 @@ public abstract partial class ChatForm : Form
     /// </remarks>
     protected virtual void OnConnectionLost(Exception error)
     {
-        SetStatus(error.Message);
+        // The state first and the reason after it: the reason is for this moment and the state is for whoever
+        // looks at the bar afterwards, when the box has been acknowledged and this window has stepped aside.
+        SetStatus($"{ConnectionLostState} — {error.Message}");
         ShowConnectionLost(error);
         Close();
     }
