@@ -90,6 +90,14 @@ public abstract partial class ChatForm : Form
         => lblStatus.Text = message.Length == 0 ? "Status: idle" : $"Status: {message}";
 
     /// <summary>
+    /// What the status bar says. Readable from outside because it is the only place this program explains
+    /// itself — and because a window that has stepped aside on its own no longer has a control tree to
+    /// look through.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string StatusText => lblStatus.Text ?? string.Empty;
+
+    /// <summary>
     /// Runs a service call with Send and Share greyed out, and reports a refusal in the status bar
     /// instead of letting it reach the message loop.
     /// </summary>
@@ -459,11 +467,20 @@ public abstract partial class ChatForm : Form
         }
     }
 
-    /// <summary>Scenario 5: the host has gone, so this window has nothing left to do.</summary>
+    /// <summary>Scenario 6: the host has gone, so this window has nothing left to do.</summary>
+    /// <remarks>
+    /// The telling is split out for the same reason as the dialogs on the other windows: a modal sits in
+    /// the middle of this method and stops a test reaching the rest of it. What is under test is that the
+    /// status bar says why, and that the window steps aside rather than sitting there offering a Send
+    /// button that can only fail.
+    /// </remarks>
     protected virtual void OnConnectionLost(Exception error)
     {
         SetStatus(error.Message);
-        ConfirmDialog.ConnectionLost(this);
+        ShowConnectionLost(error);
         Close();
     }
+
+    /// <summary>Telling the person, in a box they have to acknowledge.</summary>
+    protected virtual void ShowConnectionLost(Exception error) => ConfirmDialog.ConnectionLost(this);
 }
