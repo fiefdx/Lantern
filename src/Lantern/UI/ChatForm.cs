@@ -574,6 +574,13 @@ public abstract partial class ChatForm : Form
             // pointed at nothing.
             ShowOffer();
         }
+        else if (shown == job && !wasAccepted && !job.IsComplete)
+        {
+            // Ended short without anybody stopping it - the link went away in the middle, most likely. The
+            // transfer layer has said why in a line of its own; this is the part that says the number on the
+            // bar is not going to move again.
+            SetStatus($"{job.FileName} did not finish");
+        }
         else if (shown == job && !wasAccepted)
         {
             // "arrived" rather than "saved": what has arrived is not yet anywhere permanent, and a window

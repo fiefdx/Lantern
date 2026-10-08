@@ -315,6 +315,11 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
 
         helloAck?.TrySetCanceled();
 
+        // Files that were arriving stopped arriving when the link did. Say so, throw the half files away, and
+        // let any window watching one stop counting: a bar sitting at 40% of a file that will never have the
+        // rest of it is a lie, and a .part left in the incoming folder is found next month rather than now.
+        files.AbandonUnfinished(reason ?? "the connection closed");
+
         if (reason is not null)
         {
             Status(reason);
@@ -355,6 +360,11 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         // Whatever the transcripts hold stays; who is in a room is the server's business, and there is
         // no server any more.
         state.ClearMembership();
+
+        // A file that was arriving on this link stopped arriving when the link did, whoever ended it. Say so
+        // and throw the half of it away: left alone, it is a progress bar that has stopped moving for ever
+        // and a .part in the incoming folder that somebody finds next month.
+        files.AbandonUnfinished(reason ?? "the connection closed");
 
         if (wasCurrent && !shuttingDown)
         {

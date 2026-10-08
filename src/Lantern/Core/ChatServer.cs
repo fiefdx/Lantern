@@ -334,11 +334,15 @@ public sealed partial class ChatServer : IAsyncDisposable
 
                 if (joined is null)
                 {
-                    participant.Receive(Frame.Error($"No room named \"{wanted}\"."));
-                    SendRooms(participant);
+                    RefuseJoin(participant, $"No room named \"{wanted}\".");
                     return;
                 }
 
+                // A name already in use in this room is not turned away. A nickname is chosen once, on the
+                // way into the program, and there is no way to change it from inside a room, so refusing a
+                // second "Alex" would leave that person outside the room they wanted with nothing they could
+                // do about it. People are kept apart by their connection; what the clash costs is paid for by
+                // saying it out loud to the room, below.
                 joined.AddMember(new User(participant.ConnectionId, participant.Nickname));
             }
         }
@@ -351,6 +355,17 @@ public sealed partial class ChatServer : IAsyncDisposable
         if (joined is not null)
         {
             Broadcast(joined, Frame.SystemNotice(joined.Name, SystemMessage.JoinBody(participant.Nickname)));
+
+            var namesakes = joined.Members.Count(u =>
+                string.Equals(u.Nickname, participant.Nickname, StringComparison.OrdinalIgnoreCase));
+
+            if (namesakes > 1)
+            {
+                // Two lines from "Alex" are two different people, and nothing in the transcript says so. The
+                // room hears about it at the moment it becomes true, which is the only moment it is news.
+                Broadcast(joined, Frame.SystemNotice(joined.Name, SystemMessage.NameSharedBody(participant.Nickname, namesakes)));
+            }
+
             SendMemberList(joined);
         }
         else
@@ -360,6 +375,19 @@ public sealed partial class ChatServer : IAsyncDisposable
 
         SendRooms(participant);
         Status($"{participant.Nickname} joined \"{joined?.Name ?? "no room"}\"");
+    }
+
+    /// <summary>
+    /// Turn somebody away from a room and leave them where they started: the reason goes back in words, and
+    /// the membership they were told to expect is taken back. A client asks to join a room and writes it into
+    /// its own state straight away, because the answer is nearly always yes; a refusal that only said "no" in
+    /// a status line would leave that window showing a room it is not in, with a Send button waiting to fail.
+    /// </summary>
+    private void RefuseJoin(IParticipant participant, string reason)
+    {
+        participant.Receive(Frame.Error(reason));
+        participant.Receive(Frame.MemberList(string.Empty, []));
+        SendRooms(participant);
     }
 
     /// <summary>

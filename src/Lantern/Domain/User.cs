@@ -1,8 +1,10 @@
 namespace Lantern.Domain;
 
 /// <summary>
-/// A connected person (Figure 7). <paramref name="ConnectionId"/> identifies the socket so the
-//  same nickname can appear twice without confusing the session tables.
+/// A connected person (Figure 7). <paramref name="ConnectionId"/> identifies the socket, so the
+/// session tables never confuse two people even for a moment. It is not what a room reads, though: a
+/// transcript and a member list say who spoke by nickname alone, which is why the room is told when a
+/// second of a name joins rather than being left to work out afterwards which one was meant.
 /// </summary>
 public sealed class User : IEquatable<User>
 {

@@ -276,4 +276,12 @@ public partial class StartupForm : Form
 
     private void SetStatus(string message)
         => lblStatus.Text = message.Length == 0 ? "Status: idle" : $"Status: {message}";
+
+    /// <summary>
+    /// What the status bar says, which is where this window puts every answer it has for a person - including
+    /// the ones that arrive from a radio that is not there. Readable from outside because a program that only
+    /// explains itself in a bar needs a way to be asked what it just said.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string StatusText => lblStatus.Text ?? string.Empty;
 }
