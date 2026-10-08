@@ -111,7 +111,7 @@ core logic.
 - [x] **T4.2 [Net]** `BtRfcommServer` (`IBtServer`) and `BtRfcommClient` (`IBtClient`) + `IClientLink` over `NetworkStream`/RFCOMM streams. Keep `FrameCodec` untouched.
 - [x] **T4.3 [Net]** Advertise the Lantern service so clients can discover it; real `ServerBrowser.DiscoverAsync(timeout)` returning `ServerEndpoint` list.
 - [x] **T4.4 [UI]** `StartupForm` **Scan** → populated server list → **Join** (scenario 2), with a busy indicator and cancel support; status bar shows “scanning…”.
-- [ ] **T4.5 [Core]** Multi-client host: several simultaneous sessions, per-room member lists verified across 3 machines where possible.
+- [x] **T4.5 [Core]** Multi-client host: several simultaneous sessions, per-room member lists verified across 3 machines where possible.
 - [ ] **T4.6 [Core]** Connection lifecycle: **Quit Server** confirm → `ShutdownAsync()` → clients show “connection lost” (scenario 6); client disconnect → member list + notice updated; reconnect attempt policy (simple: manual re-join).
 - [ ] **T4.7 [QA]** Field test on 2–3 physical laptops: pair, host, join, chat, quit. Record which steps are flaky and why.
 
