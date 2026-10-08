@@ -9,8 +9,14 @@ namespace Lantern.Core;
 /// built, demoed and unit-tested without a single socket — let alone Bluetooth.
 /// Events fire synchronously on the calling thread, which is what the real services will do too
 /// once they have marshalled onto the UI thread.
+/// <para>
+/// Not sealed, and <see cref="SendAsync"/> is virtual, on purpose: a fake that cannot be varied is a
+/// fixture. Some rules - Send and Share greyed out while a send is in flight (F3) - can only be seen from
+/// inside a send that has not finished yet, and a test should be able to make one rather than write a
+/// second service from scratch.
+/// </para>
 /// </summary>
-public sealed class FakeChatService : IChatService
+public class FakeChatService : IChatService
 {
     private const string DuplicateName = "A room with that name already exists.";
     private const string SelfId = "self";
@@ -196,7 +202,7 @@ public sealed class FakeChatService : IChatService
     }
 
     /// <summary>Records the message. The sender renders it locally, so no echo back up.</summary>
-    public Task SendAsync(Message message, CancellationToken cancel = default)
+    public virtual Task SendAsync(Message message, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(message);
         if (message is TextMessage text && ValidationRules.MessageError(text.Body) is { } error)

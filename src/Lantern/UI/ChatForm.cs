@@ -286,9 +286,15 @@ public abstract partial class ChatForm : Form
         });
     }
 
-    private void BtnShare_Click(object? sender, EventArgs e) => _ = ShareFileAsync();
+    private void BtnShare_Click(object? sender, EventArgs e) => _ = ShareAsync();
 
-    private async Task ShareFileAsync()
+    /// <summary>
+    /// F7 and F8: one Share button for pictures and files alike, because the person clicking has a thing
+    /// they want to send and should not be asked a second question about what kind of thing it is. The
+    /// name decides (see <see cref="Attachments"/>), and a name nobody recognises becomes a file, which is
+    /// the safe answer: a file arrives complete and they open it themselves.
+    /// </summary>
+    private async Task ShareAsync()
     {
         if (CurrentRoom is not { } room)
         {
@@ -296,31 +302,101 @@ public abstract partial class ChatForm : Form
             return;
         }
 
-        using var picker = new OpenFileDialog
-        {
-            Title = "Send File",
-            Filter = "All files (*.*)|*.*",
-        };
+        var path = AskForAttachment();
 
-        if (picker.ShowDialog(this) != DialogResult.OK)
+        if (path is null)
         {
+            // Changed their mind, which is not a failure and needs nothing said about it.
             return;
         }
 
-        var file = new FileInfo(picker.FileName);
+        var file = new FileInfo(path);
+
         if (!file.Exists)
         {
             SetStatus("that file could not be read");
             return;
         }
 
+        if (Attachments.IsPicture(path))
+        {
+            await SharePictureAsync(room, file);
+        }
+        else
+        {
+            await ShareFileAsync(room, file);
+        }
+    }
+
+    /// <summary>
+    /// F7: a picture's bytes are the message, so they are read here and now - a photo is at most a few
+    /// megabytes, and it is already sitting in memory on the way to the transcript.
+    /// </summary>
+    private async Task SharePictureAsync(Room room, FileInfo file)
+    {
+        byte[] bytes;
+
+        try
+        {
+            bytes = File.ReadAllBytes(file.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Somebody else has it open, or the drive went away between the dialog and this line. The
+            // window is still a window.
+            SetStatus($"could not read {file.Name}: {ex.Message}");
+            return;
+        }
+
+        // Said here, while the person is still looking at the folder they picked from. The host would
+        // refuse it too - and does, for the peer that does not check - but a 40 MB photo should not have
+        // to travel to the host and back to be turned down.
+        if (ValidationRules.PictureError(file.Name, bytes.LongLength) is { } error)
+        {
+            SetStatus(error);
+            return;
+        }
+
+        var picture = new PictureMessage(Service.Nickname, room.Name, file.Name, bytes);
+
+        await RunAsync(async () =>
+        {
+            await Service.SendAsync(picture);
+            Append(picture);
+            SetStatus($"sent {file.Name}");
+        });
+    }
+
+    /// <summary>
+    /// F8: a file is announced, and its bytes follow as numbered chunks rather than being read into memory
+    /// here - the whole point of a file transfer is that it works for files bigger than the room they are
+    /// sent from.
+    /// </summary>
+    private async Task ShareFileAsync(Room room, FileInfo file)
+    {
         var message = new FileMessage(Service.Nickname, room.Name, file.Name, file.Length);
+
         await RunAsync(async () =>
         {
             await Service.SendAsync(message);
             Append(message);
             SetStatus($"sending {file.Name}");
         });
+    }
+
+    /// <summary>
+    /// Asks for something to send; null means nothing was chosen. One method to override, so the decision
+    /// made from the choice can be tested without a dialog standing in front of the test runner.
+    /// </summary>
+    protected virtual string? AskForAttachment()
+    {
+        using var picker = new OpenFileDialog
+        {
+            Title = "Share",
+            Filter = $@"{Attachments.PictureFilter}|All files (*.*)|*.*",
+        };
+
+        return picker.ShowDialog(this) == DialogResult.OK ? picker.FileName : null;
     }
 
     // ------------------------------------------------------------- receiving
