@@ -52,8 +52,18 @@ public interface IChatService
     /// <summary>Broadcast a message to the room the local user is in.</summary>
     Task SendAsync(Message message, CancellationToken cancel = default);
 
-    /// <summary>Send a whole file to the room (F8).</summary>
-    Task SendFileAsync(string path, CancellationToken cancel = default);
+    /// <summary>
+    /// Starts a file going to the current room and hands back the job to watch (F8).
+    /// <para>
+    /// It does not wait for the file. Twenty megabytes over Bluetooth is minutes of work, and a window
+    /// that could not be typed in while it sent an attachment would be a window nobody used. Watch
+    /// <see cref="FileTransferJob.Fraction"/> for progress, await
+    /// <see cref="FileTransferJob.Finished"/> when something needs to know the transfer is over, and call
+    /// <see cref="FileTransferJob.CancelTransfer"/> to stop it - which stops the sender too, not just this
+    /// end of it.
+    /// </para>
+    /// </summary>
+    FileTransferJob SendFile(string path);
 
     /// <summary>Save an incoming transfer, announced by <see cref="IncomingFile"/> (F8).</summary>
     Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default);

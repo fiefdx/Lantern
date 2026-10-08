@@ -1,9 +1,13 @@
 namespace Lantern.Transport;
 
 /// <summary>
-/// The twelve things that can travel between two Lantern processes (T2.1). The member names are
+/// The thirteen things that can travel between two Lantern processes (T2.1). The member names are
 /// the wire names: <see cref="FrameCodec"/> serialises the enum as its own name, so a packet trace
 /// reads like this list and adding a member cannot silently renumber an existing one.
+/// <para>
+/// <see cref="FILE_CANCEL"/> was added in T5.3, after the original twelve. It is not a new kind of
+/// conversation but the missing half of one: META / CHUNK / DONE say how bytes go one way, and only a
+/// frame going the other way can stop them.
 /// </summary>
 public enum FrameType
 {
@@ -33,6 +37,13 @@ public enum FrameType
 
     /// <summary>The last chunk has been sent (F8).</summary>
     FILE_DONE,
+
+    /// <summary>
+    /// Either side: stop this transfer (F8, T5.3). Cancel that only stops the local half is not cancel -
+    /// the sender would go on pushing a whole file into a socket nobody is reading, which is a memory
+    /// problem for the machine that was supposed to get relief from it.
+    /// </summary>
+    FILE_CANCEL,
 
     /// <summary>Server → client: who is in the room right now (F12).</summary>
     MEMBER_LIST,

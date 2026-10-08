@@ -104,6 +104,12 @@ public sealed class Frame
         TransferId = transferId,
     });
 
+    public static Frame FileCancel(Guid transferId) => new(new FrameHeader
+    {
+        Type = FrameType.FILE_CANCEL,
+        TransferId = transferId,
+    });
+
     public static Frame MemberList(string roomName, IEnumerable<User> members) => new(new FrameHeader
     {
         Type = FrameType.MEMBER_LIST,

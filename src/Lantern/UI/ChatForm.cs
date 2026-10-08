@@ -324,7 +324,7 @@ public abstract partial class ChatForm : Form
         }
         else
         {
-            await ShareFileAsync(room, file);
+            ShareFile(room, file);
         }
     }
 
@@ -368,20 +368,54 @@ public abstract partial class ChatForm : Form
     }
 
     /// <summary>
-    /// F8: a file is announced, and its bytes follow as numbered chunks rather than being read into memory
-    /// here - the whole point of a file transfer is that it works for files bigger than the room they are
-    /// sent from.
+    /// F8: the bytes are not read here. A file is announced and then carried in numbered chunks, which is
+    /// what makes it work for a file bigger than the memory of the machine sending it - and it is why this
+    /// returns at once instead of waiting: the job that comes back is the thing to watch, not this call.
     /// </summary>
-    private async Task ShareFileAsync(Room room, FileInfo file)
+    private void ShareFile(Room room, FileInfo file)
     {
-        var message = new FileMessage(Service.Nickname, room.Name, file.Name, file.Length);
+        FileTransferJob job;
 
-        await RunAsync(async () =>
+        try
         {
-            await Service.SendAsync(message);
-            Append(message);
-            SetStatus($"sending {file.Name}");
+            job = Service.SendFile(file.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // The file went away, or is too big, or is being held by something else. All of them are
+            // worth one line in the status bar and a window that is still a window.
+            SetStatus(ex.Message);
+            return;
+        }
+
+        // Built from the job rather than from what this window knows, so the id in this transcript is the
+        // id every other window's transcript has for the same file (F8: one event, seen four times).
+        Append(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes, job.Id, id: job.MessageId));
+
+        WatchSend(job);
+        SetStatus($"sending {file.Name}");
+    }
+
+    /// <summary>
+    /// Puts a sending file's progress where a person can see it and stops the transfer if they ask. The
+    /// job reports from the thread moving the bytes, so everything in here comes back through OnUi.
+    /// </summary>
+    private void WatchSend(FileTransferJob job)
+    {
+        job.Progress = new Progress<double>(fraction =>
+        {
+            SetStatus(job.IsComplete ? $"sent {job.FileName}" : $"sending {job.FileName} {fraction:P0}");
         });
+
+        _ = job.Finished.ContinueWith(
+            _ => OnUi(() =>
+            {
+                if (job.Cancel.IsCancellationRequested)
+                {
+                    SetStatus($"{job.FileName} was stopped");
+                }
+            }),
+            TaskScheduler.Default);
     }
 
     /// <summary>

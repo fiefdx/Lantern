@@ -214,10 +214,24 @@ public class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
-    public Task SendFileAsync(string path, CancellationToken cancel = default)
+    public FileTransferJob SendFile(string path)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
         var size = File.Exists(path) ? new FileInfo(path).Length : 0L;
-        return SendAsync(new FileMessage(Nickname, CurrentRoom()?.Name ?? string.Empty, Path.GetFileName(path), size), cancel);
+        var job = new FileTransferJob(Path.GetFileName(path), size, senderNickname: Nickname, roomName: CurrentRoom()?.Name ?? string.Empty);
+
+        Record(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes, job.Id, id: job.MessageId));
+
+        // Nothing arrives from anywhere in a fake: the file is "sent" by finishing the job, which is what
+        // lets a window's progress bar and its Cancel button be tested without a second machine.
+        while (!job.IsComplete)
+        {
+            job.AddBytes(unchecked((int)Math.Min(int.MaxValue, job.SizeBytes - job.BytesDone)));
+        }
+
+        job.Finish();
+        return job;
     }
 
     public Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default)
@@ -229,6 +243,7 @@ public class FakeChatService : IChatService
             job.AddBytes(unchecked((int)Math.Min(int.MaxValue, job.SizeBytes - job.BytesDone)));
         }
 
+        job.Finish();
         return Task.CompletedTask;
     }
 

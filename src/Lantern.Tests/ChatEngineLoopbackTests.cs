@@ -292,29 +292,35 @@ public sealed class ChatEngineLoopbackTests
     }
 
     /// <summary>
-    /// What this build declines rather than pretending to do. Pictures went on the wire in T5.2 (see
-    /// <c>PictureMessageTests</c>); a file has not gone yet, and the point of refusing is that a client
-    /// never puts a frame on the wire that the host would have to reject, and a host answers a frame it
-    /// does not carry with a sentence rather than by dropping the connection.
+    /// What is left to refuse: the frames only a host may send. A client that announces a room list is
+    /// either confused or pretending to be something else, and either way it gets a sentence rather than
+    /// a silence.
+    /// <para>
+    /// Everything else that used to be refused here has gone on the wire since: pictures in T5.2 (see
+    /// <c>PictureMessageTests</c>) and files in T5.3 (see <c>FileTransferTests</c>). That is the milestone
+    /// statement worth keeping in the test file - there came a point at which this build was carrying all
+    /// twelve frames it claims to, and a frame it does not carry is answered rather than dropped.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task ThisBuildRefusesWhatItCannotYetCarry()
+    public async Task FramesOnlyAHostMaySendAreRefused()
     {
         await using var server = await StartAsync();
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
         await client.JoinRoomAsync("Room 1");
 
-        await Assert.ThrowsAsync<NotSupportedException>(
+        // A file is a transfer, not a message: a FileMessage says a file is coming and has no way to send
+        // it, so this is a mistake about what a message is.
+        await Assert.ThrowsAsync<InvalidOperationException>(
             () => client.SendAsync(new FileMessage("Cara", "Room 1", "notes.zip", 12)));
-        await Assert.ThrowsAsync<NotSupportedException>(() => client.SendFileAsync("nothing.bin"));
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.FileMeta(Guid.NewGuid(), Guid.NewGuid(), "Room 1", "Mallory", "notes.zip", 12));
+        await SendRawAsync(raw, Frame.RoomList(["Room 1"]));
 
         var error = await ReadRawAsync(raw, FrameType.ERROR);
-        Assert.Contains("FILE_META", error.Header.Error);
+        Assert.Contains("ROOM_LIST", error.Header.Error);
     }
 
     [Fact]

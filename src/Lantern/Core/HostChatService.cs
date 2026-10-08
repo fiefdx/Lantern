@@ -1,4 +1,5 @@
 using Lantern.Domain;
+using Lantern.Storage;
 using Lantern.Transport;
 
 namespace Lantern.Core;
@@ -20,6 +21,7 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
     private readonly ChatServer server;
     private readonly LocalParticipant me;
     private readonly ClientState state = new();
+    private readonly FileReceiving files;
 
     public HostChatService(ChatServer server, string nickname)
     {
@@ -34,6 +36,15 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
 
         me = new LocalParticipant(Nickname);
         me.FrameReceived += (_, frame) => Apply(frame);
+
+        // The host is a member of its own room, so it receives other people's files exactly as a client
+        // does - same spool, same notice, same rules - and this is where that is said.
+        files = new FileReceiving(
+            ReceivedPayloads.IncomingDirectory,
+            job => IncomingFile?.Invoke(this, job),
+            (job, path) => FileSaved?.Invoke(this, path),
+            (_, reason) => Dispatch.Safe(() => StatusChanged?.Invoke(this, reason)),
+            id => server.DeclineFile(id, me));
 
         state.RoomsChanged += (_, _) => RoomsChanged?.Invoke(this, EventArgs.Empty);
         state.MembersChanged += (_, _) => MembersChanged?.Invoke(this, EventArgs.Empty);
@@ -70,15 +81,14 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
     /// <inheritdoc />
     public event EventHandler? MembersChanged;
 
-    // File transfer (T5.2, T5.3) is what raises these; until then the interface needs them and the
-    // host has nothing to say.
-#pragma warning disable CS0067
     /// <inheritdoc />
     public event EventHandler<FileTransferJob>? IncomingFile;
 
     /// <inheritdoc />
     public event EventHandler<string>? FileSaved;
 
+    // There is nobody to lose: the host is the server.
+#pragma warning disable CS0067
     /// <inheritdoc />
     public event EventHandler<Exception>? ConnectionLost;
 #pragma warning restore CS0067
@@ -177,20 +187,29 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
 
                 break;
 
+            case FileMessage:
+                // A file is not a message you can build and send: it is a transfer, and the bytes have to
+                // come off a disk that this method has never seen. Say so rather than pretend.
+                throw new InvalidOperationException("Send a file with SendFile, which reads it from disk.");
+
             default:
-                throw new NotSupportedException("This build sends text and pictures; a file is T5.3.");
+                throw new NotSupportedException("This build sends text and pictures.");
         }
 
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task SendFileAsync(string path, CancellationToken cancel = default)
-        => throw new NotSupportedException("File transfer arrives with M5.");
+    public FileTransferJob SendFile(string path) => server.SendFile(me, path);
 
     /// <inheritdoc />
     public Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default)
-        => throw new NotSupportedException("File transfer arrives with M5.");
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        return files.SaveAsync(job, path, cancel);
+    }
 
     // ---------------------------------------------------------------- frames
 
@@ -204,6 +223,33 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
             return;
         }
 
+        switch (frame.Type)
+        {
+            case FrameType.FILE_META:
+                // The announcement goes in the transcript first, then the file starts arriving: the room's
+                // history records that a file was offered whether or not anybody ends up keeping it (F8).
+                Record(frame);
+                files.Announce(frame);
+                return;
+
+            case FrameType.FILE_CHUNK:
+                files.Chunk(frame);
+                return;
+
+            case FrameType.FILE_DONE:
+                files.Complete(frame);
+                return;
+
+            case FrameType.FILE_CANCEL:
+                files.CancelledByPeer(frame);
+                return;
+        }
+
+        Record(frame);
+    }
+
+    private void Record(Frame frame)
+    {
         // The host's window is reached synchronously from the server's own threads, so a throwing
         // handler there would otherwise unwind the server's broadcast. See Dispatch.
         if (state.Apply(frame) is { } message)

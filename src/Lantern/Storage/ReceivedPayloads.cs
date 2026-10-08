@@ -11,6 +11,16 @@ namespace Lantern.Storage;
 /// </summary>
 public static class ReceivedPayloads
 {
+    /// <summary>
+    /// Where the bytes of a file that is arriving are kept while the person decides where to put it (F8).
+    /// Under the user's own area rather than beside the program, because a file arriving from another
+    /// machine is not something to write into a shared folder or wherever the shortcut pointed.
+    /// </summary>
+    public static string IncomingDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Lantern",
+        "incoming");
+
     /// <summary>Longest file name kept from a peer, after the id prefix and before the extension.</summary>
     public const int NameBudget = 60;
 

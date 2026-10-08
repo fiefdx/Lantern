@@ -19,7 +19,7 @@ namespace Lantern.Core;
 /// <see cref="LocalParticipant"/>, so the person hosting is an ordinary room member like everyone
 /// else (see <see cref="HostChatService"/>).
 /// </summary>
-public sealed class ChatServer : IAsyncDisposable
+public sealed partial class ChatServer : IAsyncDisposable
 {
     private readonly IBtServer transport;
     private readonly IRoomStore? roomStore;
@@ -288,6 +288,10 @@ public sealed class ChatServer : IAsyncDisposable
                 }
             }
         }
+
+        // A file being carried through someone who has vanished is over: the bytes stopped arriving, or
+        // nobody is left to take them. Either way the room hears it now rather than watching a bar stop.
+        ForgetTransfersOf(participant.ConnectionId);
 
         foreach (var (room, who) in left)
         {
@@ -588,7 +592,7 @@ public sealed class ChatServer : IAsyncDisposable
     /// What to do with a frame that arrived from a client. Runs on that connection's read loop, so it
     /// must not block: everything here either queues frames or takes the lock briefly.
     /// </summary>
-    internal void Handle(Frame frame, ChatServerSession session)
+    internal async Task HandleAsync(Frame frame, ChatServerSession session)
     {
         switch (frame.Type)
         {
@@ -616,8 +620,25 @@ public sealed class ChatServer : IAsyncDisposable
                 session.Receive(Frame.Error("Already introduced."));
                 break;
 
+            case FrameType.FILE_META:
+                await ReceiveFileMetaAsync(frame, session).ConfigureAwait(false);
+                break;
+
+            case FrameType.FILE_CHUNK:
+                await ReceiveFileChunkAsync(frame, session).ConfigureAwait(false);
+                break;
+
+            case FrameType.FILE_DONE:
+                await ReceiveFileDoneAsync(frame, session).ConfigureAwait(false);
+                break;
+
+            case FrameType.FILE_CANCEL:
+                await ReceiveFileCancelAsync(frame, session).ConfigureAwait(false);
+                break;
+
             default:
-                // FILE_META / FILE_CHUNK / FILE_DONE (T5.3) and the server-only frame types.
+                // A frame this host does not act on, including the ones only a server sends. Answering
+                // rather than ignoring is what stops a peer waiting for something that will never come.
                 session.Receive(Frame.Error($"{frame.Type} frames are not supported by this host."));
                 break;
         }

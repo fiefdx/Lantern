@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Lantern.Core;
 using Lantern.Domain;
 using Lantern.Transport;
@@ -252,8 +253,13 @@ public sealed class HostChatServiceTests
         }
     }
 
+    /// <summary>
+    /// T5.3: the host window sends a file the way every other window does - it is handed a job to watch,
+    /// and the call comes back at once, because a window that could not be typed in while it sent an
+    /// attachment would be a window nobody used (F8).
+    /// </summary>
     [Fact]
-    public async Task ThisBuildDoesNotYetSendFilesFromTheHostWindow()
+    public async Task TheHostWindowSendsAFileWithoutHoldingTheWindowStill()
     {
         var (server, service) = await StartAsync();
         await using (server)
@@ -261,9 +267,55 @@ public sealed class HostChatServiceTests
         {
             await service.JoinRoomAsync("Room 1");
 
-            await Assert.ThrowsAsync<NotSupportedException>(
-                () => service.SendAsync(new FileMessage("Hosty", "Room 1", "notes.pdf", 12)));
-            await Assert.ThrowsAsync<NotSupportedException>(() => service.SendFileAsync("notes.pdf"));
+            // In a folder of its own so the file keeps the name the room is told about.
+            var folder = Path.Combine(Path.GetTempPath(), "lantern-host-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+
+            var path = Path.Combine(folder, "notes.bin");
+            await File.WriteAllBytesAsync(path, new byte[20_000]);
+
+            try
+            {
+                var started = Stopwatch.StartNew();
+
+                var job = service.SendFile(path);
+                var returnedAfter = started.Elapsed;
+
+                Assert.Equal("notes.bin", job.FileName);
+                Assert.Equal(20_000, job.SizeBytes);
+                Assert.Equal("Hosty", job.SenderNickname);
+
+                await job.Finished;
+
+                // The call that started it did not wait for the file: twenty thousand bytes is small, so
+                // the point is the shape rather than the number - a five second wait here would be a
+                // frozen window for a real attachment.
+                Assert.True(returnedAfter < TimeSpan.FromSeconds(1), $"SendFile waited {returnedAfter} for the file to go");
+
+                // The job is the progress: bytes counted as they leave, and the fraction is what a bar in
+                // this window would show. Progress reports themselves are tested where the reporting happens
+                // (see DomainModelTests), because subscribing after the call returns is a race a test has
+                // no business winning.
+                Assert.True(job.IsComplete);
+                Assert.Equal(1.0, job.Fraction);
+
+                // A file is not a message, so building one and sending it is a mistake about the API.
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => service.SendAsync(new FileMessage("Hosty", "Room 1", "notes.pdf", 12)));
+            }
+            finally
+            {
+                File.Delete(path);
+
+                try
+                {
+                    Directory.Delete(folder);
+                }
+                catch (IOException)
+                {
+                    // Somebody else's test is still using the scratch directory, which is its business.
+                }
+            }
         }
     }
 

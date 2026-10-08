@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Lantern.Domain;
+using Lantern.Storage;
 using Lantern.Transport;
 
 namespace Lantern.Core;
@@ -8,6 +9,11 @@ namespace Lantern.Core;
 /// The client side of a chat (T2.5): connects, introduces itself, then spends its life in a read loop
 /// turning frames into state and events. It is an <see cref="IChatService"/>, so a window cannot tell
 /// it apart from a host except through <see cref="IsHost"/>.
+/// <para>
+/// A file crosses the wire in both directions here (T5.3): <see cref="FileSending"/> pushes the bytes out
+/// one frame at a time and <see cref="FileReceiving"/> spools the bytes coming in, so the window only ever
+/// sees a job with progress on it. Nothing waits for a whole file in memory.
+/// </para>
 /// <para>
 /// The read loop is the only writer of the state, and it runs on a thread-pool thread. That is why
 /// <see cref="Rooms"/> and <see cref="Members"/> are snapshots and why every event is raised outside
@@ -20,6 +26,15 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     private readonly IBtClient transport;
     private readonly ClientState state = new();
     private readonly SemaphoreSlim writeLock = new(1, 1);
+    private readonly FileReceiving files;
+
+    /// <summary>
+    /// Files this machine is sending, by transfer id, so that a FILE_CANCEL coming back the other way can
+    /// stop the reading. Without it a person who presses Cancel stops their own copy while the sender goes
+    /// on pushing a whole file into a socket nobody is reading, and their progress bar carries on to 100%
+    /// of something nobody received.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, FileTransferJob> outgoing = new();
 
     private IClientLink? link;
     private Task? readLoop;
@@ -36,6 +51,15 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         }
 
         this.transport = transport ?? new BtLoopbackClient();
+
+        // Where the bytes go, who is told, and how a cancellation travels back. The last of those is why
+        // Cancel has to be said out loud: without it the sender goes on filling a socket nobody reads.
+        files = new FileReceiving(
+            ReceivedPayloads.IncomingDirectory,
+            job => IncomingFile?.Invoke(this, job),
+            (job, path) => FileSaved?.Invoke(this, path),
+            (_, reason) => Status(reason),
+            id => _ = SendFrameAsync(Frame.FileCancel(id)));
 
         state.RoomsChanged += (_, _) => RoomsChanged?.Invoke(this, EventArgs.Empty);
         state.MembersChanged += (_, _) => MembersChanged?.Invoke(this, EventArgs.Empty);
@@ -73,15 +97,11 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     /// <inheritdoc />
     public event EventHandler? MembersChanged;
 
-    // Nothing on a client raises these until file transfer lands in M5 (T5.2, T5.3); they are part of
-    // the interface the UI binds to, so they exist now and stay quiet until then.
-#pragma warning disable CS0067
     /// <inheritdoc />
     public event EventHandler<FileTransferJob>? IncomingFile;
 
     /// <inheritdoc />
     public event EventHandler<string>? FileSaved;
-#pragma warning restore CS0067
 
     /// <summary>
     /// The connection ended on its own (scenario 6). The exception's message is the reason, worded for
@@ -180,8 +200,13 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 Keep(picture);
                 break;
 
+            case FileMessage:
+                // A FileMessage on its own only says "a file is coming", with no way to send it: the bytes
+                // come off a disk, which is a transfer rather than a message. Say which door to use.
+                throw new InvalidOperationException("Send a file with SendFile, which reads it from disk.");
+
             default:
-                throw new NotSupportedException("This build sends text and pictures; a file is T5.3.");
+                throw new NotSupportedException("This build sends text and pictures.");
         }
     }
 
@@ -203,12 +228,42 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     public Task DeleteRoomAsync(string name, CancellationToken cancel = default) => HostOnly();
 
     /// <inheritdoc />
-    public Task SendFileAsync(string path, CancellationToken cancel = default)
-        => throw new NotSupportedException("File transfer arrives with M5.");
+    public FileTransferJob SendFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var room = CurrentRoomName ?? throw new InvalidOperationException("Pick a room before sending a file.");
+        var file = Path.GetFullPath(path);
+
+        if (!File.Exists(file))
+        {
+            throw new FileNotFoundException("That file is not there any more.", file);
+        }
+
+        if (new FileInfo(file).Length > LanternProtocol.MaxReceivedFileBytes)
+        {
+            // Turned down here, while the person is still looking at the folder they picked from. The host
+            // refuses it too, but a file that big should not have to travel to the host and back before
+            // anybody says so.
+            throw new InvalidOperationException($"Lantern does not send files over {FileSize.Describe(LanternProtocol.MaxReceivedFileBytes)}.");
+        }
+
+        var job = new FileTransferJob(Path.GetFileName(file), new FileInfo(file).Length, senderNickname: Nickname, roomName: room);
+
+        // The window is not asked to hold still for a file it cannot watch: what it gets back is the job,
+        // which is the thing to watch, and the bytes go on moving afterwards on their own thread.
+        _ = Task.Run(() => StreamFileAsync(job, file));
+        return job;
+    }
 
     /// <inheritdoc />
     public Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default)
-        => throw new NotSupportedException("File transfer arrives with M5.");
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        return files.SaveAsync(job, path, cancel);
+    }
 
     private static Task HostOnly() => throw new InvalidOperationException("Only the host can edit rooms.");
 
@@ -323,6 +378,36 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 Status(problem);
                 break;
 
+            case FrameType.FILE_META:
+                // The announcement goes into the transcript first, then the file starts arriving: the
+                // room's history records that a file was offered whether or not anybody keeps it (F8).
+                Record(frame);
+                files.Announce(frame);
+                break;
+
+            case FrameType.FILE_CHUNK:
+                files.Chunk(frame);
+                break;
+
+            case FrameType.FILE_DONE:
+                files.Complete(frame);
+                break;
+
+            case FrameType.FILE_CANCEL:
+                // Either somebody over there stopped wanting a file we are receiving, or we are the one
+                // sending it and they have just stopped wanting it. The frame looks the same either way,
+                // and only the transfer id says which.
+                if (frame.Header.TransferId is { } stopped && outgoing.TryGetValue(stopped, out var sending))
+                {
+                    sending.CancelTransfer();
+                }
+                else
+                {
+                    files.CancelledByPeer(frame);
+                }
+
+                break;
+
             default:
                 // ROOM_LIST, MEMBER_LIST and the traffic frames.
                 // The state is updated first, so a window that throws has already been accounted for and
@@ -335,6 +420,50 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 }
 
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Streams a file out on its own thread. Every chunk is awaited on its way out, so when the link is
+    /// slower than the disk it is the socket buffer that fills and this loop that slows down: the flow
+    /// control Windows gives for free, and the reason a big file cannot run ahead of the connection
+    /// carrying it.
+    /// </summary>
+    private async Task StreamFileAsync(FileTransferJob job, string file)
+    {
+        outgoing[job.Id] = job;
+
+        try
+        {
+            await FileSending
+                .StreamAsync(job, file, frame => WriteAsync(frame, CancellationToken.None), job.Cancel.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidOperationException or FrameException)
+        {
+            // The link went away in the middle of the file. That is worth a sentence: the person knows they
+            // chose the file, and a bar that quietly stopped is not an answer.
+            Status($"{job.FileName} did not go: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is OperationCanceledException)
+        {
+            // Cancelled, which FileSending has already said out loud to the room.
+        }
+        finally
+        {
+            outgoing.TryRemove(job.Id, out _);
+            job.Finish();
+        }
+    }
+
+    /// <summary>Applies a frame to the local state and shows whatever transcript line it carries.</summary>
+    private void Record(Frame frame)
+    {
+        if (state.Apply(frame) is { } message)
+        {
+            Dispatch.Safe(
+                () => MessageReceived?.Invoke(this, message),
+                ex => Status($"A message could not be shown: {ex.Message}"));
         }
     }
 
@@ -361,6 +490,20 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     /// One frame at a time on the wire. Two messages written by interleaving half-frames would be
     /// unreadable at the other end, and the UI can raise SendAsync faster than one call completes.
     /// </summary>
+    /// <summary>Writes one frame, used by paths that are not a message the window sent (a cancellation).</summary>
+    private async Task SendFrameAsync(Frame frame)
+    {
+        try
+        {
+            await WriteAsync(frame, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
+        {
+            // Telling the host we stopped matters, but not enough to fall over when the link is the reason.
+            Status(ex.Message);
+        }
+    }
+
     private async Task WriteAsync(Frame frame, CancellationToken cancel)
     {
         var current = link;
