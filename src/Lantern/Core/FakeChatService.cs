@@ -84,6 +84,8 @@ public class FakeChatService : IChatService
 
     public event EventHandler<Exception>? ConnectionLost;
 
+    private readonly List<(FileTransferJob Job, string Path)> saves = [];
+
     /// <summary>No listening socket needed here; present so callers treat every service alike.</summary>
     public Task StartAsync(CancellationToken cancel = default)
     {
@@ -224,27 +226,47 @@ public class FakeChatService : IChatService
         Record(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes, job.Id, id: job.MessageId));
 
         // Nothing arrives from anywhere in a fake: the file is "sent" by finishing the job, which is what
-        // lets a window's progress bar and its Cancel button be tested without a second machine.
-        while (!job.IsComplete)
+        // lets a window's message be tested without a second machine. A window that has to *show* the
+        // transfer needs the other setting, below.
+        if (FilesCompleteImmediately)
         {
-            job.AddBytes(unchecked((int)Math.Min(int.MaxValue, job.SizeBytes - job.BytesDone)));
+            AdvanceFile(job, job.SizeBytes);
         }
 
-        job.Finish();
         return job;
     }
 
-    public Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default)
+    /// <summary>
+    /// Whether a file this fake sends is over as soon as it starts. Normally yes - a test about the message
+    /// should not have to pump bytes - but a test about a progress bar needs a file that has not finished,
+    /// which is the one thing a fake that always finishes cannot show.
+    /// </summary>
+    public bool FilesCompleteImmediately { get; set; } = true;
+
+    /// <summary>Where each incoming file was asked to be put - the window's choice, seen from this side.</summary>
+    public IReadOnlyList<(FileTransferJob Job, string Path)> SaveRequests => saves;
+
+    public async Task SaveReceivedFileAsync(FileTransferJob job, string path, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(job);
-        File.WriteAllText(path, $"simulated payload for {job.FileName}");
-        while (!job.IsComplete)
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        saves.Add((job, path));
+
+        // Being told where to put a file is not the same as having it. Like the real receiver, this waits
+        // for the last of the bytes and only then writes, so a window that reported "saved" before the file
+        // had arrived would be caught by its own test rather than by a person noticing later.
+        if (!job.IsComplete)
         {
-            job.AddBytes(unchecked((int)Math.Min(int.MaxValue, job.SizeBytes - job.BytesDone)));
+            await job.Finished.WaitAsync(cancel).ConfigureAwait(false);
         }
 
-        job.Finish();
-        return Task.CompletedTask;
+        if (!job.IsComplete)
+        {
+            throw new InvalidOperationException($"{job.FileName} did not finish arriving.");
+        }
+
+        await File.WriteAllTextAsync(path, $"simulated payload for {job.FileName}", cancel).ConfigureAwait(false);
     }
 
     public Task ShutdownAsync()
@@ -272,12 +294,48 @@ public class FakeChatService : IChatService
         MessageReceived?.Invoke(this, message);
     }
 
-    /// <summary>Makes a peer start sending a file, to demo the receiver side (F8).</summary>
-    public FileTransferJob SimulateIncomingFile(string fileName = "notes.txt", long sizeBytes = 4096)
+    /// <summary>
+    /// Makes a peer start sending a file, to demo the receiver side (F8). The job it hands back is only
+    /// half a file: nothing has arrived yet, and <see cref="AdvanceIncomingFile" /> is what makes bytes
+    /// turn up. That is on purpose - a window cannot be tested against a file that was always complete.
+    /// </summary>
+    public FileTransferJob SimulateIncomingFile(string fileName = "notes.txt", long sizeBytes = 4096, string from = "User 2")
     {
-        var job = new FileTransferJob(fileName, sizeBytes, senderNickname: "User 2", roomName: CurrentRoom()?.Name);
+        var job = new FileTransferJob(fileName, sizeBytes, senderNickname: from, roomName: CurrentRoom()?.Name ?? string.Empty);
         IncomingFile?.Invoke(this, job);
         return job;
+    }
+
+    /// <summary>Lets some of a file arrive, the way chunks do, in either direction, so a bar can be watched.</summary>
+    public void AdvanceFile(FileTransferJob job, long bytes)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        if (job.Cancel.IsCancellationRequested)
+        {
+            // A stopped transfer stops receiving, which is the whole point of the cancel frame.
+            return;
+        }
+
+        job.AddBytes(unchecked((int)Math.Min(int.MaxValue, bytes)));
+
+        if (job.IsComplete)
+        {
+            job.Finish();
+        }
+    }
+
+    /// <summary>
+    /// Tells this side that a file in flight has been stopped by somebody else - the sender, the host, or a
+    /// machine that could not drain fast enough (F8: the FILE_CANCEL frame arriving).
+    /// </summary>
+    public void SimulateFileStopped(FileTransferJob job, string? reason = null)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        job.CancelTransfer();
+        job.Finish();
+        StatusChanged?.Invoke(this, reason ?? $"{job.FileName} was stopped by {job.SenderNickname}");
     }
 
     /// <summary>Drops the link the way a shut-down server does (scenario 5).</summary>

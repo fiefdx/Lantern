@@ -62,7 +62,7 @@ public abstract partial class ChatForm : Form
         Service.RoomsChanged += (_, _) => OnUi(ShowRooms);
         Service.MembersChanged += (_, _) => OnUi(ShowMembers);
         Service.StatusChanged += (_, status) => OnUi(() => SetStatus(status));
-        Service.IncomingFile += (_, job) => OnUi(() => ReceiveFile(job));
+        Service.IncomingFile += (_, job) => OnUi(() => OfferFile(job));
         Service.ConnectionLost += (_, error) => OnUi(() => OnConnectionLost(error));
     }
 
@@ -397,25 +397,12 @@ public abstract partial class ChatForm : Form
     }
 
     /// <summary>
-    /// Puts a sending file's progress where a person can see it and stops the transfer if they ask. The
-    /// job reports from the thread moving the bytes, so everything in here comes back through OnUi.
+    /// Puts a sending file's progress where a person can see it, and stops the transfer if they ask.
     /// </summary>
     private void WatchSend(FileTransferJob job)
     {
-        job.Progress = new Progress<double>(fraction =>
-        {
-            SetStatus(job.IsComplete ? $"sent {job.FileName}" : $"sending {job.FileName} {fraction:P0}");
-        });
-
-        _ = job.Finished.ContinueWith(
-            _ => OnUi(() =>
-            {
-                if (job.Cancel.IsCancellationRequested)
-                {
-                    SetStatus($"{job.FileName} was stopped");
-                }
-            }),
-            TaskScheduler.Default);
+        Track(job);
+        ShowFileProgress();
     }
 
     /// <summary>
@@ -434,30 +421,283 @@ public abstract partial class ChatForm : Form
     }
 
     // ------------------------------------------------------------- receiving
+    //
+    // F8, the other half: a file arrives whether or not anybody answers, because the bytes are already on
+    // their way. So the window says so in a strip above the input rather than in a dialog - the person can
+    // keep typing, and a second offer has somewhere to wait - and the file goes to disk only when they say
+    // where. Turning one down throws the bytes away and tells the sender, which is the transfer layer's job
+    // rather than this window's.
 
-    /// <summary>Scenario 6: name, size and sender, then Accept or Decline.</summary>
-    private void ReceiveFile(FileTransferJob job)
+    /// <summary>Files offered to this window that have not been answered yet, oldest first.</summary>
+    private readonly List<FileTransferJob> unanswered = [];
+
+    /// <summary>Files this window has agreed to keep and is waiting to write out.</summary>
+    private readonly List<FileTransferJob> accepted = [];
+
+    /// <summary>Every file in flight either way, which between them own the progress bar.</summary>
+    private readonly List<FileTransferJob> inFlight = [];
+
+    /// <summary>The offer the notice strip is about, or null when the strip is down.</summary>
+    private FileTransferJob? offered;
+
+    /// <summary>The file the bar, its label and the Stop button belong to.</summary>
+    private FileTransferJob? shown;
+
+    /// <summary>Files this window stopped itself - their ending needs no comment on top of the one given.</summary>
+    private readonly HashSet<FileTransferJob> stoppedHere = [];
+
+    /// <summary>Scenario 6: name, size and sender, then Save to… or Decline.</summary>
+    private void OfferFile(FileTransferJob job)
     {
-        if (!ConfirmDialog.Confirm(this, "Incoming File", $"{job.SenderNickname} wants to send \"{job.FileName}\" ({FileSize.Describe(job.SizeBytes)}). Accept it?"))
-        {
-            job.CancelTransfer();
-            return;
-        }
+        // Said here, when the file is announced, rather than when it arrives: the sender's window wrote this
+        // line the moment it sent, and a room whose transcript reads differently in different windows is a
+        // room where two people cannot agree about what happened (F8: one event, seen in each window).
+        Append(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes, job.Id, id: job.MessageId));
 
-        using var picker = new SaveFileDialog { Title = "Save Incoming File", FileName = job.FileName };
-        if (picker.ShowDialog(this) != DialogResult.OK)
-        {
-            job.CancelTransfer();
-            return;
-        }
-
-        _ = RunAsync(async () =>
-        {
-            await Service.SaveReceivedFileAsync(job, picker.FileName);
-            Append(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes));
-            SetStatus($"saved {job.FileName}");
-        });
+        Track(job);
+        unanswered.Add(job);
+        ShowOffer();
     }
+
+    /// <summary>
+    /// Starts watching a transfer in either direction: it owns the progress bar from now until it is over,
+    /// however it ends.
+    /// </summary>
+    private void Track(FileTransferJob job)
+    {
+        inFlight.Add(job);
+
+        _ = job.Finished.ContinueWith(
+            _ => OnUi(() => FileFinished(job)),
+            TaskScheduler.Default);
+
+        // Polled rather than driven by the job's progress callback. A chunk is 8 KiB, so a hundred megabyte
+        // file is twelve thousand reports and a window that repaints four times a second is the same window
+        // as this one either way - and reading BytesDone cannot miss one, cannot arrive on the wrong thread,
+        // and cannot be the reason a transfer waits.
+        timerProgress.Start();
+        ShowFileProgress();
+    }
+
+    private void TimerProgress_Tick(object? sender, EventArgs e) => ShowFileProgress();
+
+    /// <summary>Redraws the progress part of the status bar from whichever file is furthest ahead.</summary>
+    private void ShowFileProgress()
+    {
+        shown = accepted.LastOrDefault(Moving)
+            ?? inFlight.LastOrDefault(Moving);
+
+        if (shown is null)
+        {
+            inFlight.RemoveAll(j => !Moving(j));
+            accepted.RemoveAll(j => !Moving(j));
+
+            progressFile.Visible = false;
+            lblFileProgress.Visible = false;
+            btnFileStop.Visible = false;
+            timerProgress.Stop();
+
+            return;
+        }
+
+        var others = inFlight.Count(j => Moving(j) && j != shown);
+
+        progressFile.Value = (int)Math.Round(shown.Fraction * progressFile.Maximum);
+        progressFile.Visible = true;
+
+        lblFileProgress.Text = $"{shown.FileName} {shown.Fraction:P0}"
+            + (accepted.Contains(shown) ? ", saving" : string.Empty)
+            + (others > 0 ? $" (+{others})" : string.Empty);
+        lblFileProgress.Visible = true;
+
+        // Stopping is offered in both directions. Half of a file is worth stopping whether it was coming or
+        // going, and the person who notices is the one holding the mouse.
+        btnFileStop.Visible = true;
+    }
+
+    private void FileFinished(FileTransferJob job)
+    {
+        accepted.Remove(job);
+        unanswered.Remove(job);
+        stoppedHere.Remove(job);
+
+        if (job.Cancel.IsCancellationRequested)
+        {
+            // Somebody stopped it - this window, the person at the other end, or a machine that could not
+            // drain fast enough - and one of them has already said so in a line of its own. What this adds is
+            // the bar going away: a number stuck at 34% reads as "still going" to anybody who glances at it.
+            if (!stoppedHere.Contains(job) && shown == job)
+            {
+                SetStatus($"{job.FileName} did not finish");
+            }
+
+            // The offer goes down with it: a strip offering a file that no longer exists is a Decline button
+            // pointed at nothing.
+            ShowOffer();
+        }
+        else if (shown == job && !accepted.Contains(job))
+        {
+            // "arrived" rather than "saved": what has arrived is not yet anywhere permanent, and a window
+            // that says saved before it has written would be believed.
+            SetStatus($"{job.FileName} {(job.SenderNickname == Service.Nickname ? "sent" : "arrived")}");
+        }
+
+        ShowFileProgress();
+    }
+
+    /// <summary>Still going: not over, and not stopped. A stopped transfer counts as over everywhere.</summary>
+    private static bool Moving(FileTransferJob job) => !job.Finished.IsCompleted && !job.Cancel.IsCancellationRequested;
+
+    /// <summary>Puts the oldest unanswered offer in the strip, or takes the strip down.</summary>
+    private void ShowOffer()
+    {
+        unanswered.RemoveAll(j => j.Cancel.IsCancellationRequested || j.Finished.IsCompleted);
+
+        if (unanswered.Count == 0)
+        {
+            offered = null;
+            pnlFileNotice.Visible = false;
+            lblFileNotice.Text = string.Empty;
+
+            return;
+        }
+
+        var job = unanswered[0];
+        var waiting = unanswered.Count - 1;
+
+        offered = job;
+        lblFileNotice.Text = $"{job.SenderNickname} is sending {job.FileName} ({FileSize.Describe(job.SizeBytes)})"
+            + (waiting > 0 ? $" - {waiting} more waiting" : string.Empty);
+        pnlFileNotice.Visible = true;
+    }
+
+    private void BtnFileSave_Click(object? sender, EventArgs e)
+    {
+        if (offered is not { } job)
+        {
+            return;
+        }
+
+        var folder = AskForFolder(job.FileName);
+
+        if (folder is null)
+        {
+            // No folder chosen is not a refusal - the strip stays up, the bytes keep arriving, and the person
+            // can decide properly instead of having lost the file.
+            return;
+        }
+
+        unanswered.Remove(job);
+        accepted.Add(job);
+        ShowOffer();
+        ShowFileProgress();
+
+        _ = SaveReceivedAsync(job, Path.Combine(folder, job.FileName));
+    }
+
+    /// <summary>
+    /// Moves a completed transfer from the spool to where the person said. Returns when the file is
+    /// written, which for a file still arriving means whenever the last of it turns up.
+    /// </summary>
+    private async Task SaveReceivedAsync(FileTransferJob job, string path)
+    {
+        try
+        {
+            await Service.SaveReceivedFileAsync(job, path).ConfigureAwait(false);
+            OnUi(() => SetStatus($"saved {job.FileName} to {Path.GetDirectoryName(path)}"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            // The folder was read-only, or something with that name was already in it, or the file stopped
+            // short on the way. All of them are one line in the status bar, and the spool is still there so
+            // the person can pick a different folder and try again.
+            OnUi(() =>
+            {
+                accepted.Remove(job);
+                SetStatus(ex.Message);
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // The transfer was stopped, which is said elsewhere and louder.
+        }
+    }
+
+    private void BtnFileDecline_Click(object? sender, EventArgs e)
+    {
+        if (offered is not { } job)
+        {
+            return;
+        }
+
+        unanswered.Remove(job);
+        ShowOffer();
+
+        // Cancelling the job *is* the decline: the spool is thrown away and the sender is told, both of which
+        // belong to the transfer rather than to this window.
+        stoppedHere.Add(job);
+        job.CancelTransfer();
+        SetStatus($"turned down {job.FileName}");
+
+        // Straight away rather than on the next tick: a bar left at 3% of a file that was just thrown away is
+        // a bar telling a lie about a file nobody is receiving any more.
+        ShowFileProgress();
+    }
+
+    private void BtnFileStop_Click(object? sender, EventArgs e) => StopCurrentFile();
+
+    /// <summary>
+    /// Stops the file the bar is about. Public for the same reason <see cref="OpenTranscriptLineAtCaret" />
+    /// is: it is what a control does, written down where it can be called without a mouse.
+    /// </summary>
+    public void StopCurrentFile()
+    {
+        if (shown is { } job && Moving(job))
+        {
+            stoppedHere.Add(job);
+            job.CancelTransfer();
+            accepted.Remove(job);
+            SetStatus($"stopped {job.FileName}");
+            ShowFileProgress();
+            ShowOffer();
+        }
+    }
+
+    /// <summary>
+    /// Asks for a folder to put an incoming file in; null means none was chosen. The file keeps its own
+    /// name inside it - a receiver choosing a whole folder is saying where, not what, which is also the only
+    /// thing that works when three files arrive in the same minute.
+    /// </summary>
+    protected virtual string? AskForFolder(string fileName)
+    {
+        using var picker = new FolderBrowserDialog
+        {
+            Description = $"Where should {fileName} go?",
+            UseDescriptionForTitle = true,
+        };
+
+        return picker.ShowDialog(this) == DialogResult.OK ? picker.SelectedPath : null;
+    }
+
+    /// <summary>What the offer strip says, or empty when nothing is being offered.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string FileOfferText => pnlFileNotice.Visible ? lblFileNotice.Text ?? string.Empty : string.Empty;
+
+    /// <summary>The percentage on the bar, or -1 when no file is in flight.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int FileProgressPercent => progressFile.Visible ? (int)Math.Round(progressFile.Value * 100.0 / progressFile.Maximum) : -1;
+
+    /// <summary>What the bar is labelled with - which file, how far, and how many others are behind it.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string FileProgressText => lblFileProgress.Visible ? lblFileProgress.Text ?? string.Empty : string.Empty;
+
+    /// <summary>True while the Stop button is offering to stop something.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool CanStopFile => btnFileStop.Visible;
+
+    /// <summary>How many files this window has moving, in either direction.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int FilesInFlight => inFlight.Count(Moving);
 
     // ------------------------------------------------------------- F7: opening a picture
 

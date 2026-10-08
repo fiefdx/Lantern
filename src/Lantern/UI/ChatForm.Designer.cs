@@ -51,11 +51,22 @@ partial class ChatForm
         btnSend = new Button();
         statusStrip = new StatusStrip();
         lblStatus = new ToolStripStatusLabel();
+        lblFileProgress = new ToolStripStatusLabel();
+        progressFile = new ToolStripProgressBar();
+        btnFileStop = new ToolStripButton();
+        pnlFileNotice = new Panel();
+        lblFileNotice = new Label();
+        pnlFileActions = new FlowLayoutPanel();
+        btnFileSave = new Button();
+        btnFileDecline = new Button();
+        timerProgress = new System.Windows.Forms.Timer(components);
         toolTip = new ToolTip(components);
         menuStrip.SuspendLayout();
         tableLayout.SuspendLayout();
         pnlRoomHeader.SuspendLayout();
         statusStrip.SuspendLayout();
+        pnlFileNotice.SuspendLayout();
+        pnlFileActions.SuspendLayout();
         SuspendLayout();
         //
         // menuStrip
@@ -263,7 +274,7 @@ partial class ChatForm
         //
         // statusStrip
         //
-        statusStrip.Items.AddRange(new ToolStripItem[] { lblStatus });
+        statusStrip.Items.AddRange(new ToolStripItem[] { lblStatus, lblFileProgress, progressFile, btnFileStop });
         statusStrip.Location = new Point(0, 545);
         statusStrip.Name = "statusStrip";
         statusStrip.Size = new Size(984, 24);
@@ -275,6 +286,98 @@ partial class ChatForm
         lblStatus.Size = new Size(72, 19);
         lblStatus.Text = "Status: idle";
         //
+        // lblFileProgress
+        //
+        // The bar and its label belong to whichever file is moving, so they start invisible: a status bar
+        // with an empty progress bar in it looks like something is happening when nothing is.
+        lblFileProgress.Name = "lblFileProgress";
+        lblFileProgress.Size = new Size(0, 19);
+        lblFileProgress.Text = "";
+        lblFileProgress.Visible = false;
+        //
+        // progressFile
+        //
+        progressFile.Name = "progressFile";
+        progressFile.Size = new Size(160, 16);
+        progressFile.Visible = false;
+        //
+        // btnFileStop
+        //
+        btnFileStop.DisplayStyle = ToolStripItemDisplayStyle.Text;
+        btnFileStop.Name = "btnFileStop";
+        btnFileStop.Size = new Size(44, 22);
+        btnFileStop.Text = "Stop";
+        btnFileStop.Visible = false;
+        btnFileStop.ToolTipText = "Stop this file";
+        btnFileStop.Click += BtnFileStop_Click;
+        //
+        // pnlFileNotice
+        //
+        // The offer lives in the window rather than in a dialog. A modal dialog would stop the person
+        // typing to the room while they decide, and with two files arriving at once only one dialog can be
+        // up - the second offer would have nowhere to be written down.
+        pnlFileNotice.Controls.Add(lblFileNotice);
+        pnlFileNotice.Controls.Add(pnlFileActions);
+        pnlFileNotice.Dock = DockStyle.Top;
+        pnlFileNotice.Location = new Point(0, 24);
+        pnlFileNotice.Name = "pnlFileNotice";
+        pnlFileNotice.Padding = new Padding(8, 3, 8, 3);
+        pnlFileNotice.Size = new Size(984, 40);
+        pnlFileNotice.TabIndex = 3;
+        pnlFileNotice.Visible = false;
+        //
+        // lblFileNotice
+        //
+        lblFileNotice.Dock = DockStyle.Fill;
+        lblFileNotice.Location = new Point(8, 3);
+        lblFileNotice.Name = "lblFileNotice";
+        lblFileNotice.Size = new Size(768, 34);
+        lblFileNotice.TabIndex = 0;
+        lblFileNotice.Text = "";
+        lblFileNotice.TextAlign = ContentAlignment.MiddleLeft;
+        //
+        // pnlFileActions
+        //
+        pnlFileActions.Controls.Add(btnFileSave);
+        pnlFileActions.Controls.Add(btnFileDecline);
+        pnlFileActions.Dock = DockStyle.Right;
+        pnlFileActions.FlowDirection = FlowDirection.RightToLeft;
+        pnlFileActions.Location = new Point(776, 3);
+        pnlFileActions.Name = "pnlFileActions";
+        pnlFileActions.Padding = new Padding(4, 0, 0, 0);
+        pnlFileActions.Size = new Size(200, 34);
+        pnlFileActions.TabIndex = 1;
+        pnlFileActions.WrapContents = false;
+        //
+        // btnFileSave
+        //
+        btnFileSave.Anchor = AnchorStyles.Top;
+        btnFileSave.Location = new Point(4, 4);
+        btnFileSave.Name = "btnFileSave";
+        btnFileSave.Size = new Size(92, 26);
+        btnFileSave.TabIndex = 0;
+        btnFileSave.Text = "Save to…";
+        toolTip.SetToolTip(btnFileSave, "Choose where to put this file; it keeps arriving either way");
+        btnFileSave.UseVisualStyleBackColor = true;
+        btnFileSave.Click += BtnFileSave_Click;
+        //
+        // btnFileDecline
+        //
+        btnFileDecline.Anchor = AnchorStyles.Top;
+        btnFileDecline.Location = new Point(102, 4);
+        btnFileDecline.Name = "btnFileDecline";
+        btnFileDecline.Size = new Size(92, 26);
+        btnFileDecline.TabIndex = 1;
+        btnFileDecline.Text = "Decline";
+        toolTip.SetToolTip(btnFileDecline, "Tell them no; the bytes already here are thrown away");
+        btnFileDecline.UseVisualStyleBackColor = true;
+        btnFileDecline.Click += BtnFileDecline_Click;
+        //
+        // timerProgress
+        //
+        timerProgress.Interval = 250;
+        timerProgress.Tick += TimerProgress_Tick;
+        //
         // ChatForm
         //
         AutoScaleDimensions = new SizeF(7F, 15F);
@@ -282,6 +385,7 @@ partial class ChatForm
         ClientSize = new Size(984, 569);
         Controls.Add(tableLayout);
         Controls.Add(statusStrip);
+        Controls.Add(pnlFileNotice);
         Controls.Add(menuStrip);
         MainMenuStrip = menuStrip;
         MinimumSize = new Size(760, 460);
@@ -293,6 +397,8 @@ partial class ChatForm
         tableLayout.ResumeLayout(false);
         pnlRoomHeader.ResumeLayout(false);
         pnlRoomHeader.PerformLayout();
+        pnlFileNotice.ResumeLayout(false);
+        pnlFileActions.ResumeLayout(false);
         statusStrip.ResumeLayout(false);
         statusStrip.PerformLayout();
         ResumeLayout(false);
@@ -324,5 +430,14 @@ partial class ChatForm
     protected Button btnSend;
     private StatusStrip statusStrip;
     protected ToolStripStatusLabel lblStatus;
+    private ToolStripStatusLabel lblFileProgress;
+    private ToolStripProgressBar progressFile;
+    private ToolStripButton btnFileStop;
+    private Panel pnlFileNotice;
+    protected Label lblFileNotice;
+    private FlowLayoutPanel pnlFileActions;
+    protected Button btnFileSave;
+    protected Button btnFileDecline;
+    private System.Windows.Forms.Timer timerProgress;
     private ToolTip toolTip;
 }

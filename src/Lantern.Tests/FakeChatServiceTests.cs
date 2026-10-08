@@ -153,23 +153,65 @@ public class FakeChatServiceTests
     }
 
     [Fact]
-    public async Task SavingAnIncomingFileCompletesTheJob()
+    public async Task SavingAnIncomingFileWaitsForItAndThenWritesIt()
     {
         var service = new FakeChatService("Haitao");
-        var path = Path.Combine(Path.GetTempPath(), $"lantern-test-{Guid.NewGuid():N}.txt");
+        var folder = Path.Combine(Path.GetTempPath(), "lantern-t54-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+
+        var path = Path.Combine(folder, "notes.txt");
 
         try
         {
             var job = new FileTransferJob("notes.txt", 4096, senderNickname: "User 2", roomName: "Room 1");
 
-            await service.SaveReceivedFileAsync(job, path);
+            var saving = service.SaveReceivedFileAsync(job, path);
+
+            // Being told where to put a file is not having it. Nothing is written until the last byte turns
+            // up, which is the difference between "saved" and "on its way" - and a fake that pretended the
+            // two were the same would let a window report a file that was never whole.
+            await Task.Delay(150);
+            Assert.False(File.Exists(path));
+
+            service.AdvanceFile(job, 4096);
+
+            await saving;
 
             Assert.True(job.IsComplete);
             Assert.True(File.Exists(path));
         }
         finally
         {
-            File.Delete(path);
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AFileThatNeverArrivedWholeIsNotWritten()
+    {
+        var service = new FakeChatService("Haitao");
+        var folder = Path.Combine(Path.GetTempPath(), "lantern-t54-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+
+        var path = Path.Combine(folder, "notes.txt");
+
+        try
+        {
+            var job = new FileTransferJob("notes.txt", 4096, senderNickname: "User 2", roomName: "Room 1");
+
+            var saving = service.SaveReceivedFileAsync(job, path);
+
+            service.AdvanceFile(job, 100);
+            service.SimulateFileStopped(job);
+
+            // A half file with the real file's name on it is worse than no file at all, because it is the
+            // sort of thing that gets opened a week later.
+            await Assert.ThrowsAsync<InvalidOperationException>(() => saving);
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
         }
     }
 
