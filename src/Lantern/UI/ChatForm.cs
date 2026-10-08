@@ -1,5 +1,6 @@
 using Lantern.Core;
 using Lantern.Domain;
+using Lantern.Storage;
 
 namespace Lantern.UI;
 
@@ -20,6 +21,13 @@ public abstract partial class ChatForm : Form
     private bool syncing;
 
     private bool busy;
+
+    /// <summary>
+    /// Which picture, if any, is drawn on each transcript line (F7). Keyed by the line as it was
+    /// written, because that is what the transcript can be asked about: the double click knows the text
+    /// under the caret and nothing else. Rebuilt whenever the transcript is redrawn.
+    /// </summary>
+    private readonly Dictionary<string, PictureMessage> openable = new(StringComparer.Ordinal);
 
     protected ChatForm(IChatService service)
     {
@@ -186,6 +194,7 @@ public abstract partial class ChatForm : Form
     private void ShowTranscript()
     {
         rtbChat.Clear();
+        openable.Clear();
         var editable = CurrentRoom is not null;
         txtMessage.Enabled = editable;
         if (!busy)
@@ -319,7 +328,7 @@ public abstract partial class ChatForm : Form
     /// <summary>Scenario 6: name, size and sender, then Accept or Decline.</summary>
     private void ReceiveFile(FileTransferJob job)
     {
-        if (!ConfirmDialog.Confirm(this, "Incoming File", $"{job.SenderNickname} wants to send \"{job.FileName}\" ({FriendlySize(job.SizeBytes)}). Accept it?"))
+        if (!ConfirmDialog.Confirm(this, "Incoming File", $"{job.SenderNickname} wants to send \"{job.FileName}\" ({FileSize.Describe(job.SizeBytes)}). Accept it?"))
         {
             job.CancelTransfer();
             return;
@@ -340,13 +349,63 @@ public abstract partial class ChatForm : Form
         });
     }
 
-    private static string FriendlySize(long bytes)
-        => bytes switch
+    // ------------------------------------------------------------- F7: opening a picture
+
+    /// <summary>
+    /// F7: a thumbnail is 160 pixels; the photo is not. Double-clicking the caption opens the picture
+    /// itself, because "share a photo" that nobody can actually look at is only half a feature.
+    /// </summary>
+    private void RtbChat_MouseDoubleClick(object? sender, MouseEventArgs e) => OpenTranscriptLineAtCaret();
+
+    /// <summary>Opens whatever picture the transcript line under the caret carries, if any.</summary>
+    public void OpenTranscriptLineAtCaret()
+    {
+        if (openable.Count == 0)
         {
-            < 1024 => $"{bytes} B",
-            < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
-            _ => $"{bytes / (1024.0 * 1024.0):0.#} MB",
-        };
+            return;
+        }
+
+        var lineIndex = rtbChat.GetLineFromCharIndex(rtbChat.SelectionStart);
+
+        if (lineIndex >= 0 && lineIndex < rtbChat.Lines.Length)
+        {
+            OpenTranscriptLine(rtbChat.Lines[lineIndex]);
+        }
+    }
+
+    /// <summary>
+    /// Opens the picture shown on a transcript line. Separate from the mouse so the rule - a line that
+    /// is not a picture does nothing - is answerable without a caret, a click and a window.
+    /// </summary>
+    public void OpenTranscriptLine(string line)
+    {
+        if (openable.GetValueOrDefault(line) is { } picture)
+        {
+            OpenPicture(picture);
+        }
+    }
+
+    /// <summary>
+    /// Puts the bytes where this machine keeps what arrived and asks the system to show them. Overridden
+    /// by tests, which have no business launching the user's photo viewer.
+    /// </summary>
+    protected virtual void OpenPicture(PictureMessage picture)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+
+        try
+        {
+            var path = ReceivedPayloads.Save(picture.FileName, picture.Id, picture.Data);
+            SetStatus(ReceivedPayloads.TryOpen(path)
+                ? $"opening {picture.FileName}"
+                : $"no viewer for it: kept in {path}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Not being able to write the cache is a thing to say, not a reason to lose the window.
+            SetStatus($"could not open {picture.FileName}: {ex.Message}");
+        }
+    }
 
     // ------------------------------------------------------------- transcript
 
@@ -383,12 +442,53 @@ public abstract partial class ChatForm : Form
         rtbChat.SelectionLength = 0;
         rtbChat.SelectionColor = message.Kind == MessageKind.JOIN_LEAVE_NOTICE ? Color.Gray : SystemColors.WindowText;
         rtbChat.AppendText(line);
+
+        if (message is PictureMessage picture)
+        {
+            // The caption is written first and the thumbnail under it, so a picture that turns out not
+            // to be a picture at all still leaves a line in the transcript (see RtfPicture).
+            openable[line] = picture;
+
+            if (RtfPicture.InlineFor(picture) is { } rtf)
+            {
+                rtbChat.AppendText(Environment.NewLine);
+                AppendRtf(rtf);
+            }
+        }
+
         rtbChat.AppendText(Environment.NewLine);
         rtbChat.ScrollToCaret();
 
         if (message.Kind == MessageKind.JOIN_LEAVE_NOTICE)
         {
             ShowMembers();
+        }
+    }
+
+    /// <summary>
+    /// Writes RTF into the transcript at the end.
+    /// <para>
+    /// The transcript is read-only, and a read-only RichTextBox refuses an insertion made through
+    /// <see cref="RichTextBox.SelectedRtf"/> without complaining - which is how a picture can be sent,
+    /// broadcast, received, decoded and then simply not appear. <see cref="RichTextBox.ReadOnly"/> is a
+    /// promise about the keyboard rather than about this code, so it is lifted for the insertion and put
+    /// back whether or not the insertion worked.
+    /// </para>
+    /// </summary>
+    private void AppendRtf(string rtf)
+    {
+        var wasReadOnly = rtbChat.ReadOnly;
+        rtbChat.ReadOnly = false;
+
+        try
+        {
+            rtbChat.SelectionStart = rtbChat.TextLength;
+            rtbChat.SelectionLength = 0;
+            rtbChat.SelectedRtf = rtf;
+        }
+        finally
+        {
+            rtbChat.ReadOnly = wasReadOnly;
         }
     }
 

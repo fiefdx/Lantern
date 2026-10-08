@@ -392,6 +392,57 @@ public sealed class ChatServer : IAsyncDisposable
         Broadcast(room, Frame.SystemNotice(room.Name, notice));
     }
 
+    /// <summary>
+    /// F7: a picture goes to everybody in the sender's room. The bytes ride in the frame body, never
+    /// base64, so the only size that matters is the frame limit - and that is checked here too, because
+    /// a peer that does not check for itself must not be able to make the host and every other client
+    /// allocate a hundred megabytes per message.
+    /// </summary>
+    /// <returns>
+    /// What went out, or <see langword="null"/> when nothing did - in which case the reason has already
+    /// gone back to the sender as an ERROR frame, the same way an over-long message does (T2.4). The
+    /// host's own window needs that answer: it keeps its own copy of what it said, and must not keep a
+    /// copy of a picture nobody else was allowed to receive.
+    /// </returns>
+    public PictureMessage? SendPicture(
+        IParticipant sender,
+        string fileName,
+        byte[] data,
+        Guid? id = null,
+        DateTime? sentAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(sender);
+        ArgumentNullException.ThrowIfNull(data);
+
+        // A peer's file name is a name, not a path: whatever arrives is reduced to its last component
+        // before it is shown, and before it is ever suggested as a name to save under.
+        var name = Path.GetFileName((fileName ?? string.Empty).Trim());
+        if (name.Length == 0)
+        {
+            name = "image";
+        }
+
+        if (ValidationRules.PictureError(name, data.LongLength) is { } error)
+        {
+            sender.Receive(Frame.Error(error));
+            return null;
+        }
+
+        var room = RoomOf(sender);
+        if (room is null)
+        {
+            sender.Receive(Frame.Error("Join a room before sending."));
+            return null;
+        }
+
+        // The room and the nickname come from the server's view of the sender, never from the frame:
+        // relaying a picture that claims to be from someone else would put words in their mouth (T2.4).
+        var message = new PictureMessage(sender.Nickname, room.Name, name, data, sentAt ?? DateTime.Now, id);
+        Broadcast(room, Frame.FromMessage(message), exceptConnectionId: sender.ConnectionId);
+
+        return message;
+    }
+
     // ----------------------------------------------------- room management
 
     /// <summary>
@@ -549,14 +600,24 @@ public sealed class ChatServer : IAsyncDisposable
                 SendText(session, frame.Header.Text ?? string.Empty, frame.Header.Id, frame.Header.SentAt);
                 break;
 
+            case FrameType.PICTURE:
+                // Checked and relayed by the same rules the host's own window goes through; a refusal
+                // travels back as an ERROR frame rather than as an exception in the read loop.
+                SendPicture(
+                    session,
+                    frame.Header.FileName ?? string.Empty,
+                    frame.Body,
+                    frame.Header.Id,
+                    frame.Header.SentAt);
+                break;
+
             case FrameType.HELLO:
                 // Already introduced; two handshakes on one connection is a protocol error.
                 session.Receive(Frame.Error("Already introduced."));
                 break;
 
             default:
-                // PICTURE, FILE_META / FILE_CHUNK / FILE_DONE and the server-only frame types.
-                // Text is all M2 does; M5 opens these up (T5.2, T5.3).
+                // FILE_META / FILE_CHUNK / FILE_DONE (T5.3) and the server-only frame types.
                 session.Receive(Frame.Error($"{frame.Type} frames are not supported by this host."));
                 break;
         }

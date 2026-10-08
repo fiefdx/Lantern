@@ -156,22 +156,40 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        if (message is not TextMessage text)
+        switch (message)
         {
-            throw new NotSupportedException("This build sends text messages only.");
+            case TextMessage text:
+                if (ValidationRules.MessageError(text.Body) is { } error)
+                {
+                    throw new InvalidOperationException(error);
+                }
+
+                await WriteOrThrowAsync(Frame.FromMessage(text), cancel).ConfigureAwait(false);
+                Keep(text);
+                break;
+
+            case PictureMessage picture:
+                // Checked on the way out as well as on the way in: a 40 MB photo should fail in this
+                // window with these words, not as a refusal one round trip later.
+                if (ValidationRules.PictureError(picture.FileName, picture.Data.LongLength) is { } pictureError)
+                {
+                    throw new InvalidOperationException(pictureError);
+                }
+
+                await WriteOrThrowAsync(Frame.FromMessage(picture), cancel).ConfigureAwait(false);
+                Keep(picture);
+                break;
+
+            default:
+                throw new NotSupportedException("This build sends text and pictures; a file is T5.3.");
         }
-
-        if (ValidationRules.MessageError(text.Body) is { } error)
-        {
-            throw new InvalidOperationException(error);
-        }
-
-        await WriteOrThrowAsync(Frame.FromMessage(text), cancel).ConfigureAwait(false);
-
-        // The host does not echo a message to its author, so this side keeps its own copy or the
-        // transcript would lose every line the user typed when they next enter the room.
-        state.Record(text);
     }
+
+    /// <summary>
+    /// The host does not echo a message back to its author, so this side keeps its own copy or the
+    /// transcript would lose every line the user sent when they next enter the room.
+    /// </summary>
+    private void Keep(Message message) => state.Record(message);
 
     // -------------------------------------------------------- host-only actions
 

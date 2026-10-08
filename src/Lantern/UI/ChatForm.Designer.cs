@@ -193,6 +193,7 @@ partial class ChatForm
         rtbChat.Size = new Size(618, 413);
         rtbChat.TabIndex = 2;
         rtbChat.TabStop = false;
+        rtbChat.MouseDoubleClick += RtbChat_MouseDoubleClick;
         rtbChat.Text = "";
         //
         // pnlMembersHeader

@@ -152,20 +152,35 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        if (message is not TextMessage text)
+        switch (message)
         {
-            throw new NotSupportedException("This build sends text messages only.");
+            case TextMessage text:
+                if (ValidationRules.MessageError(text.Body) is { } error)
+                {
+                    throw new InvalidOperationException(error);
+                }
+
+                // The server broadcasts to the room except its author, so this window's own copy is
+                // kept here rather than sent around a loop to come back.
+                state.Record(text);
+                server.SendText(me, text.Body, text.Id, text.SentAt);
+                break;
+
+            case PictureMessage picture:
+                // Recorded only if the server let it go. The room named inside the message is the room
+                // the window was showing; the room the picture reaches is the room this participant is
+                // in, and only the host's view of that counts - which is what makes two windows agree.
+                if (server.SendPicture(me, picture.FileName, picture.Data, picture.Id, picture.SentAt) is { } sent)
+                {
+                    state.Record(sent);
+                }
+
+                break;
+
+            default:
+                throw new NotSupportedException("This build sends text and pictures; a file is T5.3.");
         }
 
-        if (ValidationRules.MessageError(text.Body) is { } error)
-        {
-            throw new InvalidOperationException(error);
-        }
-
-        // The server broadcasts to the room except its author, so this window's own copy is kept here
-        // rather than sent around a loop to come back.
-        state.Record(text);
-        server.SendText(me, text.Body, text.Id, text.SentAt);
         return Task.CompletedTask;
     }
 

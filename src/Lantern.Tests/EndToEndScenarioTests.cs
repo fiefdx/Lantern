@@ -106,20 +106,27 @@ public sealed class EndToEndScenarioTests
         await Watch.UntilAsync(() => fromDavide.CountMatch(m => m is TextMessage) == 2, "Davide to hear the other two");
         await Watch.UntilAsync(() => fromHost.CountMatch(m => m is TextMessage) == 2, "the host to hear the other two");
 
-        // A window keeps its own line rather than being sent it back (F4), so what each received is what
-        // the other two wrote, in the order they wrote it.
+        // A window keeps its own line rather than being sent it back (F4), so what each of them received
+        // is exactly what the other two wrote.
+        // <para>
+        // The order they arrived in is deliberately not asserted. One connection's messages do keep their
+        // order - see TwoRoomsTalkToNobodyButTheirOwnMembers - but two people speaking are two connections,
+        // each with its own queue on the host, and Lantern promises nobody's sentences will be shuffled
+        // rather than that the room agrees on the order two strangers happened to type. A test that pinned
+        // that down would be a test that occasionally fails for a reason no one can fix.
+        // </para>
         Assert.Equal(
             ["I can see you both", "welcome to my machine"],
-            fromCara.Items.OfType<TextMessage>().Select(m => m.Preview));
+            fromCara.Items.OfType<TextMessage>().Select(m => m.Preview).OrderBy(p => p, StringComparer.Ordinal));
 
         Assert.Equal(
             ["I can see you both", "loud and clear"],
-            fromDavide.Items.OfType<TextMessage>().Select(m => m.Preview));
+            fromDavide.Items.OfType<TextMessage>().Select(m => m.Preview).OrderBy(p => p, StringComparer.Ordinal));
 
         // Every line carries the nickname of the window that wrote it, not of the one showing it (F4).
         Assert.Equal(
             ["Cara", "Davide"],
-            fromHost.Items.OfType<TextMessage>().Select(m => m.SenderNickname));
+            fromHost.Items.OfType<TextMessage>().Select(m => m.SenderNickname).OrderBy(n => n, StringComparer.Ordinal));
     }
 
     [Fact]

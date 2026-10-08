@@ -291,6 +291,12 @@ public sealed class ChatEngineLoopbackTests
         Assert.Equal(["Room 1", "Room 2", "Room 3"], client.Rooms.Select(r => r.Name));
     }
 
+    /// <summary>
+    /// What this build declines rather than pretending to do. Pictures went on the wire in T5.2 (see
+    /// <c>PictureMessageTests</c>); a file has not gone yet, and the point of refusing is that a client
+    /// never puts a frame on the wire that the host would have to reject, and a host answers a frame it
+    /// does not carry with a sentence rather than by dropping the connection.
+    /// </summary>
     [Fact]
     public async Task ThisBuildRefusesWhatItCannotYetCarry()
     {
@@ -299,18 +305,16 @@ public sealed class ChatEngineLoopbackTests
         await client.ConnectAsync(server.Endpoint);
         await client.JoinRoomAsync("Room 1");
 
-        // M5 opens pictures and files up; until then the client refuses rather than sending a frame
-        // the host would have to reject.
         await Assert.ThrowsAsync<NotSupportedException>(
-            () => client.SendAsync(new PictureMessage("Cara", "Room 1", "cat.png", [1, 2, 3])));
+            () => client.SendAsync(new FileMessage("Cara", "Room 1", "notes.zip", 12)));
         await Assert.ThrowsAsync<NotSupportedException>(() => client.SendFileAsync("nothing.bin"));
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), "Room 1", "Mallory", "cat.png", [1, 2, 3], DateTime.Now));
+        await SendRawAsync(raw, Frame.FileMeta(Guid.NewGuid(), Guid.NewGuid(), "Room 1", "Mallory", "notes.zip", 12));
 
         var error = await ReadRawAsync(raw, FrameType.ERROR);
-        Assert.Contains("PICTURE", error.Header.Error);
+        Assert.Contains("FILE_META", error.Header.Error);
     }
 
     [Fact]
