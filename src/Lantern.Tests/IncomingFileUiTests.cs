@@ -150,6 +150,82 @@ public sealed class IncomingFileUiTests
     }
 
     [Fact]
+    public Task AFileThatArrivedWhileNobodyWasAnsweringIsStillOffered()
+        => Sta.RunAsync(async () =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new IncomingForm(service);
+
+            form.Show();
+
+            var job = service.SimulateIncomingFile("notes.txt", 4096);
+            service.AdvanceFile(job, 4096);
+
+            // The transfer finished while nobody had said where it should go. The bytes are in Lantern's own
+            // area and will wait there, so the offer has to still be on the screen when the person looks back
+            // at the window - otherwise a file that arrived while they were typing is a file that vanished.
+            await Watch.UntilAsync(() => job.IsComplete, "the file to arrive");
+            await Task.Delay(200);
+
+            Assert.Contains("notes.txt", form.FileOfferText, StringComparison.Ordinal);
+            Assert.False(job.Cancel.IsCancellationRequested);
+            Assert.Empty(service.SaveRequests);
+
+            // And it can still be had: the offer is not a moment that passed.
+            form.Folder = NewFolder();
+            Click(form, "btnFileSave");
+
+            await Watch.UntilAsync(() => service.SaveRequests.Count == 1, "the late answer to be accepted");
+            Assert.True(File.Exists(Path.Combine(form.Folder!, "notes.txt")));
+
+            form.Dispose();
+        });
+
+    [Fact]
+    public Task AFolderThatWontHaveItIsAskedAgainRatherThanLost()
+        => Sta.RunAsync(async () =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new IncomingForm(service);
+
+            // A folder that will not take the file, which is what a read-only share looks like from here: a
+            // name Windows refuses to create because a folder of that name is standing in the way.
+            var stubborn = NewFolder();
+            Directory.CreateDirectory(Path.Combine(stubborn, "notes.txt"));
+
+            var sensible = NewFolder();
+
+            form.Show();
+            form.Folder = stubborn;
+
+            var job = service.SimulateIncomingFile("notes.txt", 4096);
+            service.AdvanceFile(job, 4096);
+
+            Click(form, "btnFileSave");
+
+            await Watch.UntilAsync(
+                () => form.FileOfferText.Contains("notes.txt", StringComparison.Ordinal),
+                "the offer to come back after the folder refused it");
+
+            // The bytes are still in Lantern's own area, so this is a folder that would not have the file
+            // rather than a file that has gone - and being asked again is the whole recovery. Without it,
+            // "that folder is read-only" would mean "send it again".
+            Assert.Empty(form.FileProgressText);
+            Assert.False(File.Exists(Path.Combine(stubborn, "notes.txt")));
+            Assert.False(job.Cancel.IsCancellationRequested);
+
+            form.Folder = sensible;
+            Click(form, "btnFileSave");
+
+            var saved = Path.Combine(sensible, "notes.txt");
+            await Watch.UntilAsync(() => File.Exists(saved), "the same file to land in a folder that would take it");
+            Assert.Equal("simulated payload for notes.txt", await File.ReadAllTextAsync(saved));
+            Assert.Equal(2, service.SaveRequests.Count);
+
+            form.Dispose();
+        });
+
+    [Fact]
     public Task TheBarShowsHowMuchOfAFileHasArrived()
         => Sta.RunAsync(async () =>
         {

@@ -320,6 +320,44 @@ public sealed class FileTransferTests : IDisposable
         await seenByText.ItemAsync(m => m is TextMessage note && note.Body == "still here", "the room to still work");
     }
 
+    [Theory]
+    [InlineData(@"..\..\elsewhere\payload.bin")]
+    [InlineData(@"C:\Windows\payload.bin")]
+    [InlineData("two/dirs/deep/payload.bin")]
+    [InlineData("   payload.bin   ")]
+    public async Task ANameWithAPathInItArrivesAsAFileName(string announced)
+    {
+        await using var server = await StartAsync();
+        await HostJoinsAsync(server, "Room 1");
+
+        await using var dov = new ChatClient("Dov");
+        await JoinAllAsync(server, [dov], "Room 1");
+        var offeredToDov = WatchJobs(dov);
+
+        var id = Guid.NewGuid();
+        transfers.Add(id);
+
+        using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+
+        await SendRawAsync(raw,
+            Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", announced, 4),
+            Frame.FileChunk(id, 0, Bytes(4)),
+            Frame.FileDone(id));
+
+        var offered = await offeredToDov.ItemAsync(j => j.SizeBytes == 4, "the file to arrive");
+
+        // A file name is a label, not a path. A receiver that obeyed the path in an announcement would be
+        // letting a stranger decide where its own disk gets written - and the window puts the file into the
+        // folder the person chose by combining that folder with exactly this string, so the string has to be
+        // one name before it ever gets that far.
+        Assert.Equal("payload.bin", offered.FileName);
+
+        var saved = TempPath("payload.bin");
+        await SaveAsync(dov, offered, saved);
+        Assert.Equal(4, new FileInfo(saved).Length);
+    }
+
     [Fact]
     public async Task TheHostRefusesAFileOfAnImpossibleSize()
     {

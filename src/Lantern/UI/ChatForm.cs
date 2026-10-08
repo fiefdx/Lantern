@@ -541,9 +541,20 @@ public abstract partial class ChatForm : Form
 
     private void FileFinished(FileTransferJob job)
     {
+        // Read before it is removed: whether this window had agreed to keep the file decides what is worth
+        // saying about it, and the two lines cannot be said in the same breath.
+        var wasAccepted = accepted.Contains(job);
+
         accepted.Remove(job);
-        unanswered.Remove(job);
         stoppedHere.Remove(job);
+
+        // A file that has finished arriving but was never answered is still an offer worth making: the bytes
+        // are in Lantern's own area and will sit there until somebody says where they go. Only a cancelled
+        // transfer comes off the list by itself - there is nothing left to hand over.
+        if (job.Cancel.IsCancellationRequested)
+        {
+            unanswered.Remove(job);
+        }
 
         // The noise is asked for here rather than inside the transfer, because only the window knows whether
         // this file was its own. A host relaying somebody else's file has no business announcing it twice.
@@ -563,10 +574,12 @@ public abstract partial class ChatForm : Form
             // pointed at nothing.
             ShowOffer();
         }
-        else if (shown == job && !accepted.Contains(job))
+        else if (shown == job && !wasAccepted)
         {
             // "arrived" rather than "saved": what has arrived is not yet anywhere permanent, and a window
-            // that says saved before it has written would be believed.
+            // that says saved before it has written would be believed. A file this window had already agreed
+            // to keep is not said anything here - the line about it is written when it has been written, and
+            // saying "arrived" after that would be the story told backwards.
             SetStatus($"{job.FileName} {(job.SenderNickname == Service.Nickname ? "sent" : "arrived")}");
         }
 
@@ -579,7 +592,8 @@ public abstract partial class ChatForm : Form
     /// <summary>Puts the oldest unanswered offer in the strip, or takes the strip down.</summary>
     private void ShowOffer()
     {
-        unanswered.RemoveAll(j => j.Cancel.IsCancellationRequested || j.Finished.IsCompleted);
+        // Cancelled ones go; a file that arrived whole and was never answered is still there to be had.
+        unanswered.RemoveAll(j => j.Cancel.IsCancellationRequested);
 
         if (unanswered.Count == 0)
         {
@@ -636,13 +650,24 @@ public abstract partial class ChatForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
-            // The folder was read-only, or something with that name was already in it, or the file stopped
-            // short on the way. All of them are one line in the status bar, and the spool is still there so
-            // the person can pick a different folder and try again.
             OnUi(() =>
             {
                 accepted.Remove(job);
                 SetStatus(ex.Message);
+
+                // A folder that would not have it is not a lost file: the bytes are still in Lantern's own
+                // area, waiting. So the offer comes back and the person is asked where - which is the whole
+                // recovery, and the difference between "read-only folder" meaning "try the Documents folder
+                // instead" and meaning "that file is gone".
+                //
+                // Not when the transfer itself was cancelled: that file never arrived whole, there is nothing
+                // in the spool worth a second folder, and offering it again would be offering a button to
+                // nothing.
+                if (!job.Cancel.IsCancellationRequested && !unanswered.Contains(job))
+                {
+                    unanswered.Add(job);
+                    ShowOffer();
+                }
             });
         }
         catch (OperationCanceledException)
