@@ -34,11 +34,16 @@ clicking two windows on one machine. No Bluetooth, no second computer, no networ
 Run two instances side by side. Either:
 
 ```
-dotnet run --project src/Lantern      # terminal 1
-dotnet run --project src/Lantern      # terminal 2
+dotnet run --project src/Lantern -- --loopback      # terminal 1
+dotnet run --project src/Lantern -- --loopback      # terminal 2
 ```
 
-or start one from Visual Studio with Ctrl+F5 and the second from `bin\Debug\net10.0-windows\Lantern.exe`.
+The `--loopback` is needed since M4: a Lantern run now uses the Bluetooth radio when it has one, and one
+laptop cannot be both ends of a Bluetooth link (T4.1 D1). Without it, B will find nothing to join and the
+status bar will say so. Both windows should read "over loopback" at the bottom before you start.
+
+or start one from Visual Studio with Ctrl+F5 (set `--loopback` in Debug ▸ Project Properties ▸ Application
+▸ Application arguments) and the second from `bin\Debug\net10.0-windows\Lantern.exe --loopback`.
 Move the windows so both are visible. Call them **A** (the one that hosts) and **B** (the one that joins).
 
 | # | Do this | Expect | ✓ | Notes |

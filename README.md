@@ -18,8 +18,12 @@ one room at a time. No accounts, no Wi‑Fi, no internet.
 dotnet build Lantern.sln
 dotnet test  Lantern.sln                                  # unit tests
 
-dotnet run --project src/Lantern/Lantern.csproj           # the app
+dotnet run --project src/Lantern/Lantern.csproj           # the app, over the Bluetooth radio
+dotnet run --project src/Lantern/Lantern.csproj -- --loopback   # ...or on this machine alone
 ```
+
+Two windows on one laptop (how the manual checklists are walked through) need `--loopback`: one machine
+cannot be both ends of a Bluetooth link. The status bar says which transport a window is on.
 
 The solution layout:
 
@@ -29,9 +33,11 @@ src/Lantern/            WinForms app (.NET 10)
   Core/                 ChatServer, ChatClient, ClientSession, ServerBrowser,
                         SoundNotifier, IChatService
   Domain/               Message hierarchy, Room, User, FileTransferJob, validation
-  Storage/              RoomDto, IRoomStore, JsonRoomStore (rooms.json)
+  Storage/              RoomDto, IRoomStore, JsonRoomStore (rooms.json),
+                        IKnownHosts, JsonKnownHostsStore (known-hosts.json)
   Transport/            IBtServer / IBtClient / IClientLink, FrameCodec,
-                        loopback (TCP) transport and the real RFCOMM transport
+                        loopback (TCP) transport and the real RFCOMM transport,
+                        with 32feet.NET behind IRfcommListener / IRfcommConnector / IDeviceFinder
 src/Lantern.Tests/      xUnit unit + integration tests
 docs/                   proposal, task breakdown, UML, wireframes, module notes
 ```
@@ -41,11 +47,12 @@ docs/                   proposal, task breakdown, UML, wireframes, module notes
 | Mode | What it does |
 |:--|:--|
 | **Live** | Real `ChatServer` / `ChatClient` over the selected transport |
-| **Loopback** | Same engine over localhost TCP — used for demos and tests when Bluetooth is unavailable |
+| **Loopback** | Same engine over localhost TCP — `--loopback`, or no Bluetooth radio found; demos, tests, and two windows on one laptop |
 | **Fake** | `FakeChatService`, in-memory dummy rooms/messages, no sockets at all — for UI work |
 
-The transport is chosen at start-up; the UI is identical in all three because it
-only ever sees `IChatService`.
+The transport is chosen once at start-up by `Core/Transports.cs` (`--loopback`, or
+`LANTERN_TRANSPORT=loopback|bluetooth`); the UI is identical in all three because it
+only ever sees `IChatService`. The status bar always says which transport is in use.
 
 ## Roadmap
 
@@ -55,11 +62,11 @@ only ever sees `IChatService`.
 | M1 | Domain model & validation | done |
 | M2 | Chat engine + wire protocol over loopback | done |
 | M3 | Room persistence & room management | done |
-| M4 | Real Bluetooth transport | next — until then the radio is never touched, and windows talk to 127.0.0.1 |
+| M4 | Real Bluetooth transport | in progress — RFCOMM transport, discovery, known hosts and the startup window are done; multi-client, lifecycle and the two-laptop field test are not |
 | M5 | Pictures, file transfer, sounds | not started |
 | M6 | Hardening, testing, release (`v1.0`) | not started |
 
-The test suite is 215 tests; `docs/testing/` holds the manual checklists that go with each milestone.
+The test suite is 296 tests; `docs/testing/` holds the manual checklists that go with each milestone.
 
 See [docs/TASK_BREAKDOWN.md](docs/TASK_BREAKDOWN.md) for the full task list and
 [docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md) for the specification.

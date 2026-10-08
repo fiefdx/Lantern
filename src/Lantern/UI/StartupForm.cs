@@ -16,14 +16,34 @@ namespace Lantern.UI;
 /// </summary>
 public partial class StartupForm : Form
 {
-    private IReadOnlyList<ServerEndpoint> discovered = [];
+    private readonly ITransportFactory transport;
+    private readonly IKnownHosts? knownHosts;
 
+    private IReadOnlyList<ServerEndpoint> discovered = [];
+    private CancellationTokenSource? scan;
+
+    /// <summary>The window a person sees: it decides the transport itself, from the radio and the environment.</summary>
     public StartupForm()
+        : this(Transports.ForStartup(Transports.Wanted(Environment.GetCommandLineArgs())), new JsonKnownHostsStore())
     {
+    }
+
+    /// <summary>
+    /// The same window over a transport somebody else chose, which is how the tests run it and how a
+    /// second copy on one laptop is driven through the checklist (T4.1 D1).
+    /// </summary>
+    public StartupForm(ITransportFactory transport, IKnownHosts? knownHosts = null)
+    {
+        this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        this.knownHosts = knownHosts;
+
         InitializeComponent();
         txtNickname.Text = Environment.UserName;
         lstServers.Items.Clear();
-        SetStatus("enter a nickname, then host or scan");
+
+        // The transport is stated before anything is clicked. A machine on loopback will never find a
+        // chat, and it should say so rather than leave somebody pressing Scan.
+        SetStatus($"{transport.Description} — enter a nickname, then host or scan");
     }
 
     /// <summary>The trimmed nickname, valid because the form will not act without one.</summary>
@@ -46,9 +66,8 @@ public partial class StartupForm : Form
 
         try
         {
-            // T4.3 swaps the transport for BtRfcommServer; nothing below this line changes with it.
             // Only the host owns a room list, so only the host is given somewhere to keep it (F9).
-            var server = new ChatServer(new BtLoopbackServer(ServerName), ServerName, roomStore: new JsonRoomStore());
+            var server = new ChatServer(transport.NewServer(ServerName), ServerName, roomStore: new JsonRoomStore());
             await server.StartAsync();
             Hosting = server;
 
@@ -61,7 +80,7 @@ public partial class StartupForm : Form
         {
             await StopHostingAsync();
             SetStatus($"could not host: {ex.Message}");
-            SetBusy(false);
+            Resume();
         }
     }
 
@@ -70,21 +89,41 @@ public partial class StartupForm : Form
 
     // ----------------------------------------------------------- discovering
 
+    /// <summary>
+    /// Scan, and while a scan is in flight, stop it. There is no Stop button in the figure, and there is
+    /// no need for one: the button that started it is the one that says "Scanning…", and a radio inquiry
+    /// takes long enough that the person standing there may change their mind.
+    /// </summary>
     private async void BtnScan_Click(object? sender, EventArgs e)
     {
+        if (scan is { } running)
+        {
+            running.Cancel();
+            SetStatus("stopping the scan…");
+            return;
+        }
+
         if (!TryValidateNickname())
         {
             return;
         }
 
-        SetBusy(true);
+        scan = new CancellationTokenSource();
         lstServers.Items.Clear();
-        btnJoin.Enabled = false;
-        SetStatus("scanning…");
+        SetBusy(true);
+        btnScan.Enabled = true;              // still clickable, because it is now the cancel
+        btnScan.Text = "Scanning…";
+        SetStatus($"scanning {transport.Name}…");
+
+        var client = transport.NewClient();
 
         try
         {
-            discovered = await ServerBrowser.DiscoverAsync();
+            discovered = await ServerBrowser.DiscoverAsync(
+                ServerBrowser.DefaultTimeout,
+                client,
+                knownHosts,
+                scan.Token);
 
             foreach (var endpoint in discovered)
             {
@@ -92,9 +131,13 @@ public partial class StartupForm : Form
                 lstServers.Items.Add(endpoint);
             }
 
-            SetStatus(discovered.Count == 0
-                ? "no Lantern chat found — start one, or try again once it is up"
-                : $"{discovered.Count} chat(s) found");
+            SetStatus(discovered.Count switch
+            {
+                0 when scan.IsCancellationRequested => "scan stopped",
+                0 => "no Lantern chat found — is the other machine hosting, and is it paired?",
+                _ when scan.IsCancellationRequested => $"scan stopped with {discovered.Count} chat(s) listed",
+                _ => $"{discovered.Count} chat(s) found",
+            });
         }
         catch (Exception ex)
         {
@@ -102,8 +145,26 @@ public partial class StartupForm : Form
         }
         finally
         {
-            btnScan.Enabled = true;
+            (client as IDisposable)?.Dispose();
+            EndScan();
         }
+    }
+
+    /// <summary>Puts the Scan button back and lets the window be used again.</summary>
+    private void EndScan()
+    {
+        scan?.Dispose();
+        scan = null;
+
+        btnScan.Text = "Scan";
+        Resume();
+    }
+
+    /// <summary>Greyed things back on, and hands the Join button back if there is still something selected.</summary>
+    private void Resume()
+    {
+        SetBusy(false);
+        btnJoin.Enabled = lstServers.SelectedItem is not null;
     }
 
     // ---------------------------------------------------------------- joining
@@ -124,11 +185,16 @@ public partial class StartupForm : Form
         SetBusy(true);
         SetStatus($"joining {endpoint}…");
 
-        var client = new ChatClient(Nickname);
+        var client = new ChatClient(Nickname, transport.NewClient());
 
         try
         {
             await client.ConnectAsync(endpoint);
+
+            // The machines worth offering next time are the ones this laptop has actually joined, since a
+            // host is usually paired rather than discoverable (T4.1 D2).
+            knownHosts?.Remember(endpoint);
+
             Open(new ClientForm(client));
         }
         catch (Exception ex)
@@ -136,7 +202,11 @@ public partial class StartupForm : Form
             // Nothing was opened, so this window has to say why it is still here.
             await client.DisposeAsync();
             SetStatus($"could not join: {ex.Message}");
-            SetBusy(false);
+
+            // The row is still there and still selected: a machine that did not answer a minute ago is
+            // worth another press, and making the person choose it again is a penalty for the friend's
+            // switched-off laptop.
+            Resume();
         }
     }
 
@@ -167,15 +237,26 @@ public partial class StartupForm : Form
         btnStartServer.Enabled = !value;
         btnScan.Enabled = !value;
         btnJoin.Enabled = false;
+        lstServers.Enabled = !value;
+        txtNickname.Enabled = !value;
         UseWaitCursor = value;
     }
 
-    /// <summary>Swaps this window for the chat window; closing the chat window ends the app.</summary>
-    private void Open(ChatForm chat)
+    /// <summary>
+    /// Swaps this window for the chat window; closing the chat window ends the app. Split out and
+    /// overridable so a test can be handed the window that was built rather than hunt the screen for it.
+    /// </summary>
+    protected virtual void ShowChat(ChatForm chat)
     {
         chat.FormClosed += (_, _) => Close();
         chat.Show();
         Hide();
+    }
+
+    private void Open(ChatForm chat)
+    {
+        ShowChat(chat);
+        EndScan();
     }
 
     private async Task StopHostingAsync()

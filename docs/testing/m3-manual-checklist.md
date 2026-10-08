@@ -20,6 +20,11 @@ Notepad** — which is literally how F9 is specified.
    it is one click away later.
 3. If a `rooms.json` already exists from earlier testing, either keep it (then the default room names in
    the steps below may differ — adapt them) or move it aside to `rooms.json.bak` for a clean run.
+4. Since M4, a run uses the Bluetooth radio when the machine has one. This checklist is two windows on one
+   machine, so start every instance with `--loopback`
+   (`dotnet run --project src/Lantern -- --loopback`) and check the status bar says "over loopback"
+   before step 1. Otherwise the joining window will find nothing, for a reason that has nothing to do
+   with M3.
 4. Two instances side by side, as in the M2 checklist: **A** hosts, **B** joins. Still loopback: no
    Bluetooth, no second machine.
 
