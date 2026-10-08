@@ -93,6 +93,27 @@ public abstract partial class ChatForm : Form
         }
     }
 
+    /// <summary>
+    /// F10: gives this window something to make a noise with.
+    /// <para>
+    /// Nothing is attached by default, and the window itself never builds one: the place that composes the
+    /// program is the place that knows whether this is a person's desktop or a test runner with four hundred
+    /// windows in it, and a noise is not something to decide on somebody else's behalf.
+    /// </para>
+    /// </summary>
+    public void AttachSounds(SoundNotifier sounds)
+    {
+        ArgumentNullException.ThrowIfNull(sounds);
+
+        if (noises is not null)
+        {
+            throw new InvalidOperationException("This window already makes a noise.");
+        }
+
+        noises = sounds;
+        Service.MessageReceived += (_, message) => OnUi(() => noises.MessageArrived(message));
+    }
+
     /// <summary>A service call refuses something the user asked for (duplicate name, over-long message).</summary>
     protected void SetStatus(string message)
         => lblStatus.Text = message.Length == 0 ? "Status: idle" : $"Status: {message}";
@@ -446,6 +467,9 @@ public abstract partial class ChatForm : Form
     /// <summary>Files this window stopped itself - their ending needs no comment on top of the one given.</summary>
     private readonly HashSet<FileTransferJob> stoppedHere = [];
 
+    /// <summary>What this window plays when something arrives, if anybody has asked it to (F10).</summary>
+    private SoundNotifier? noises;
+
     /// <summary>Scenario 6: name, size and sender, then Save to… or Decline.</summary>
     private void OfferFile(FileTransferJob job)
     {
@@ -520,6 +544,10 @@ public abstract partial class ChatForm : Form
         accepted.Remove(job);
         unanswered.Remove(job);
         stoppedHere.Remove(job);
+
+        // The noise is asked for here rather than inside the transfer, because only the window knows whether
+        // this file was its own. A host relaying somebody else's file has no business announcing it twice.
+        noises?.FileDone(job);
 
         if (job.Cancel.IsCancellationRequested)
         {

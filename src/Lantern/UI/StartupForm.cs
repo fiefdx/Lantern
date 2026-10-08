@@ -255,6 +255,10 @@ public partial class StartupForm : Form
 
     private void Open(ChatForm chat)
     {
+        // F10 belongs to the composed program rather than to the window: a ChatForm on its own - in a test,
+        // or in whatever gets built next - should not be making sounds that nobody asked for.
+        chat.AttachSounds(new SoundNotifier());
+
         ShowChat(chat);
         EndScan();
     }

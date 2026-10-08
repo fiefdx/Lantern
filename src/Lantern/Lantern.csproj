@@ -26,6 +26,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- F10: the two sounds the room makes. Copied next to the program rather than embedded, so that
+         replacing a file changes the sound without changing the code - and so that the sound does not
+         depend on whoever set up this machine having left the Windows sound scheme alone. -->
+    <Content Include="Media\*.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="InTheHand.Net.Bluetooth" Version="4.2.5" />
   </ItemGroup>
 
