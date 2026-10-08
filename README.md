@@ -156,6 +156,7 @@ radio, no pairing and no second machine. `docs/testing/` holds the sheets that o
 | [m4-field-test.md](docs/testing/m4-field-test.md) | two laptops and a radio |
 | [m5-manual-checklist.md](docs/testing/m5-manual-checklist.md) | pictures, files, sounds |
 | [m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md) | **the six use-case scenarios, signed off by a non-author** |
+| [v1-demo-script.md](docs/testing/v1-demo-script.md) | the eight-minute class demo: who drives what, and the fallback plan |
 
 Module notes — what each task was for, what was learned, and what was got wrong first — are in
 [docs/notes/](docs/notes/). The specification is [docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md), the task
