@@ -23,6 +23,13 @@ public sealed class BtRfcommServer : IBtServer
     /// </summary>
     public const string ServiceName = "Lantern";
 
+    /// <summary>
+    /// How long <see cref="Stop"/> will wait for the radio to finish saying goodbye. One second: long enough
+    /// for a normal close of a machine that is still switched on, short enough that a laptop in a bag is not
+    /// allowed to hold a window open. The closing is not cancelled by walking away, only waited on less.
+    /// </summary>
+    public static readonly TimeSpan TearDownGrace = TimeSpan.FromSeconds(1);
+
     private readonly IRfcommListener listener;
     private readonly Func<string?> localAddress;
     private readonly List<StreamLink> links = [];
@@ -203,25 +210,52 @@ public sealed class BtRfcommServer : IBtServer
 
         source?.Cancel();
 
-        try
+        // Closing a Bluetooth channel is the part of quitting that takes time: the stack wants to finish a
+        // polite goodbye with a machine that may be switched off, and it is quite capable of spending seconds
+        // doing it. So the goodbye is started, everything at once, and waited on only so long - the caller
+        // (ChatServer.StopAsync, and behind it a window somebody closed) is not the place to spend the radio's
+        // patience. Whatever is still closing carries on by itself and releases its handles when it gets there.
+        var packingUp = new List<Task>(open.Length + 1)
         {
-            // Removing the SDP record matters as much as closing the socket: a machine that still
-            // advertises Lantern after its host quit is a machine whose next visitor connects to
-            // nothing, and the fault then looks like it belongs to the visitor.
-            listener.Stop();
-        }
-        catch (IOException)
-        {
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Removing the SDP record matters as much as closing the socket: a machine that still
+                    // advertises Lantern after its host quit is a machine whose next visitor connects to
+                    // nothing, and the fault then looks like it belongs to the visitor.
+                    listener.Stop();
+                }
+                catch (IOException)
+                {
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+            }),
+        };
 
         // Scenario 6: quitting the host drops every client, which is what makes their "connection lost"
-        // path run.
-        foreach (var link in open)
+        // path run. All of them at once: three slow clients are not three seconds of somebody's window.
+        packingUp.AddRange(open.Select(link => Task.Run(() =>
         {
-            link.Close();
+            try
+            {
+                link.Close();
+            }
+            catch (Exception)
+            {
+                // A channel that complains on the way out is a channel that is closing.
+            }
+        })));
+
+        try
+        {
+            Task.WaitAll(packingUp.ToArray(), TearDownGrace);
+        }
+        catch (Exception)
+        {
+            // Faults are handled inside each one; WaitAll only rethrows them, and there is nobody to tell.
         }
 
         source?.Dispose();

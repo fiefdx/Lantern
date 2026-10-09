@@ -310,13 +310,28 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         writeLock.Dispose();
     }
 
+    /// <summary>How long hanging up is allowed to take before this window is allowed to be on its way out.</summary>
+    private static readonly TimeSpan LinkGrace = TimeSpan.FromSeconds(1);
+
     private async Task DisconnectAsync(string? reason)
     {
         var current = Interlocked.Exchange(ref link, null);
 
         if (current is not null)
         {
-            current.Close();
+            // Hanging up. On a radio this is where the time goes: the stack wants a polite goodbye from a
+            // machine that may be switched off, and it will wait for it. So it is started, waited on briefly,
+            // and then left to finish on its own — the channel is nobody's business by now but its own.
+            var closing = Task.Run(current.Close);
+
+            try
+            {
+                closing.Wait(LinkGrace);
+            }
+            catch (Exception)
+            {
+                // A link that complains while being closed is a link that is closing.
+            }
         }
 
         var loop = Interlocked.Exchange(ref readLoop, null);
@@ -325,7 +340,13 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         {
             try
             {
-                await loop.ConfigureAwait(false);
+                // Bounded for the same reason: a read still parked on a channel that has gone is unblocked by
+                // the close above, and if the stack has not got round to it yet, waiting longer here is only
+                // waiting on the stack.
+                await loop.WaitAsync(LinkGrace).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
             }
             catch (Exception)
             {

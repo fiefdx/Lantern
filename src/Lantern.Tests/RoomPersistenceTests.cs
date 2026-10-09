@@ -138,7 +138,7 @@ public sealed class RoomPersistenceTests
     // ----------------------------------------------- the window is the quit button (F9)
 
     [Fact]
-    public async Task ClosingTheHostWindowWritesWhatItPromisedBeforeTheProcessGoesAway()
+    public async Task AWritePromisedOnTheWayOutIsFinishedBeforeTheProcessGoesAway()
     {
         using var file = new TempRoomFile();
         using var store = new SlowStore(file.Path);
@@ -149,9 +149,13 @@ public sealed class RoomPersistenceTests
 
         Assert.True(server.TryCreateRoom("Written while closing", out _));
 
-        // The ✕ on the title bar, Alt+F4 and File ▸ Quit all end in the same place. This write takes a
-        // moment, so a close that does not wait for the service to finish stopping leaves it behind - the
-        // room comes back on the next start, which is the half of F9 that only restarting reveals.
+        // The ✕ on the title bar, Alt+F4 and File ▸ Quit all end in the same place, and this write takes a
+        // moment. The window does not stand still for it any more - it starts the stopping and hands the
+        // task over - so the promise has to be kept by whoever holds that task, which is what the second
+        // half of this test is.
+        Task? stopping = null;
+        var stillRunning = false;
+
         Sta.Run(() =>
         {
             // A plain HostForm would ask whether the user is sure, and a question nobody is there to
@@ -159,10 +163,20 @@ public sealed class RoomPersistenceTests
             using var form = new AnsweringHost(host) { Confirms = true };
             form.Show();
             form.Close();
+
+            stopping = form.StoppingChat;
+            stillRunning = !stopping.IsCompleted;
         });
 
+        Assert.True(stillRunning, "the window waited on a write that had five more seconds to go");
+
+        // The start screen waits on this before it lets another chat start, and again before the program
+        // exits, which is how the room still lands in the file. Skipping this line is the half of F9 that
+        // only restarting reveals: the room comes back.
+        await stopping!;
+
         Assert.False(server.IsRunning);
-        Assert.True(File.Exists(file.Path), "the room list had not been written by the time the window had closed");
+        Assert.True(File.Exists(file.Path), "the room list had not been written by the time the chat had stopped");
         Assert.Contains("Written while closing", File.ReadAllText(file.Path));
     }
 

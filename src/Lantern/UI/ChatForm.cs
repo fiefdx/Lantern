@@ -1142,6 +1142,29 @@ public abstract partial class ChatForm : Form
     protected virtual void OnQuitRequested() => Close();
 
     /// <summary>
+    /// How long this window will stand still for a chat that is packing up. Half a second, because that is
+    /// about how long a window that has already been told to close may be seen thinking before it looks
+    /// broken — and a Bluetooth channel routinely wants more than that to say goodbye.
+    /// </summary>
+    private static readonly TimeSpan ClosingGrace = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Stopping the chat, which this window started on the way out and which may still be going when the
+    /// window has gone. Whoever owns this window (the start screen, or the process on its way out) is the
+    /// one that decides how long to wait for it; the window itself does not.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Task StoppingChat { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// Why this window closed, in the words the start screen repeats back: <c>null</c> when the person
+    /// asked for it, and the reason when something else did — losing a host is not the same news as
+    /// leaving, and a start screen that comes back silently looks like a start screen that was never left.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string? ClosingExplanation { get; protected set; }
+
+    /// <summary>
     /// Whether the user really means it. The host window asks, because everybody else is connected to
     /// it.
     /// </summary>
@@ -1167,25 +1190,42 @@ public abstract partial class ChatForm : Form
     /// is a chat the user cannot stop: clients would keep their connection to a host with no face.
     /// </summary>
     /// <remarks>
-    /// The wait is the part that matters. A shutdown started fire-and-forget on the way out has no
-    /// reason to finish before the process goes, and the host's room list may still be on its way to
-    /// the file (F9) - so a room created seconds earlier, or renamed, or deleted, quietly comes back.
-    /// The service bounds its own stopping; this only declines to walk away before it is done.
+    /// The chat is stopped here, on the way out, because a chat still running behind a closed window is a
+    /// chat nobody can stop — and it is waited on only as long as <see cref="ClosingGrace"/>. That is the
+    /// whole of the difference between a close that feels instant and a close that feels broken: the work
+    /// is not skipped, it is handed over (see <see cref="StoppingChat"/>), and whoever owns this window
+    /// decides whether the process may go before it is finished. The start screen waits before it lets a
+    /// new chat start, and waits again before the program exits, so the host's room list still lands in
+    /// the file (F9).
     /// </remarks>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         base.OnFormClosed(e);
 
+        // Off the UI thread on purpose: awaiting on this thread would need the message loop that is
+        // already on its way out, and blocking it directly would deadlock against the same loop.
+        var service = Service;
+        StoppingChat = Task.Run(async () =>
+        {
+            try
+            {
+                await service.ShutdownAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // The window is going away and there is nobody left to tell. The service reports what it
+                // can while it is still up; a shutdown that cannot finish is not worth throwing over.
+            }
+        });
+
         try
         {
-            // Off the UI thread on purpose: awaiting on this thread would need the message loop that is
-            // already on its way out, and blocking it directly would deadlock against the same loop.
-            Task.Run(() => Service.ShutdownAsync()).Wait(TimeSpan.FromSeconds(15));
+            StoppingChat.Wait(ClosingGrace);
         }
         catch (Exception)
         {
-            // The window is going away and there is nobody left to tell. The service reports what it can
-            // while it is still up; a shutdown that cannot finish is not worth throwing over.
+            // Already swallowed inside the task; a faulted shutdown must not be thrown at a window that is
+            // on its way out of the screen.
         }
     }
 
@@ -1201,6 +1241,7 @@ public abstract partial class ChatForm : Form
         // The state first and the reason after it: the reason is for this moment and the state is for whoever
         // looks at the bar afterwards, when the box has been acknowledged and this window has stepped aside.
         SetStatus($"{ConnectionLostState} — {error.Message}");
+        ClosingExplanation = error.Message;
         ShowConnectionLost(error);
         Close();
     }

@@ -99,8 +99,10 @@ public partial class HostForm : ChatForm
             : null;
 
     /// <summary>
-    /// Closing this window asks first - by menu, by the ✕ or by Alt+F4 alike - because everybody else
-    /// is connected to it.
+    /// Closing this window asks first - by menu, by the ✕ or by Alt+F4 alike - because everybody else is
+    /// connected to it, and because what it stops is not just this window's chat. Going back is the point
+    /// afterwards: the start screen, where another chat can be hosted or joined without restarting the
+    /// program (and where a pairing that has since died can be tried again).
     /// </summary>
     protected override bool ConfirmClosing() => ConfirmQuit();
 

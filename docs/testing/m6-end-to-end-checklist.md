@@ -113,11 +113,12 @@ logic; this sheet proves the program on the hardware it is for.
 | # | Do this | Expected | ✓ |
 |---:|---|---|---|
 | 6.1 | On the host, File → Quit | Asked to confirm first. Cancel leaves the server running | ☐ |
-| 6.2 | Confirm | The host window closes and the server is really gone (a scan no longer lists it) | ☐ |
+| 6.2 | Confirm | The host window closes, the server is really gone (a scan no longer lists it), and the start screen is back within a second | ☐ |
 | 6.3 | Look at a client's window | A box saying the connection was lost, and the status bar left saying **connection lost — …** after the box is acknowledged. The client window steps aside rather than offering a Send button that can only fail | ☐ |
 | 6.4 | Read the client's bar closely | It makes **no promise of reconnecting** — Lantern does not dial anybody back on its own | ☐ |
 | 6.5 | Pull the radio out / sleep the host laptop instead of quitting 📶 | The same report, and it arrives in a bounded time rather than whenever the socket notices | ☐ |
 | 6.6 | A single client leaves (Leave button) while the server runs | The room is told, the member lists follow, and everyone else carries on talking | ☐ |
+| 6.7 | Both laptops after the chat | Each is back at its own start screen and can host or join again **without restarting the program**; the last room change made before quitting is in `rooms.json` either way | ☐ |
 | 6.7 | Host restarts | The rooms are there, exactly as they were left. Clients have to be joined again by hand — nothing dials itself | ☐ |
 
 ---

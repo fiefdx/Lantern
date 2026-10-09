@@ -96,6 +96,12 @@ Nothing plays for your own words. If a machine must be silent, mute it — there
 The room is told when someone enters or leaves (`Cara - join this chat`, `Cara - left this chat`), and the
 member list on the right follows. A client's **Leave** button ends their membership without ending their chat.
 
+**Back to the start screen.** Closing a chat window — either role, however it was closed — brings the startup
+window back, where another chat can be hosted or joined without starting the program again. The ✕ on the
+*start* screen is what quits Lantern. Going back does not wait on the radio: hanging up a Bluetooth channel
+takes seconds on the radio's clock, so a window hands the stopping over rather than standing still for it
+(`docs/notes/closing-a-chat-window.md`).
+
 ## 4. How it is put together, module by module
 
 | Module | What it is | How it behaves |
@@ -147,7 +153,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 430 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 437 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

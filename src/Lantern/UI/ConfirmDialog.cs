@@ -23,7 +23,12 @@ public partial class ConfirmDialog : Form
 
     /// <summary>Scenario 6 — the host is about to shut the whole server down.</summary>
     public static bool ConfirmQuit(IWin32Window? owner)
-        => Ask(owner, "Quit Server", "Quit server? All clients will be disconnected.");
+        // The question says where they end up, because the word "Quit" used to leave that out: closing this
+        // window stops everybody's chat and goes back to the start screen — it is not the program's ✕.
+        => Ask(
+            owner,
+            "Quit Server",
+            "Stop the chat and go back? Everyone still connected will be told the host has gone.");
 
     /// <summary>Scenario 3 — a room is about to be removed from rooms.json.</summary>
     public static bool ConfirmDeleteRoom(IWin32Window? owner, string roomName)

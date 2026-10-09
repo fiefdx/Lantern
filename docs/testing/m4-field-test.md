@@ -75,10 +75,12 @@ is the finding, and "it worked in the end" hides it.
 | # | Do this | Expect | ✓ | What actually happened |
 |---|---|---|---|---|
 | 4.1 | On B: **Leave** the room and confirm. | A is told Friend left, and the pane loses Friend. Friend is still in the chat. | ☐ | |
-| 4.2 | On A: File ▸ **Quit server**, confirm. | A's window closes; B gets a "connection lost" box naming the reason, and B's window steps aside. | ☐ | |
+| 4.2 | On A: File ▸ **Quit server**, confirm. | A's window closes and A is back at its start screen; B gets a "connection lost" box naming the reason, and B's window steps aside back to its own start screen. | ☐ | |
 | 4.3 | On A again: nickname `Host`, **Start a Server**; on B: Scan, Join. | Joining again works the same way the first time did. Nothing remembers the dead connection. | ☐ | |
 | 4.4 | While B is joined, close the laptop lid on B (or kill Lantern from Task Manager). | A is told within a few seconds and the pane loses Friend. Nothing else is disturbed. | ☐ | |
 | 4.5 | Start hosting again on A with B joined, then File > **Quit server** and answer **No**. | Nothing changes: A is still hosting, B is still connected, and chat still works. | ☐ | |
+| 4.6 | Time it: with B still joined, File ▸ **Quit server** and confirm, wristwatch in hand. | A is back at a usable start screen **in under a second**. Hanging up an RFCOMM channel takes longer than that on the radio's clock, and Lantern stops waiting for it on purpose; if the window sits there for seconds, write down how long — that is the bug, not the radio. | ☐ | |
+| 4.7 | Immediately after 4.6, press **Start a Server** again. | Either it starts, or the bar says the last chat is still packing up and it starts a moment later. It does not fail with something that reads like a broken radio. | ☐ | |
 
 ## 5. The things most likely to be flaky, and how to tell them apart
 

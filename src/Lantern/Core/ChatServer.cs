@@ -162,6 +162,12 @@ public sealed partial class ChatServer : IAsyncDisposable
         Status("server online");
     }
 
+    /// <summary>
+    /// How long the accept loop is given to come back after the transport has been told to stop. It normally
+    /// comes back immediately; a radio that is slow is not a reason for a window to be slow with it.
+    /// </summary>
+    private static readonly TimeSpan AcceptGrace = TimeSpan.FromSeconds(2);
+
     /// <summary>Stops listening and drops every connection — scenario 6.</summary>
     public async Task StopAsync()
     {
@@ -181,11 +187,17 @@ public sealed partial class ChatServer : IAsyncDisposable
         {
             try
             {
-                await acceptLoop.ConfigureAwait(false);
+                await acceptLoop.WaitAsync(AcceptGrace).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 // Expected: the accept loop ends with the token.
+            }
+            catch (TimeoutException)
+            {
+                // The radio has not finished handing back the accept it was sitting in — Windows takes the
+                // listener down at its own speed. The loop is left to finish itself; the only thing that
+                // cares is the next chat started on this machine, and StartupForm waits for that.
             }
 
             acceptLoop = null;

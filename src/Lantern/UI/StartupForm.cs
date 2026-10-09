@@ -22,6 +22,15 @@ public partial class StartupForm : Form
     private IReadOnlyList<ServerEndpoint> discovered = [];
     private CancellationTokenSource? scan;
 
+    /// <summary>The service the chat window currently away was built on, so it can be disposed once that window has gone.</summary>
+    private IChatService? lastService;
+
+    /// <summary>
+    /// The last chat, still packing up. A Bluetooth channel can take seconds to let go, and that is a reason
+    /// the next chat waits a moment, not a reason the window somebody just closed stays gone for that long.
+    /// </summary>
+    private Task? packingUp;
+
     /// <summary>The window a person sees: it decides the transport itself, from the radio and the environment.</summary>
     public StartupForm()
         : this(Transports.ForStartup(Transports.Wanted(Environment.GetCommandLineArgs())), new JsonKnownHostsStore())
@@ -61,6 +70,11 @@ public partial class StartupForm : Form
             return;
         }
 
+        if (!await LetsStartAnotherChatAsync())
+        {
+            return;
+        }
+
         SetBusy(true);
         SetStatus("starting the server…");
 
@@ -74,7 +88,7 @@ public partial class StartupForm : Form
             var service = new HostChatService(server, Nickname);
             await service.StartAsync();
 
-            Open(new HostForm(service));
+            Open(NewHostWindow(service), service);
         }
         catch (Exception ex)
         {
@@ -182,6 +196,11 @@ public partial class StartupForm : Form
             return;
         }
 
+        if (!await LetsStartAnotherChatAsync())
+        {
+            return;
+        }
+
         SetBusy(true);
         SetStatus($"joining {endpoint}…");
 
@@ -195,7 +214,7 @@ public partial class StartupForm : Form
             // host is usually paired rather than discoverable (T4.1 D2).
             knownHosts?.Remember(endpoint);
 
-            Open(new ClientForm(client));
+            Open(NewClientWindow(client), client);
         }
         catch (Exception ex)
         {
@@ -242,22 +261,169 @@ public partial class StartupForm : Form
         UseWaitCursor = value;
     }
 
+    /// <summary>The window for a chat this machine hosts. Overridable because which window to show is a choice, not a law.</summary>
+    protected virtual ChatForm NewHostWindow(IChatService service) => new HostForm(service);
+
+    /// <summary>The window for a chat this machine has joined.</summary>
+    protected virtual ChatForm NewClientWindow(IChatService service) => new ClientForm(service);
+
     /// <summary>
-    /// Swaps this window for the chat window; closing the chat window ends the app. Split out and
-    /// overridable so a test can be handed the window that was built rather than hunt the screen for it.
+    /// Swaps this window for the chat window. Closing the chat window brings this one back: quitting a chat
+    /// and quitting Lantern are different things, and the one that needs a decision — pairing, a host that
+    /// is not switched on, a nickname typed wrong — should be reachable again without starting the program
+    /// from the beginning.
     /// </summary>
     protected virtual void ShowChat(ChatForm chat)
     {
-        chat.FormClosed += (_, _) => Close();
+        chat.FormClosed += (_, _) => ChatWindowClosed(chat);
         chat.Show();
         Hide();
     }
 
-    private void Open(ChatForm chat)
+    /// <summary>
+    /// The chat window has gone, so this one is the screen again. Note what does <i>not</i> happen here:
+    /// nothing waits for the service to finish stopping, or for the radio to finish letting go. That work is
+    /// started, remembered in <see cref="packingUp"/>, and waited on by the two things that genuinely need
+    /// it — starting another chat, and the process exiting.
+    /// </summary>
+    protected virtual void ChatWindowClosed(ChatForm chat)
+    {
+        var service = lastService;
+        var server = Hosting;
+        lastService = null;
+        Hosting = null;
+
+        packingUp = Task.Run(() => PackUpAsync(chat.StoppingChat, service, server));
+
+        Show();
+        WindowState = FormWindowState.Normal;
+        BringToFront();
+        Activate();
+        txtNickname.Focus();
+
+        SetStatus(chat.ClosingExplanation is { Length: > 0 } reason
+            ? $"the chat ended: {reason}"
+            : "the chat is closed — host one or join one");
+
+        // Back to being usable, whatever the buttons were doing when the chat window took them away.
+        EndScan();
+    }
+
+    /// <summary>Finishing with one chat: the window's own stopping, then the service it was built on, then the server.</summary>
+    private static async Task PackUpAsync(Task stopping, IChatService? service, ChatServer? server)
+    {
+        await stopping;
+
+        try
+        {
+            if (service is IAsyncDisposable asynchronously)
+            {
+                await asynchronously.DisposeAsync();
+            }
+            else
+            {
+                (service as IDisposable)?.Dispose();
+            }
+        }
+        catch (Exception)
+        {
+            // A service that cannot be put away has nowhere left to be put, and the person is back at the
+            // start screen with a working set of buttons.
+        }
+
+        try
+        {
+            if (server is not null)
+            {
+                await server.DisposeAsync();
+            }
+        }
+        catch (Exception)
+        {
+            // As above. The transport releases what it can; a second chat is built from a new one anyway.
+        }
+    }
+
+    /// <summary>How long the last chat is allowed to take letting go before this window says so out loud.</summary>
+    private static readonly TimeSpan PackingUpGrace = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    /// Whether another chat may be started now. Usually an instant yes. It is the second chat in a row that
+    /// needs the patience: the machine cannot listen on the same service twice at once, so a radio that has
+    /// not finished unregistering the last one would answer the new attempt with a failure that reads like a
+    /// broken Bluetooth rather than like an overlap.
+    /// </summary>
+    private async Task<bool> LetsStartAnotherChatAsync()
+    {
+        var still = Interlocked.Exchange(ref packingUp, null);
+
+        if (still is null || still.IsCompleted)
+        {
+            return true;
+        }
+
+        SetBusy(true);
+        SetStatus("the last chat is still packing up…");
+
+        try
+        {
+            await still.WaitAsync(PackingUpGrace);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            SetStatus("the last chat has not finished letting go — try again in a moment");
+            Resume();
+            return false;
+        }
+        catch (Exception)
+        {
+            return true;        // it finished, and whatever it was complaining about was reported by the service
+        }
+    }
+
+    /// <summary>
+    /// The last chat's room list is owed to the file (F9), and after this window closes there is no message
+    /// loop left to finish the work on. Bounded, because a stuck disk is a worse bug than a room list one
+    /// change out of date — the same bargain <see cref="ChatServer.StopAsync"/> makes.
+    /// </summary>
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+
+        if (e.Cancel)
+        {
+            return;
+        }
+
+        var still = Interlocked.Exchange(ref packingUp, null);
+
+        if (still is { IsCompleted: false })
+        {
+            SetStatus("writing the room list…");
+
+            try
+            {
+                still.Wait(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception)
+            {
+                // Nothing is left to tell, and the process is going anyway.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Opening a chat window, and remembering the service it was built on: this window made that service, so
+    /// this window is the one that puts it away once the chat window has stopped it (a joined chat left
+    /// undisposed is an RFCOMM channel left open, and a radio only has a few of them).
+    /// </summary>
+    private void Open(ChatForm chat, IChatService service)
     {
         // F10 belongs to the composed program rather than to the window: a ChatForm on its own - in a test,
         // or in whatever gets built next - should not be making sounds that nobody asked for.
         chat.AttachSounds(new SoundNotifier());
+        lastService = service;
 
         ShowChat(chat);
         EndScan();

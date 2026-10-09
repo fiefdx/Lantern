@@ -115,8 +115,9 @@ Pick **two**, out loud, in the order they fit. Do not attempt all four.
    aside; nobody is left holding a Send button that can only fail.
 3. Point at the bar. *"It does not say reconnecting, because there is no reconnecting. That is a decision, not a
    gap."*
-4. Ana restarts Lantern: the rooms are exactly as they were left. *"The rooms outlive the chat. The chat does not
-   outlive the laptop."*
+4. Ana's start screen is already back — say so while it happens (*"the window closed, the program did not"*), then
+   press **Start a Server** again: the rooms are exactly as they were left. *"The rooms outlive the chat. The chat
+   does not outlive the laptop."*
 
 ### 8 — Close (8:00)
 

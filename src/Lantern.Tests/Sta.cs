@@ -41,7 +41,10 @@ internal static class Sta
     public static T Run<T>(Func<T> func)
     {
         T result = default!;
-        Run(() => result = func());
+
+        // The cast is load bearing: `() => result = func()` is an assignment expression, so it is both an
+        // Action and a Func<T>, and left to itself this method calls itself until the stack is gone.
+        Run((Action)(() => result = func()));
         return result;
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
@@ -181,6 +182,44 @@ public sealed class RfcommTransportTests
         Assert.True(listener.LastConnection!.IsClosed);
         Assert.Null(await server.AcceptAsync());                    // and nothing further is accepted
         server.Stop();                                              // twice is fine
+    }
+
+    /// <summary>
+    /// The part of quitting a Bluetooth host that takes time is the saying-goodbye: the stack wants a polite
+    /// close from a machine that may be in a bag, and it will spend seconds on it. <see cref="BtRfcommServer"/>
+    /// starts every goodbye at once and waits a second, no longer — the close is not cancelled by walking away,
+    /// only no longer stood still for.
+    /// </summary>
+    [Fact]
+    public async Task StoppingARadioThatIsSlowToLetGoDoesNotHoldTheHostUp()
+    {
+        var goodbye = TimeSpan.FromSeconds(3);
+        var listener = new SlowGoodbyeListener(goodbye);
+        await using var server = new BtRfcommServer("Slow Host", listener);
+        await server.StartAsync(LanternProtocol.ServiceId);
+
+        var first = await server.AcceptAsync();
+        var second = await server.AcceptAsync();
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        var took = Stopwatch.StartNew();
+        server.Stop();
+        took.Stop();
+
+        Assert.False(server.IsListening);
+        Assert.Empty(server.Links);
+        Assert.True(
+            took.Elapsed < BtRfcommServer.TearDownGrace + TimeSpan.FromSeconds(1),
+            $"stopping waited {took.ElapsedMilliseconds} ms on a radio that wanted three seconds apiece");
+
+        // The other half: the goodbyes that were not waited on are still happening, and they finish. A close
+        // that gave up instead of giving up waiting would leave the service registered and the next visitor
+        // dialling nothing.
+        await listener.HasStopped;
+        await listener.EveryChannelClosed;
+        Assert.True(listener.EveryChannel.Every, "a channel left open is an SDP record and a radio handle left behind");
+        Assert.Equal(0, listener.EveryChannel.StillOpen);
     }
 
     [Fact]
@@ -545,6 +584,102 @@ public sealed class RfcommTransportTests
         public void Close() => Dispose();
 
         public void Dispose() => IsClosed = true;
+    }
+
+    /// <summary>
+    /// A radio that wants <paramref name="goodbye"/> to stop listening and the same again for every channel it
+    /// is holding — the way a real one behaves when the machine on the other end has been switched off.
+    /// </summary>
+    private sealed class SlowGoodbyeListener(TimeSpan goodbye) : IRfcommListener
+    {
+        private readonly List<SlowGoodbyeConnection> channels = [];
+        private readonly TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource everyChannelClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int open;
+
+        public bool IsActive { get; private set; } = true;
+
+        public Task HasStopped => stopped.Task;
+
+        public Task EveryChannelClosed => everyChannelClosed.Task;
+
+        public void Start(Guid serviceId, string serviceName)
+        {
+            IsActive = true;
+        }
+
+        public Task<IRfcommConnection?> AcceptAsync(CancellationToken cancel)
+        {
+            if (!IsActive)
+            {
+                return Task.FromResult<IRfcommConnection?>(null);
+            }
+
+            var channel = new SlowGoodbyeConnection(goodbye, Closed);
+
+            lock (channels)
+            {
+                channels.Add(channel);
+            }
+
+            Interlocked.Increment(ref open);
+            return Task.FromResult<IRfcommConnection?>(channel);
+        }
+
+        public void Stop()
+        {
+            IsActive = false;
+            Thread.Sleep(goodbye);
+            stopped.TrySetResult();
+        }
+
+        public void Dispose()
+        {
+            // Stopping is the disposal, and stopping has a test of its own.
+        }
+
+        private void Closed()
+        {
+            if (Interlocked.Decrement(ref open) == 0)
+            {
+                everyChannelClosed.TrySetResult();
+            }
+        }
+
+        public (bool Every, int StillOpen) EveryChannel
+        {
+            get
+            {
+                SlowGoodbyeConnection[] snapshot;
+
+                lock (channels)
+                {
+                    snapshot = channels.ToArray();
+                }
+
+                return (snapshot.All(c => c.IsClosed), Volatile.Read(ref open));
+            }
+        }
+
+        private sealed class SlowGoodbyeConnection(TimeSpan goodbye, Action closed) : IRfcommConnection
+        {
+            private readonly MemoryStream stream = new();
+
+            public string RemoteName => "somewhere, slowly";
+
+            public bool IsClosed { get; private set; }
+
+            public Stream Stream => stream;
+
+            public void Close() => Dispose();
+
+            public void Dispose()
+            {
+                Thread.Sleep(goodbye);
+                IsClosed = true;
+                closed();
+            }
+        }
     }
 
     private sealed class FakeConnector(Func<CancellationToken, Task<IRfcommConnection>> dial) : IRfcommConnector

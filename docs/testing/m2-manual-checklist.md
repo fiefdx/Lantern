@@ -62,10 +62,10 @@ Move the windows so both are visible. Call them **A** (the one that hosts) and *
 | 12 | In A, select Room 2 in the Rooms list. | Room 1 gets `A - left this chat` and its member list shrinks — moving rooms really does lose a member from the old one — while Room 2 gets `A - join this chat`. A's transcript becomes Room 2's (empty) and its Members is just A. B's window is untouched. Select Room 1 again: the earlier lines are still there (F6). | ☐ | |
 | 13 | While A is in Room 2, send a line in Room 1 from B. | A does not see it, and does not see it later either: A was not in the room when it was sent, and the host keeps no history to replay. Write down what the window shows when A returns to Room 1 — the gap should be visible and unexplained-looking rather than silently wrong, which is what M3's persistence is for. | ☐ | |
 | 14 | Close B's window (the X button). | A shows `B - left this chat` (F11) and its Members drops to one. No exception dialog anywhere, and A keeps working. | ☐ | |
-| 15 | In A, **File → Quit**. | A closes. Nothing is left running in the background (check Task Manager). | ☐ | |
+| 15 | In A, **File → Quit**. | A's chat window closes and A's **start screen comes back** (since v1.0.2; before this the program exited with it). Nothing is left *listening*: B must not be able to join the chat that was just quit. The process staying alive is the point; a chat still running behind the start screen is not. | ☐ | |
 | 16 | Start A again, join a room, then stop it while B is connected (**File → Quit**). | B reports the connection was lost **once**, in its own status line, stays open, and keeps its transcript. Its **Send** is disabled. | ☐ | |
 | 17 | Start two hosts on one machine at once (A and C both press **Start a Server**). | Both start: the second takes the next free port. **Scan** lists both, by name and port. Joining one does not show the other's rooms. | ☐ | |
-| 18 | Join, then rejoin: quit B's chat with **File → Quit**, then start B again, scan and join the same room. | Works without restarting A; the room's member list is right; no ghost of the previous connection is listed (F12). | ☐ | |
+| 18 | Join, then rejoin: quit B's chat with **File → Quit**, then from the start screen that came back scan and join the same room again. | Works without restarting A **or** B's program; the room's member list is right; no ghost of the previous connection is listed (F12). | ☐ | |
 
 ## Also worth a look while the windows are open
 
