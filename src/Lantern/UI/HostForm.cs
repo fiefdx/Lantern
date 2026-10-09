@@ -9,11 +9,29 @@ namespace Lantern.UI;
 /// </summary>
 public partial class HostForm : ChatForm
 {
+    /// <summary>
+    /// For the design surface, which builds the window in order to draw it - see <see cref="DesignTime"/>.
+    /// Like every window here it calls <c>InitializeComponent</c> itself and then joins the other constructor
+    /// in <see cref="AddRoomButtons"/>, so what is being designed is what runs.
+    /// </summary>
+    public HostForm()
+        : base(DesignTime.ChatService(isHost: true, nameof(HostForm)))
+    {
+        InitializeComponent();
+
+        AddRoomButtons();
+    }
+
     public HostForm(IChatService service)
         : base(service)
     {
         InitializeComponent();
 
+        AddRoomButtons();
+    }
+
+    private void AddRoomButtons()
+    {
         // The two management buttons live in the base form's header strip so both roles keep an
         // identical layout (compare Figures 3 and 4).
         pnlRoomActions.Controls.Add(btnNew);

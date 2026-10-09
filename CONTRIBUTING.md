@@ -46,12 +46,44 @@ A task is done only when it:
   `FooForm.Designer.cs` holds the `components` field, the control fields, and
   `InitializeComponent()` (sizes, positions, anchoring, tab order, event wiring).
   `FooForm.cs` holds only behaviour: constructor, `Load`, event handlers and
-  helpers. Never build or position controls in `FooForm.cs` — the Visual Studio
-  designer must be able to open the form in design view.
+  helpers. Never build or position controls in `FooForm.cs`. This is so that
+  design view can open the form — see the next two bullets, which are what makes
+  that true rather than merely wished for.
+* **Every window has a constructor with no arguments, and it calls
+  `InitializeComponent()` itself.** The Windows Forms designer builds a class in
+  order to draw it, so a window with only argument-taking constructors is a
+  window nobody can move a control in. Do not "tidy" the constructor into
+  `Foo() : this(theService)`: that leaves the design surface's own constructor
+  without the call it looks for, and assembles the window being drawn by a route
+  the window that ships never takes. Both constructors call
+  `InitializeComponent()`, then meet in one method (`SetUp`, `Present`, ...) so
+  that only the call is duplicated and no behaviour is.
+* **A window still cannot be built without what it shows.** Each parameterless
+  constructor asks `UI/DesignTime.cs` whether it is being drawn or being used,
+  and gets a stand-in chat / loopback / sample wording while drawn and an
+  `InvalidOperationException` anywhere else. `DesignTime` is the only place that
+  question is asked; do not answer it a second time inside a window, and do not
+  widen a constructor to dodge it — `DesignViewTests` keeps both halves.
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.
 * The UI layer may only use `IChatService` — never `Core`/`Transport` types.
+
+## Designing a form in Visual Studio
+
+Design view works for all six windows (`v1.0.4`, `docs/notes/design-view.md`). Three things about it are worth
+knowing before the first drag:
+
+* **The shared chat layout is designed by opening `ChatForm` [Design].** `HostForm` and `ClientForm` surfaces
+  show only the controls those windows add — the base form's control fields are `private` to the base, which is
+  the ordinary price of form inheritance.
+* **Commit before you drag.** The design serializer owns the body of
+  `InitializeComponent()`, and 182 comment lines — the reasons a control is anchored as it is, why a tooltip
+  says what it says — live in there. It does not promise them. Read `git diff` afterwards: that is also how to
+  catch a rename that the `Click += Handler` wiring in the same body depended on.
+* **The door the designer uses is not a door the program can use.** A window
+  built without its chat throws, on purpose, with a message saying so. If a test or a piece of product code
+  needs a window, it is given the chat like everything else.
 
 ## When the designer will not open a form
 

@@ -16,7 +16,9 @@ package "UI layer  (WinForms)" {
     + JoinAsync() : Task
   }
 
-  abstract class ChatForm <<form>> {
+  ' concrete, not abstract: design view cannot open an abstract class, and the shared layout
+  ' is most of both chat windows (v1.0.4, docs/notes/design-view.md)
+  class ChatForm <<form>> {
     # lstRooms : ListBox
     # lstMembers : ListBox
     # rtbChat : RichTextBox
@@ -48,6 +50,21 @@ package "UI layer  (WinForms)" {
   class NewRoomDialog <<dialog>> {
     - txtRoomName : TextBox
     + RoomName : string
+  }
+
+  class ConfirmDialog <<dialog>> {
+    - lblMessage : Label
+    + {static} ConfirmQuit(owner) : bool
+    + {static} ConfirmDeleteRoom(owner, roomName) : bool
+    + {static} ConfirmLeaveRoom(owner, roomName) : bool
+  }
+
+  class DesignTime <<design-time only>> {
+    + {static} IsHosting() : bool
+    + {static} ChatService(isHost : bool, window : string) : IChatService
+    + {static} Confirmation(window : string) : (string, string)
+    + {static} Transport() : ITransportFactory
+    + {static} KnownHosts() : IKnownHosts?
   }
 }
 
@@ -136,7 +153,10 @@ StartupForm ..> ChatServer : role = host
 StartupForm ..> ChatClient : role = client
 StartupForm ..> ServerBrowser : "Scan"
 HostForm ..> NewRoomDialog : "New"
+HostForm ..> ConfirmDialog : before deleting a room
 ChatForm o--> IChatService : never touches Bluetooth
+StartupForm ..> DesignTime : loopback, no history, while drawn
+ChatForm ..> DesignTime : a stand-in chat, only while drawn
 
 ChatServer ..|> IChatService
 ChatClient ..|> IChatService
@@ -157,6 +177,15 @@ note top of ChatForm
   Events arrive from a background read loop, so every handler uses
   RunOnUiThread (Control.Invoke / IProgress~Double~). Send and Share
   are disabled while a Task is in flight to stop double sends.
+end note
+
+note bottom of DesignTime
+  Every window grew a constructor with no arguments, because the
+  Windows Forms designer builds a class in order to draw it. Each
+  one asks DesignTime whether it is being drawn or being used:
+  while drawn it gets a fake chat, loopback and no history file;
+  anywhere else it throws. The program still cannot build a window
+  with nothing behind it.
 end note
 
 @enduml

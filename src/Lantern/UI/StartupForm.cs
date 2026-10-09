@@ -31,10 +31,20 @@ public partial class StartupForm : Form
     /// </summary>
     private Task? packingUp;
 
-    /// <summary>The window a person sees: it decides the transport itself, from the radio and the environment.</summary>
+    /// <summary>
+    /// The window a person sees: it decides the transport itself, from the radio and the environment. While the
+    /// design surface is drawing it, <see cref="DesignTime"/> decides otherwise - loopback, and no history file -
+    /// because a window that reaches for a Bluetooth radio the moment it is constructed is a window that makes
+    /// Visual Studio wait for a driver.
+    /// </summary>
     public StartupForm()
-        : this(Transports.ForStartup(Transports.Wanted(Environment.GetCommandLineArgs())), new JsonKnownHostsStore())
     {
+        transport = DesignTime.Transport();
+        knownHosts = DesignTime.KnownHosts();
+
+        InitializeComponent();
+
+        SetUp();
     }
 
     /// <summary>
@@ -47,6 +57,16 @@ public partial class StartupForm : Form
         this.knownHosts = knownHosts;
 
         InitializeComponent();
+
+        SetUp();
+    }
+
+    /// <summary>
+    /// Nickname from the account, an empty list of servers, and the transport said out loud. Both constructors
+    /// come here, so the window on the design surface is the window that runs.
+    /// </summary>
+    private void SetUp()
+    {
         txtNickname.Text = Environment.UserName;
         lstServers.Items.Clear();
 

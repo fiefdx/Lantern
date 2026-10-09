@@ -7,9 +7,31 @@ namespace Lantern.UI;
 /// </summary>
 public partial class ConfirmDialog : Form
 {
+    /// <summary>
+    /// For the design surface, which has no question to ask and still has to draw the box. Asked for by
+    /// anything else this refuses: a confirmation without its question is not a confirmation, and the
+    /// questions live in <see cref="ConfirmQuit"/> and friends - see <see cref="DesignTime"/>.
+    /// </summary>
+    public ConfirmDialog()
+    {
+        // Asked first, while nothing has been built yet: outside the design surface there is no such thing as
+        // a confirmation that has not been given its question - see <see cref="DesignTime"/>.
+        var (title, message) = DesignTime.Confirmation(nameof(ConfirmDialog));
+
+        InitializeComponent();
+
+        Present(title, message);
+    }
+
     private ConfirmDialog(string title, string message)
     {
         InitializeComponent();
+
+        Present(title, message);
+    }
+
+    private void Present(string title, string message)
+    {
         Text = title;
         lblMessage.Text = message;
     }

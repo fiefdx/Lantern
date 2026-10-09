@@ -8,11 +8,29 @@ namespace Lantern.UI;
 /// </summary>
 public partial class ClientForm : ChatForm
 {
+    /// <summary>
+    /// For the design surface, which builds the window in order to draw it - see <see cref="DesignTime"/>.
+    /// Calls <c>InitializeComponent</c> itself, like every other window, and shares the rest of its
+    /// construction with the constructor the program uses.
+    /// </summary>
+    public ClientForm()
+        : base(DesignTime.ChatService(isHost: false, nameof(ClientForm)))
+    {
+        InitializeComponent();
+
+        AddRoomButton();
+    }
+
     public ClientForm(IChatService service)
         : base(service)
     {
         InitializeComponent();
 
+        AddRoomButton();
+    }
+
+    private void AddRoomButton()
+    {
         pnlRoomActions.Controls.Add(btnLeave);
 
         SetRoomEditingEnabled(false);

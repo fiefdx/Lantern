@@ -11,11 +11,30 @@ public partial class NewRoomDialog : Form
 {
     private readonly Func<string, string?>? extraValidation;
 
+    /// <summary>
+    /// An empty room to name. The designer needs a constructor with no arguments to build the dialog, and this
+    /// one is also the plain thing to ask for, so unlike the others it refuses nothing - see
+    /// <see cref="DesignTime"/> for why every window here calls <c>InitializeComponent</c> in its own
+    /// constructor rather than chaining to a neighbour.
+    /// </summary>
+    public NewRoomDialog()
+    {
+        InitializeComponent();
+
+        Present("New Room", string.Empty);
+    }
+
     public NewRoomDialog(string title = "New Room", string initial = "", Func<string, string?>? extraValidation = null)
     {
         this.extraValidation = extraValidation;
+
         InitializeComponent();
 
+        Present(title, initial);
+    }
+
+    private void Present(string title, string initial)
+    {
         Text = title;
         btnOk.Text = string.IsNullOrEmpty(initial) ? "OK" : "Save";
         txtRoomName.Text = initial;

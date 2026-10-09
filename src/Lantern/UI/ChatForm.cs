@@ -15,7 +15,14 @@ namespace Lantern.UI;
 /// </para>
 /// Roles differ only in which buttons the subclass drops into <see cref="pnlRoomActions"/>.
 /// </summary>
-public abstract partial class ChatForm : Form
+/// <remarks>
+/// Concrete rather than abstract, and only because the Windows Forms designer has to construct a class to
+/// draw it: the shared layout - the transcript, the room list, the status bar, most of both windows - lives
+/// in this file, and an abstract base is a file design view can never open. The constructor that takes a
+/// chat is still <c>protected</c>, so this is one word of openness and no more: nobody outside a subclass can
+/// build a chat window around a chat, and <see cref="DesignTime"/> keeps the remaining door for the designer.
+/// </remarks>
+public partial class ChatForm : Form
 {
     /// <summary>
     /// True while the room list is being rebuilt, so the rebuild does not read as a click. This is load
@@ -53,6 +60,27 @@ public abstract partial class ChatForm : Form
     /// </summary>
     private readonly Dictionary<string, PictureMessage> openable = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The window as the design surface builds it: over a chat that talks to nothing, because the designer has
+    /// no chat to give it and still has to draw a room list, a member list and a transcript to put controls
+    /// among. Anywhere else this throws - see <see cref="DesignTime"/>.
+    /// </summary>
+    /// <remarks>
+    /// It calls <c>InitializeComponent</c> itself rather than chaining to the other constructor, and so does
+    /// every window in this project: the designer looks for that call in the constructor it uses, and a design
+    /// surface assembled by a different route is a surface that lies about the window. Both constructors then
+    /// hand over to <see cref="SetUp"/>, so the window being drawn and the window being used are the same
+    /// window down to the last status-bar word.
+    /// </remarks>
+    public ChatForm()
+    {
+        Service = DesignTime.ChatService(isHost: true, nameof(ChatForm));
+
+        InitializeComponent();
+
+        SetUp();
+    }
+
     protected ChatForm(IChatService service)
     {
         ArgumentNullException.ThrowIfNull(service);
@@ -60,13 +88,22 @@ public abstract partial class ChatForm : Form
 
         InitializeComponent();
 
+        SetUp();
+    }
+
+    /// <summary>
+    /// What the window does once it has controls and a chat: the state it opens in said out loud, the service's
+    /// news relayed on to this thread, and the three lists filled. Every constructor comes here.
+    /// </summary>
+    private void SetUp()
+    {
         txtMessage.MaxLength = ValidationRules.MessageMaxLength;
 
         // The state this window opens in, said out loud rather than left to be inferred from a room list that
         // happens to be filled in. Scenario 1 asks for these words in the host's bar; the startup scenario
         // asks the bar to report the connection state. Said here, after the service has been started and its
         // news relayed, so that it is what a person reads when they look up.
-        SetStatus(service.IsHost ? ServerOnlineState : ConnectedState);
+        SetStatus(Service.IsHost ? ServerOnlineState : ConnectedState);
 
         BindService();
         ShowRooms();
@@ -74,8 +111,11 @@ public abstract partial class ChatForm : Form
         ShowTranscript(); // no room entered yet: Send, Share and the box all start disabled
     }
 
-    /// <summary>Everything this window knows about rooms, members and traffic.</summary>
-    protected IChatService Service { get; }
+    /// <summary>
+    /// Everything this window knows about rooms, members and traffic. Both constructors fill it before the
+    /// controls are built, so it is never missing and never changed afterwards.
+    /// </summary>
+    protected IChatService Service { get; private set; }
 
     /// <summary>The room this window is in, or <see langword="null"/> when none is selected.</summary>
     protected Room? CurrentRoom { get; private set; }
