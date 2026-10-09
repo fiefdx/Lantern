@@ -53,6 +53,29 @@ A task is done only when it:
   one-line reason.
 * The UI layer may only use `IChatService` — never `Core`/`Transport` types.
 
+## When the designer will not open a form
+
+If design view shows this instead of the form:
+
+```
+The input does not contain any JSON tokens. Expected the input to start with a valid JSON token,
+when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 0.
+```
+
+it is not the form's fault and it is not Lantern's. The WinForms designer runs out of process and reads
+`src\Lantern\obj\Debug\net10.0-windows\Lantern.designer.deps.json` to learn what the project references. That
+file is an *incremental* MSBuild output (`_GenerateDesignerDepsFile`), so once it exists — even at zero bytes,
+left behind by a build that was interrupted while writing it, or a disk that filled — nothing rewrites it and
+the designer keeps reading nothing. Close the designer tab, delete the file (or all of `obj\`), build once,
+and reopen; Visual Studio regenerates it and the form opens. Confirm with the file size: a healthy one is a
+few kilobytes, a broken one is 0.
+
+The way to leave one behind is to run the command-line build or tests in the same checkout while Visual Studio
+has it open, and kill the run partway through — which is why the command-line verification runs in this project
+use a separate output path (`dotnet test Lantern.sln -p:OutputPath=bin/agent/`) so they do not overwrite the
+`bin\Debug` assemblies Visual Studio is running. That separates the outputs but **not** the `obj\` intermediates,
+so finish a run rather than killing it, and if you do kill one, delete the empty file before blaming the form.
+
 ## Commit messages
 
 Use the task id as prefix so history maps back to the breakdown:
