@@ -17,8 +17,22 @@ namespace Lantern.UI;
 /// </summary>
 public abstract partial class ChatForm : Form
 {
-    /// <summary>True while a list is being rebuilt, so the rebuild does not re-enter itself.</summary>
+    /// <summary>
+    /// True while the room list is being rebuilt, so the rebuild does not read as a click. This is load
+    /// bearing: the moment the selection is put back, the list says “this room was chosen”, and choosing a
+    /// room is a request to the service, which answers with another room list. See <see cref="ShowRooms"/>.
+    /// </summary>
     private bool syncing;
+
+    /// <summary>A room list arrived while the list was already being rebuilt, so one more pass is owed.</summary>
+    private bool roomsRefreshPending;
+
+    /// <summary>
+    /// How many times one room list may cause the list to be redrawn. Not a magic number: it is “several more
+    /// times than anybody will change the rooms while we are drawing”. Reaching it means something is handing
+    /// this window room lists faster than it can draw them, which is the loop this guard exists to stop.
+    /// </summary>
+    private const int MaxRoomRepaints = 8;
 
     private bool busy;
 
@@ -180,11 +194,59 @@ public abstract partial class ChatForm : Form
 
     // ----------------------------------------------------------- room list
 
-    /// <summary>Rebuilds the room list from the service, keeping whatever is selected.</summary>
+    /// <summary>
+    /// Rebuilds the room list from the service, keeping the window pointed at the room it is actually in.
+    /// </summary>
+    /// <remarks>
+    /// All of it happens inside the <see cref="syncing"/> guard, and that is not tidiness. Putting the
+    /// selection back is a change to the list like any other, so it raises the same event a click does - and
+    /// that event means “the person asked for this room”. A room list from the service is therefore not a
+    /// request to redraw but a request to join, and joining a room makes the service send another room list.
+    /// With the highlight sitting on a room this window had not got into, every list re-knocked on that door:
+    /// join, list, join, list. When the news arrived on the window's own thread - which is how the host's own
+    /// window gets it, in process, before the join has even returned - each turn stacked on the last until the
+    /// process died of a stack overflow on the line that restores the selection.
+    /// <para>
+    /// Two things keep that impossible now: nothing outside the guard raises the selection, and the list is
+    /// anchored on <see cref="CurrentRoom"/> rather than on whatever was highlighted, so it cannot hold a
+    /// highlight the window has no intention of honouring.
+    /// </para>
+    /// </remarks>
     private void ShowRooms()
     {
+        if (syncing)
+        {
+            // A room list while a redraw is in hand. Take a note of it and get out; nesting one redraw inside
+            // another is exactly the shape that used to grow the stack.
+            roomsRefreshPending = true;
+            return;
+        }
+
         syncing = true;
-        var selected = SelectedRoom;
+        var passes = 0;
+        try
+        {
+            do
+            {
+                roomsRefreshPending = false;
+                passes++;
+                RepaintRooms();
+            }
+            while (roomsRefreshPending && passes < MaxRoomRepaints);
+        }
+        finally
+        {
+            syncing = false;
+            roomsRefreshPending = false;
+        }
+    }
+
+    /// <summary>Draws the current rooms and puts the highlight back where this window really is.</summary>
+    private void RepaintRooms()
+    {
+        // Read before the list is emptied, because emptying it drops the selection.
+        var anchor = CurrentRoom?.Name ?? SelectedRoom;
+
         lstRooms.BeginUpdate();
         lstRooms.Items.Clear();
         foreach (var room in Service.Rooms)
@@ -193,16 +255,16 @@ public abstract partial class ChatForm : Form
         }
 
         lstRooms.EndUpdate();
-        syncing = false;
 
-        var index = lstRooms.Items.IndexOf((object?)selected ?? string.Empty);
+        var index = anchor is null ? -1 : lstRooms.Items.IndexOf(anchor);
         if (index >= 0)
         {
             lstRooms.SelectedIndex = index;
         }
         else if (CurrentRoom is not null)
         {
-            // The room we were in disappeared (the host deleted it).
+            // The room we were in disappeared (the host deleted it). Only that counts: a room this window
+            // was never in going away is somebody else's news.
             LeaveRoom(announce: false);
         }
     }
@@ -215,15 +277,56 @@ public abstract partial class ChatForm : Form
         }
     }
 
+    /// <summary>
+    /// Points the list at the room this window is in, or at nothing when it is in no room.
+    /// </summary>
+    /// <remarks>
+    /// Used when an attempt to enter a room did not end with this window in it. Left as it was, the highlight
+    /// would go on naming a room the window is not in, and the next room list would treat that highlight as an
+    /// order and try the same door again - quietly, forever, in the company of nothing else changing.
+    /// </remarks>
+    private void HighlightWhereIAm()
+    {
+        var wasSyncing = syncing;
+        syncing = true;
+        try
+        {
+            var name = CurrentRoom?.Name;
+            lstRooms.SelectedIndex = name is null ? -1 : lstRooms.Items.IndexOf(name);
+        }
+        finally
+        {
+            syncing = wasSyncing;
+        }
+    }
+
     private async Task EnterRoomAsync(string name)
     {
         await RunAsync(async () =>
         {
-            await Service.JoinRoomAsync(name);
+            try
+            {
+                await Service.JoinRoomAsync(name);
+            }
+            catch (Exception)
+            {
+                // The room said no. Say it back in the bar below - but first take the highlight off the
+                // door, because a highlight is a promise this window keeps trying to keep.
+                HighlightWhereIAm();
+                throw;
+            }
+
             CurrentRoom = Service.Rooms.FirstOrDefault(r => r.Name == name);
+            if (CurrentRoom is null)
+            {
+                HighlightWhereIAm();
+                SetStatus($"failed: no room \"{name}\"");
+                return;
+            }
+
             ShowMembers();
             ShowTranscript();
-            SetStatus(CurrentRoom is null ? $"failed: no room \"{name}\"" : $"in room \"{name}\"");
+            SetStatus($"in room \"{name}\"");
         });
     }
 

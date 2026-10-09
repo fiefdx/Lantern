@@ -23,6 +23,8 @@ public class FakeChatService : IChatService
 
     private readonly List<Message> transcript = [];
 
+    private readonly List<string?> joins = [];
+
     public FakeChatService(string nickname, bool isHost = true)
     {
         Nickname = ValidationRules.Normalize(nickname);
@@ -179,8 +181,47 @@ public class FakeChatService : IChatService
         }
     }
 
+    /// <summary>
+    /// Every join this fake was asked for, in order, including the ones it refused. A window that asks twice for
+    /// same room twice in a row has usually been asked by itself, and this is how a test tells that apart from
+    /// a person who clicked twice.
+    /// </summary>
+    public IReadOnlyList<string?> JoinRequests => joins;
+
+    /// <summary>
+    /// Raise <see cref="RoomsChanged"/> from inside <see cref="JoinRoomAsync"/>, before it returns.
+    /// <para>
+    /// This is what the host's own window actually experiences: its chat engine is in process, so the room
+    /// list arrives on the calling thread while the join is still on the stack. Off by default, because
+    /// everything else in this fake answers afterwards, the way a client over a wire does.
+    /// </para>
+    /// </summary>
+    public bool AnnounceRoomsOnJoin { get; set; }
+
+    /// <summary>
+    /// Refuse to let this window into the room of that name, the way a real server refuses a join it will not
+    /// honour - and, like the real one, send the room list out with the refusal.
+    /// </summary>
+    public string? RefuseRoomNamed { get; set; }
+
+    private void AnnounceRooms()
+    {
+        if (AnnounceRoomsOnJoin)
+        {
+            RoomsChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     public Task JoinRoomAsync(string? name, CancellationToken cancel = default)
     {
+        joins.Add(name);
+
+        if (RefuseRoomNamed is { } refused && string.Equals(name, refused, StringComparison.OrdinalIgnoreCase))
+        {
+            AnnounceRooms();
+            throw Fail($"Room \"{name}\" will not have you.");
+        }
+
         var previous = CurrentRoom();
 
         if (previous is not null && !string.Equals(previous.Name, name, StringComparison.OrdinalIgnoreCase))
@@ -193,6 +234,7 @@ public class FakeChatService : IChatService
 
         if (string.IsNullOrWhiteSpace(name))
         {
+            AnnounceRooms();
             return Task.CompletedTask;
         }
 
@@ -207,6 +249,7 @@ public class FakeChatService : IChatService
             Members.Add(user);
         }
 
+        AnnounceRooms();
         return Task.CompletedTask;
     }
 
