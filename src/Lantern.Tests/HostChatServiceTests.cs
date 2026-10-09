@@ -35,12 +35,12 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
 
             await using var client = new ChatClient("Cara");
             var received = WatchMessages(client);
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
             await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
 
             await service.SendAsync(new TextMessage(service.Nickname, "Room 1", "welcome, make yourself at home"));
@@ -58,12 +58,12 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 2");
+            await service.JoinByNameAsync("Room 2");
             var received = WatchMessages(service);
 
             await using var client = new ChatClient("Cara");
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 2");
+            await client.JoinByNameWhenShownAsync("Room 2");
             await Watch.UntilAsync(() => service.Members.Count == 2, "the host's list to grow");
 
             await client.SendAsync(new TextMessage("Cara", "Room 2", "can the host see me?"));
@@ -81,7 +81,7 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
             await service.SendAsync(new TextMessage(service.Nickname, "Room 1", "a line I said myself"));
 
             var room = service.Rooms.Single(r => r.Name == "Room 1");
@@ -98,14 +98,14 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 3");
+            await service.JoinByNameAsync("Room 3");
 
             await using var one = new ChatClient("Cara");
             await using var two = new ChatClient("Davide");
             await one.ConnectAsync(server.Endpoint);
             await two.ConnectAsync(server.Endpoint);
-            await one.JoinRoomAsync("Room 3");
-            await two.JoinRoomAsync("Room 3");
+            await one.JoinByNameWhenShownAsync("Room 3");
+            await two.JoinByNameWhenShownAsync("Room 3");
 
             await Watch.UntilAsync(() => one.Members.Count == 3 && two.Members.Count == 3 && service.Members.Count == 3, "three members");
 
@@ -123,13 +123,13 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
             var hostMessages = WatchMessages(service);
 
             await using var client = new ChatClient("Cara");
             var clientMessages = WatchMessages(client);
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
 
             await Watch.UntilAsync(
                 () => hostMessages.Items.Any(m => m.Preview.Contains("Cara - join")),
@@ -153,10 +153,10 @@ public sealed class HostChatServiceTests
             await service.CreateRoomAsync("Quiet Corner");
             await Watch.UntilAsync(() => client.Rooms.Any(r => r.Name == "Quiet Corner"), "the new room to arrive");
 
-            await service.RenameRoomAsync("Quiet Corner", "Even Quieter");
+            await service.RenameByNameAsync("Quiet Corner", "Even Quieter");
             await Watch.UntilAsync(() => client.Rooms.Any(r => r.Name == "Even Quieter"), "the rename to arrive");
 
-            await service.DeleteRoomAsync("Room 3");
+            await service.DeleteByNameAsync("Room 3");
             await Watch.UntilAsync(() => !client.Rooms.Any(r => r.Name == "Room 3"), "the deletion to arrive");
 
             Assert.Equal(["Room 1", "Room 2", "Even Quieter"], service.Rooms.Select(r => r.Name));
@@ -186,10 +186,10 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 2");
+            await service.JoinByNameAsync("Room 2");
             Assert.Contains("Room 2", service.Rooms.Select(r => r.Name));
 
-            await service.DeleteRoomAsync("Room 2");
+            await service.DeleteByNameAsync("Room 2");
 
             await Watch.UntilAsync(
                 () => !service.Rooms.Any(r => r.Name == "Room 2") && service.Members.Count == 0,
@@ -214,12 +214,12 @@ public sealed class HostChatServiceTests
         var (server, service) = await StartAsync();
         await using (server)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
 
             await using var client = new ChatClient("Cara");
             var lost = new Watch<Exception>();
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
             client.ConnectionLost += (_, reason) => lost.Add(reason);
 
             // This is what ChatForm does when the host closes the window (T2.7).
@@ -237,12 +237,12 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
 
             await using var client = new ChatClient("Cara");
             var received = WatchMessages(client);
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
             await Watch.UntilAsync(() => client.Members.Count == 2, "the join");
 
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -265,7 +265,7 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
 
             // In a folder of its own so the file keeps the name the room is told about.
             var folder = Path.Combine(Path.GetTempPath(), "lantern-host-tests", Guid.NewGuid().ToString("N"));
@@ -328,11 +328,11 @@ public sealed class HostChatServiceTests
         await using (server)
         await using (service)
         {
-            await service.JoinRoomAsync("Room 1");
+            await service.JoinByNameAsync("Room 1");
 
             await using var client = new ChatClient("Cara");
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
             await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
 
             // The host's window is reached synchronously, from the server's own threads: if its exception

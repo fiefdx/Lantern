@@ -106,19 +106,16 @@ public class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
-    public Task RenameRoomAsync(string currentName, string newName, CancellationToken cancel = default)
+    public Task RenameRoomAsync(Guid roomId, string newName, CancellationToken cancel = default)
     {
         RequireHost();
-        var room = Find(currentName) ?? throw Fail($"No room named \"{currentName}\".");
+        var room = Rooms.FirstOrDefault(r => r.Id == roomId) ?? throw Fail("That room is not here any more.");
         var normalized = ValidationRules.Normalize(newName);
-        Reject(ValidationRules.RoomNameError(normalized) ?? (IsDuplicate(normalized, currentName) ? DuplicateName : null));
+        Reject(ValidationRules.RoomNameError(normalized) ?? (IsDuplicate(normalized, room.Name) ? DuplicateName : null));
 
-        // Names identify rooms, so a rename rebuilds the entry in place, members included.
-        var replacement = new Room(normalized);
-        foreach (var user in room.Members)
-        {
-            replacement.AddMember(user);
-        }
+        // The same room under a new name: identity, members and transcript carried across, as in the real
+        // server, because a test double that behaves differently about this is how a rename bug survives.
+        var replacement = room.RenamedTo(normalized);
 
         var wasCurrent = IsCurrent(room);
         Rooms[Rooms.IndexOf(room)] = replacement;
@@ -130,10 +127,10 @@ public class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
-    public Task DeleteRoomAsync(string name, CancellationToken cancel = default)
+    public Task DeleteRoomAsync(Guid roomId, CancellationToken cancel = default)
     {
         RequireHost();
-        var room = Find(name);
+        var room = Rooms.FirstOrDefault(r => r.Id == roomId);
         if (room is null)
         {
             return Task.CompletedTask;
@@ -212,19 +209,23 @@ public class FakeChatService : IChatService
         }
     }
 
-    public Task JoinRoomAsync(string? name, CancellationToken cancel = default)
+    public virtual Task JoinRoomAsync(Guid? roomId, CancellationToken cancel = default)
     {
-        joins.Add(name);
+        // Recorded by name, because that is what a test wants to read back; the room was asked for by
+        // identity, and this is only a description of it.
+        joins.Add(roomId is null ? null : Rooms.FirstOrDefault(r => r.Id == roomId)?.Name ?? "(gone)");
 
-        if (RefuseRoomNamed is { } refused && string.Equals(name, refused, StringComparison.OrdinalIgnoreCase))
+        var asked = roomId is null ? null : Rooms.FirstOrDefault(r => r.Id == roomId.Value);
+
+        if (RefuseRoomNamed is { } refused && (asked is null ? false : string.Equals(asked.Name, refused, StringComparison.OrdinalIgnoreCase)))
         {
             AnnounceRooms();
-            throw Fail($"Room \"{name}\" will not have you.");
+            throw Fail($"Room \"{asked!.Name}\" will not have you.");
         }
 
         var previous = CurrentRoom();
 
-        if (previous is not null && !string.Equals(previous.Name, name, StringComparison.OrdinalIgnoreCase))
+        if (previous is not null && previous.Id != roomId)
         {
             previous.RemoveMember(Me(previous));
             Record(SystemMessage.Leave(previous.Name, Nickname));
@@ -232,13 +233,13 @@ public class FakeChatService : IChatService
 
         Members.Clear();
 
-        if (string.IsNullOrWhiteSpace(name))
+        if (roomId is null)
         {
             AnnounceRooms();
             return Task.CompletedTask;
         }
 
-        var room = Find(name) ?? throw Fail($"No room named \"{name}\".");
+        var room = asked ?? throw Fail("That room is not here any more.");
         if (room.AddMember(Me(room)))
         {
             Record(SystemMessage.Join(room.Name, Nickname));

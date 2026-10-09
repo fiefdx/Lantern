@@ -99,7 +99,7 @@ public sealed class FileTransferTests : IDisposable
         await using var server = await StartAsync();
         await using var service = new HostChatService(server, "Hosty");
         await service.StartAsync();
-        await service.JoinRoomAsync("Room 1");
+        await service.JoinByNameAsync("Room 1");
 
         await using var cara = new ChatClient("Cara");
         await using var dov = new ChatClient("Dov");
@@ -149,9 +149,9 @@ public sealed class FileTransferTests : IDisposable
         transfers.Add(id);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
-        var frames = new List<Frame> { Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "tiny.bin", payload.LongLength) };
+        var frames = new List<Frame> { Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "tiny.bin", payload.LongLength) };
 
         for (var i = 0; i < payload.Length; i++)
         {
@@ -184,12 +184,12 @@ public sealed class FileTransferTests : IDisposable
         transfers.Add(id);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         // A hundred bytes promised, forty sent, and then "done". The host sees the count does not add up,
         // and the receiver must not be left holding something that looks like a saved file.
         await SendRawAsync(raw,
-            Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "half.bin", 100),
+            Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "half.bin", 100),
             Frame.FileChunk(id, 0, Bytes(40)),
             Frame.FileDone(id));
 
@@ -224,13 +224,13 @@ public sealed class FileTransferTests : IDisposable
         transfers.Add(id);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         // Chunks 0, 1 and 3: two of the three arrive and the file is not there. A receiver that appended
         // whatever turned up would save a file with a hole in it that opens as garbage and blames the
         // person who chose to keep it.
         await SendRawAsync(raw,
-            Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "gappy.bin", 60),
+            Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "gappy.bin", 60),
             Frame.FileChunk(id, 0, Bytes(20)),
             Frame.FileChunk(id, 1, Bytes(20)),
             Frame.FileChunk(id, 3, Bytes(20)),
@@ -259,10 +259,10 @@ public sealed class FileTransferTests : IDisposable
         transfers.Add(id);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         await SendRawAsync(raw,
-            Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "lying.bin", 10),
+            Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "lying.bin", 10),
             Frame.FileChunk(id, 0, Bytes(30)));
 
         // The host is the one place that can see the lie, and it stops the transfer instead of letting
@@ -298,7 +298,7 @@ public sealed class FileTransferTests : IDisposable
         var offeredToDov = WatchJobs(dov);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         // Chunks and a "done" for a transfer nobody announced. There is no name, no size and no sender to
         // put in a file, so making one up would be inventing a file out of nothing.
@@ -316,7 +316,7 @@ public sealed class FileTransferTests : IDisposable
         // something that already happened, which is a race the test would win most days and lose in CI.
         var seenByText = WatchMessages(dov);
 
-        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), "Room 1", "Zed", "still here", DateTime.UtcNow));
+        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Zed", "still here", DateTime.UtcNow));
         await seenByText.ItemAsync(m => m is TextMessage note && note.Body == "still here", "the room to still work");
     }
 
@@ -338,10 +338,10 @@ public sealed class FileTransferTests : IDisposable
         transfers.Add(id);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         await SendRawAsync(raw,
-            Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", announced, 4),
+            Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", announced, 4),
             Frame.FileChunk(id, 0, Bytes(4)),
             Frame.FileDone(id));
 
@@ -369,16 +369,12 @@ public sealed class FileTransferTests : IDisposable
         var offeredToDov = WatchJobs(dov);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
 
         // One frame can promise any size at all, and the price of believing it is paid out of somebody
         // else's disk. The ceiling is checked before the room is told, so the refusal is one sentence to
         // one person rather than a failed transfer in every window.
-        await SendRawAsync(raw, Frame.FileMeta(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            "Room 1",
-            "Zed",
+        await SendRawAsync(raw, Frame.FileMeta(Guid.NewGuid(), Guid.NewGuid(), server.Id("Room 1"), "Room 1", "Zed",
             "enormous.bin",
             LanternProtocol.MaxReceivedFileBytes + 1));
 
@@ -693,7 +689,7 @@ public sealed class FileTransferTests : IDisposable
         await using var server = await StartAsync();
         await using var service = new HostChatService(server, "Hosty");
         await service.StartAsync();
-        await service.JoinRoomAsync("Room 1");
+        await service.JoinByNameAsync("Room 1");
 
         // A FileMessage on its own says "a file is coming" without any way to send it, so building one and
         // calling Send is a mistake rather than a feature. Saying so beats a transfer that never starts.
@@ -891,7 +887,7 @@ public sealed class FileTransferTests : IDisposable
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -901,7 +897,7 @@ public sealed class FileTransferTests : IDisposable
         foreach (var client in clients)
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync(roomName);
+            await client.JoinByNameWhenShownAsync(roomName);
         }
 
         await Watch.UntilAsync(

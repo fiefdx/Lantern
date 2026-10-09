@@ -27,7 +27,7 @@ public partial class ClientForm : ChatForm
             return;
         }
 
-        if (!ConfirmLeaveRoom(room))
+        if (!ConfirmLeaveRoom(room.Name))
         {
             return;
         }
@@ -36,7 +36,7 @@ public partial class ClientForm : ChatForm
         {
             // Joining "nothing" is how leaving travels on the wire; the notice the room sees is the
             // host's doing, not this window writing its own epitaph (F11).
-            await Service.JoinRoomAsync(string.Empty);
+            await Service.JoinRoomAsync(null);
             LeaveRoom(announce: false);
             SetStatus("left the room");
         });

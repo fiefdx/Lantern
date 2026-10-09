@@ -48,7 +48,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
         await cara.ConnectAsync(server.Endpoint);
         await alsoCara.ConnectAsync(server.Endpoint);
 
-        await cara.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => MembersOf(server, "Room 1") == 2, "the first Cara to be in the room");
 
         var atTheHost = WatchFrames(host);
@@ -57,7 +57,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
         // Not the same keystroke and no malice: two people on two laptops who both thought of their own cat.
         // They are both let in - a nickname is chosen once on the way into the program and cannot be changed
         // from inside a room, so refusing the second one would leave them outside with nothing they could do.
-        await alsoCara.JoinRoomAsync("Room 1");
+        await alsoCara.JoinByNameWhenShownAsync("Room 1");
 
         await Watch.UntilAsync(() => MembersOf(server, "Room 1") == 3, "the second Cara to be in the room");
 
@@ -95,7 +95,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
 
         var atTheHost = WatchFrames(host);
 
-        await clone.JoinRoomAsync("Room 1");
+        await clone.JoinByNameWhenShownAsync("Room 1");
 
         // The host's window is a member like any other, so a client arriving wearing its name is the sharpest
         // case there is: two lines attributed to the host, one of them not from the host. Even so the answer
@@ -125,7 +125,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
         await one.ConnectAsync(server.Endpoint);
         await other.ConnectAsync(server.Endpoint);
 
-        await one.JoinRoomAsync("Room 1");
+        await one.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => MembersOf(server, "Room 1") == 2, "the first Cara to be in Room 1");
 
         // Watched at the host's window rather than at Cara's: a room does not echo a person's own words back
@@ -135,7 +135,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
         // A name is only ever used inside one room, so that is the width of the rule too: two Caras in two
         // rooms are not two people one room cannot tell apart, and no room is entitled to know who is called
         // what in another one.
-        await other.JoinRoomAsync("Study");
+        await other.JoinByNameWhenShownAsync("Study");
 
         // One member rather than two: the host's window stayed in Room 1, and nobody else is in Study.
         await Watch.UntilAsync(() => MembersOf(server, "Study") == 1, "the second Cara to be in Study");
@@ -245,10 +245,10 @@ public sealed class EdgeCaseTests : IAsyncLifetime
 
         using (var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint))
         {
-            await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+            await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
             await SendRawAsync(
                 raw,
-                Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "holiday.zip", payload.LongLength),
+                Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "holiday.zip", payload.LongLength),
                 Frame.FileChunk(id, 0, payload[..2048]));
 
             // Offered first, and only then gone: closing the link before the host had even read the
@@ -286,10 +286,10 @@ public sealed class EdgeCaseTests : IAsyncLifetime
 
         using (var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint))
         {
-            await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom("Room 1"));
+            await SendRawAsync(raw, Frame.Hello("Zed"), Frame.JoinRoom(server.Id("Room 1")));
             await SendRawAsync(
                 raw,
-                Frame.FileMeta(Guid.NewGuid(), id, "Room 1", "Zed", "photo.zip", payload.LongLength),
+                Frame.FileMeta(Guid.NewGuid(), id, server.Id("Room 1"), "Room 1", "Zed", "photo.zip", payload.LongLength),
                 Frame.FileChunk(id, 0, payload[..1024]));
 
             await offered.ItemAsync(j => j.FileName == "photo.zip", "Dov to be offered the file");
@@ -517,7 +517,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -527,7 +527,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
         foreach (var client in clients)
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync(roomName);
+            await client.JoinByNameWhenShownAsync(roomName);
         }
 
         await Watch.UntilAsync(() => clients.All(c => c.CurrentRoomName == roomName), $"the joins to reach {roomName}");

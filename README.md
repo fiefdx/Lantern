@@ -103,7 +103,7 @@ member list on the right follows. A client's **Leave** button ends their members
 | `UI/` | The three windows (`StartupForm`, `HostForm`, `ClientForm` over the shared `ChatForm`), the dialogs, the offer strip and the status bar | Talks to nothing but `IChatService`, so every window is testable against `FakeChatService` with no sockets. Layout lives in `*.Designer.cs` files, behaviour in the `.cs` files. All service events are marshalled back on to the window's thread, and a window that throws while listening does not end the connection |
 | `Core/` | `ChatServer`, `ChatClient`, `ClientState`, `HostChatService`, `ServerBrowser`, `SoundNotifier`, `FileTransfer`, `IChatService`, `FakeChatService` | The engine: who is in which room, what gets relayed to whom, what is refused and why. Decisions are made synchronously and I/O is async; nothing on this side of the line knows whether the bytes are moving over Bluetooth or localhost |
 | `Domain/` | `Message` hierarchy (`TextMessage`, `PictureMessage`, `FileMessage`, `SystemMessage`), `Room`, `User`, `FileTransferJob`, `ValidationRules`, `FileSize`, `Attachments` | What the program talks *about*, with the rules in it — the 16-character nickname, 24-character room name, 500-character message, 5 MB picture — so the same words come out of the frames and out of the transcript |
-| `Storage/` | `IRoomStore` / `JsonRoomStore` (`rooms.json`), `IKnownHosts` / `JsonKnownHostsStore` (`known-hosts.json`), `ReceivedPayloads` | Everything lands in `%LOCALAPPDATA%\Lantern\`. A save is written to `rooms.json.tmp` and then moved onto the file, so a power cut mid-write leaves the previous list intact. Incoming files are spooled to disk as they arrive, not held in memory |
+| `Storage/` | `IRoomStore` / `JsonRoomStore` (`rooms.json`, one `id` per room), `IKnownHosts` / `JsonKnownHostsStore` (`known-hosts.json`), `ReceivedPayloads` | Everything lands in `%LOCALAPPDATA%\Lantern\`. A save is written to `rooms.json.tmp` and then moved onto the file, so a power cut mid-write leaves the previous list intact. Incoming files are spooled to disk as they arrive, not held in memory |
 | `Transport/` | `IBtServer` / `IBtClient` / `IClientLink`, `FrameCodec`, the loopback transport, and the real RFCOMM transport with 32feet.NET behind small interfaces | The wire: a 13-frame protocol (`HELLO`, `JOIN_ROOM`, `ROOM_LIST`, `TEXT`, `PICTURE`, `FILE_META`/`FILE_CHUNK`/`FILE_DONE`/`FILE_CANCEL`, `MEMBER_LIST`, `SYSTEM_NOTICE`, `ERROR`), a length-prefixed codec that survives a byte at a time, and 8 KiB file chunks with back-pressure so a fast sender cannot outrun a slow receiver |
 | `tools/BtSpike/` | The M4 spike | The two-laptop RFCOMM experiment that decided the transport interfaces before the product depended on them |
 
@@ -139,11 +139,15 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 * **Windows only**, and only tested on Windows 11 laptops with Intel radios. Windows 10 is supported by the code
   and untested by us.
 * **Rooms are per host.** `rooms.json` is one host's list; two hosts in one lab do not share or merge rooms.
+* **Rooms are identified, not named.** A room has an identity that survives a rename and a restart, and that is
+  what the frames and `rooms.json` use; the name is what the list says. It also means **both machines must run
+  the same build** — an older client asks for rooms by name and will be told those rooms are not here
+  (`docs/notes/room-identity.md`).
 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 413 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 430 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

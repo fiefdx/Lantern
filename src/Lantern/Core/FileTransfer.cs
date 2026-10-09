@@ -39,7 +39,7 @@ public static class FileSending
         // First the announcement, so the other side knows what is coming, how big it is and which line of
         // the transcript it belongs to. The bytes follow, and none of them carry a name: they are only
         // ever pieces of the thing this frame described.
-        await write(Frame.FileMeta(job.MessageId, job.Id, job.RoomName, job.SenderNickname, job.FileName, job.SizeBytes))
+        await write(Frame.FileMeta(job.MessageId, job.Id, job.RoomId, job.RoomName, job.SenderNickname, job.FileName, job.SizeBytes))
             .ConfigureAwait(false);
 
         var stopped = false;

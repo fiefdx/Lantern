@@ -243,11 +243,12 @@ public class RoomManagementUiTests
         menuItem.PerformClick();
     }
 
+    /// <summary>Clicks the row that says this name, which is the only thing a person has to go on.</summary>
     private static void SelectRoom(Form form, string name)
-        => Find<ListBox>(form, "lstRooms").SelectedItem = name;
+        => Find<ListBox>(form, "lstRooms").SelectByName(name);
 
     private static IEnumerable<string> RoomNames(Form form)
-        => Find<ListBox>(form, "lstRooms").Items.Cast<string>();
+        => Find<ListBox>(form, "lstRooms").Items.Names();
 
     /// <summary>The status strip's label is a tool strip item, not a control, so it is not in Controls.</summary>
     private static string Status(Control form)

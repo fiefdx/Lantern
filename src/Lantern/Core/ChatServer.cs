@@ -216,18 +216,21 @@ public sealed partial class ChatServer : IAsyncDisposable
 
     // ------------------------------------------------------------ room access
 
-    /// <summary>Room with this name, case-insensitively, or null.</summary>
-    public Room? FindRoom(string? name)
+    /// <summary>
+    /// The room with this identity, or null. There is no lookup by name: a room is found by what it is, and
+    /// a name is looked up only when it is being shown to somebody or compared with the names of the other
+    /// rooms - both of which happen here, in the host's own room-editing methods, and nowhere else.
+    /// </summary>
+    public Room? FindRoom(Guid? roomId)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        if (roomId is null)
         {
             return null;
         }
 
-        var wanted = ValidationRules.Normalize(name);
         lock (gate)
         {
-            return rooms.FirstOrDefault(r => string.Equals(r.Name, wanted, StringComparison.OrdinalIgnoreCase));
+            return rooms.FirstOrDefault(r => r.Id == roomId.Value);
         }
     }
 
@@ -302,14 +305,17 @@ public sealed partial class ChatServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// Leave the current room (if any) and join <paramref name="roomName"/> (F6). A blank name means
+    /// Leave the current room (if any) and join the room with this identity (F6). Nothing to join means
     /// "join nothing", so one method covers leaving too and a member can never be in two rooms.
     /// </summary>
-    public void Join(IParticipant participant, string? roomName)
+    /// <remarks>
+    /// By identity, because that is the only way a join can mean the room the person clicked. Two clients
+    /// can be looking at a list that the host has just renamed; asking for "Study" would then get them the
+    /// wrong room or no room, while asking for the room they were shown gets them the one they meant.
+    /// </remarks>
+    public void Join(IParticipant participant, Guid? roomId)
     {
         ArgumentNullException.ThrowIfNull(participant);
-
-        var wanted = ValidationRules.Normalize(roomName);
 
         Room? joined = null;
         Room? previous = null;
@@ -318,23 +324,25 @@ public sealed partial class ChatServer : IAsyncDisposable
         {
             previous = rooms.FirstOrDefault(r => r.HasMember(participant.ConnectionId));
 
-            if (previous is not null && !string.Equals(previous.Name, wanted, StringComparison.OrdinalIgnoreCase))
+            if (previous is not null && previous.Id != roomId)
             {
                 previous.RemoveMember(new User(participant.ConnectionId, participant.Nickname));
             }
-            else if (previous is not null && string.Equals(previous.Name, wanted, StringComparison.OrdinalIgnoreCase))
+            else if (previous is not null && previous.Id == roomId)
             {
                 // Already there: re-send the state instead of pretending the room changed.
                 joined = previous;
             }
 
-            if (joined is null && wanted.Length > 0)
+            if (joined is null && roomId is not null)
             {
-                joined = rooms.FirstOrDefault(r => string.Equals(r.Name, wanted, StringComparison.OrdinalIgnoreCase));
+                joined = rooms.FirstOrDefault(r => r.Id == roomId.Value);
 
                 if (joined is null)
                 {
-                    RefuseJoin(participant, $"No room named \"{wanted}\".");
+                    // Named by what it was asked for rather than by a name it does not have: the client asked
+                    // with an identity, and "Room 2" may mean something different on each of two laptops.
+                    RefuseJoin(participant, "That room is not here any more.");
                     return;
                 }
 
@@ -354,7 +362,7 @@ public sealed partial class ChatServer : IAsyncDisposable
 
         if (joined is not null)
         {
-            Broadcast(joined, Frame.SystemNotice(joined.Name, SystemMessage.JoinBody(participant.Nickname)));
+            Broadcast(joined, Frame.SystemNotice(joined, SystemMessage.JoinBody(participant.Nickname)));
 
             var namesakes = joined.Members.Count(u =>
                 string.Equals(u.Nickname, participant.Nickname, StringComparison.OrdinalIgnoreCase));
@@ -363,14 +371,14 @@ public sealed partial class ChatServer : IAsyncDisposable
             {
                 // Two lines from "Alex" are two different people, and nothing in the transcript says so. The
                 // room hears about it at the moment it becomes true, which is the only moment it is news.
-                Broadcast(joined, Frame.SystemNotice(joined.Name, SystemMessage.NameSharedBody(participant.Nickname, namesakes)));
+                Broadcast(joined, Frame.SystemNotice(joined, SystemMessage.NameSharedBody(participant.Nickname, namesakes)));
             }
 
             SendMemberList(joined);
         }
         else
         {
-            participant.Receive(Frame.MemberList(string.Empty, []));
+            participant.Receive(Frame.MemberList(null, null, []));
         }
 
         SendRooms(participant);
@@ -386,7 +394,7 @@ public sealed partial class ChatServer : IAsyncDisposable
     private void RefuseJoin(IParticipant participant, string reason)
     {
         participant.Receive(Frame.Error(reason));
-        participant.Receive(Frame.MemberList(string.Empty, []));
+        participant.Receive(Frame.MemberList(null, null, []));
         SendRooms(participant);
     }
 
@@ -413,7 +421,7 @@ public sealed partial class ChatServer : IAsyncDisposable
         }
 
         var message = new TextMessage(sender.Nickname, room.Name, body, sentAt ?? DateTime.Now, id);
-        Broadcast(room, Frame.FromMessage(message), exceptConnectionId: sender.ConnectionId);
+        Broadcast(room, Frame.FromMessage(message, room), exceptConnectionId: sender.ConnectionId);
     }
 
     /// <summary>A server-originated notice for a room (a room was deleted, someone was kicked).</summary>
@@ -421,7 +429,7 @@ public sealed partial class ChatServer : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(room);
 
-        Broadcast(room, Frame.SystemNotice(room.Name, notice));
+        Broadcast(room, Frame.SystemNotice(room, notice));
     }
 
     /// <summary>
@@ -470,7 +478,7 @@ public sealed partial class ChatServer : IAsyncDisposable
         // The room and the nickname come from the server's view of the sender, never from the frame:
         // relaying a picture that claims to be from someone else would put words in their mouth (T2.4).
         var message = new PictureMessage(sender.Nickname, room.Name, name, data, sentAt ?? DateTime.Now, id);
-        Broadcast(room, Frame.FromMessage(message), exceptConnectionId: sender.ConnectionId);
+        Broadcast(room, Frame.FromMessage(message, room), exceptConnectionId: sender.ConnectionId);
 
         return message;
     }
@@ -510,8 +518,15 @@ public sealed partial class ChatServer : IAsyncDisposable
         return error is null;
     }
 
-    /// <summary>Renames a room, keeping whoever is inside it.</summary>
-    public bool TryRenameRoom(string currentName, string newName, out string? error)
+    /// <summary>
+    /// Renames a room, keeping whoever is inside it - and keeping it the same room.
+    /// </summary>
+    /// <remarks>
+    /// The room is asked for by identity. Asking by name is what made a rename destructive: the room was
+    /// replaced, everybody inside it was left standing in a room whose name had just stopped existing, and
+    /// their copy of it - transcript and all - was rebuilt from the list as though it were somebody else's.
+    /// </remarks>
+    public bool TryRenameRoom(Guid roomId, string newName, out string? error)
     {
         error = null;
         var wanted = ValidationRules.Normalize(newName);
@@ -519,10 +534,10 @@ public sealed partial class ChatServer : IAsyncDisposable
 
         lock (gate)
         {
-            var current = rooms.FirstOrDefault(r => string.Equals(r.Name, ValidationRules.Normalize(currentName), StringComparison.OrdinalIgnoreCase));
+            var current = rooms.FirstOrDefault(r => r.Id == roomId);
             if (current is null)
             {
-                error = $"No room named \"{currentName}\".";
+                error = "That room is not here any more.";
                 return false;
             }
 
@@ -538,11 +553,8 @@ public sealed partial class ChatServer : IAsyncDisposable
                 return false;
             }
 
-            replacement = new Room(wanted);
-            foreach (var user in current.Members)
-            {
-                replacement.AddMember(user);
-            }
+            // Same identity, same members, same transcript, new name: see Room.RenamedTo.
+            replacement = current.RenamedTo(wanted);
 
             rooms[rooms.IndexOf(current)] = replacement;
         }
@@ -557,18 +569,18 @@ public sealed partial class ChatServer : IAsyncDisposable
     /// Deletes a room. Anyone inside it is told they were removed (F11) and ends up in no room, which
     /// is what T3.3 asks for.
     /// </summary>
-    public bool TryDeleteRoom(string name, out string? error)
+    public bool TryDeleteRoom(Guid roomId, out string? error)
     {
         error = null;
         Room? removed = null;
 
         lock (gate)
         {
-            removed = rooms.FirstOrDefault(r => string.Equals(r.Name, ValidationRules.Normalize(name), StringComparison.OrdinalIgnoreCase));
+            removed = rooms.FirstOrDefault(r => r.Id == roomId);
 
             if (removed is null)
             {
-                error = $"No room named \"{name}\".";
+                error = "That room is not here any more.";
                 return false;
             }
 
@@ -586,8 +598,10 @@ public sealed partial class ChatServer : IAsyncDisposable
                 participants.TryGetValue(connectionId, out participant);
             }
 
-            participant?.Receive(Frame.SystemNotice(removed.Name, $"{removed.Name} was closed by the host."));
-            participant?.Receive(Frame.MemberList(string.Empty, []));
+            // The room is gone, so this is the one notice that cannot travel as a frame for it: with no
+            // identity left to route by, it goes to the person rather than to the room.
+            participant?.Receive(Frame.MemberList(null, null, []));
+            participant?.Receive(Frame.SystemNotice(removed, $"{removed.Name} was closed by the host."));
         }
 
         BroadcastRooms();
@@ -595,18 +609,24 @@ public sealed partial class ChatServer : IAsyncDisposable
         return true;
     }
 
-    /// <summary>Replaces the whole room list — used when it has just been loaded from disk (M3).</summary>
-    public void LoadRooms(IEnumerable<string> roomNames)
+    /// <summary>
+    /// Replaces the whole room list - used when it has just been loaded from disk (M3).
+    /// </summary>
+    /// <remarks>
+    /// Rooms rather than names, because the file carries their identities and putting them back is the point:
+    /// a room the host made last week is the same room this week, whatever it is called now.
+    /// </remarks>
+    public void LoadRooms(IEnumerable<Room> loaded)
     {
-        ArgumentNullException.ThrowIfNull(roomNames);
+        ArgumentNullException.ThrowIfNull(loaded);
 
         lock (gate)
         {
             rooms.Clear();
 
-            foreach (var name in roomNames)
+            foreach (var room in loaded)
             {
-                rooms.Add(new Room(name));
+                rooms.Add(room);
             }
         }
 
@@ -625,7 +645,7 @@ public sealed partial class ChatServer : IAsyncDisposable
         switch (frame.Type)
         {
             case FrameType.JOIN_ROOM:
-                Join(session, frame.Header.Room);
+                Join(session, frame.Header.RoomId);
                 break;
 
             case FrameType.TEXT:
@@ -791,7 +811,7 @@ public sealed partial class ChatServer : IAsyncDisposable
     /// <summary>F12: everybody in a room gets the same member list, from the server's own view.</summary>
     private void SendMemberList(Room room)
     {
-        var frame = Frame.MemberList(room.Name, room.Members);
+        var frame = Frame.MemberList(room.Id, room.Name, room.Members);
 
         lock (gate)
         {
@@ -819,8 +839,7 @@ public sealed partial class ChatServer : IAsyncDisposable
     /// <summary>T3.6: while the host edits rooms, every client's list follows live.</summary>
     private void BroadcastRooms()
     {
-        var names = Rooms.Select(r => r.Name).ToArray();
-        var frame = Frame.RoomList(names);
+        var frame = Frame.RoomList(Rooms);
 
         lock (gate)
         {
@@ -831,12 +850,12 @@ public sealed partial class ChatServer : IAsyncDisposable
         }
 
         Dispatch.Safe(() => RoomsChanged?.Invoke(this, EventArgs.Empty));
-        Status($"{names.Length} rooms");
+        Status($"{Rooms.Count} rooms");
     }
 
     /// <summary>Sends the current room list to one member (after a handshake or a join).</summary>
     private void SendRooms(IParticipant participant)
-        => participant.Receive(Frame.RoomList(Rooms.Select(r => r.Name).ToArray()));
+        => participant.Receive(Frame.RoomList(Rooms));
 
     /// <summary>
     /// Writes the room list to the store in the background (T3.2): the window that asked for a new room
@@ -890,7 +909,7 @@ public sealed partial class ChatServer : IAsyncDisposable
 
     private void AnnounceLeave(Room room, string who, string? exceptConnectionId = null)
     {
-        Broadcast(room, Frame.SystemNotice(room.Name, SystemMessage.LeaveBody(who)), exceptConnectionId);
+        Broadcast(room, Frame.SystemNotice(room, SystemMessage.LeaveBody(who)), exceptConnectionId);
         SendMemberList(room);
     }
 

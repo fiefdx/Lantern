@@ -36,10 +36,15 @@ package "Domain model" {
   }
 
   class Room {
+    + Id : Guid
     + Name : string
     + Members : ObservableCollection~User~
     + AddMember(u : User)
     + RemoveMember(u : User)
+    + RenamedTo(newName : string) : Room
+    ' Id is which room; Name is what it is called, and the host may
+    ' change it (F5). A rename keeps the id, the members and the
+    ' transcript; nothing is found by name any more (v1.0.2).
     ' transcript lives in memory only
   }
 
@@ -50,6 +55,7 @@ package "Domain model" {
 
   class FileTransferJob {
     + Id : Guid
+    + RoomId : Guid
     + FileName : string
     + SizeBytes : long
     + BytesDone : long
@@ -70,7 +76,10 @@ package "Persistence (rooms only)" {
     ' corrupt / missing file -> default room list
   }
   class RoomDto {
+    + Id : string
     + Name : string
+    ' a rooms.json written before v1.0.2 has no id: each room is then
+    ' given its own, rather than all of them sharing an empty one
   }
 }
 

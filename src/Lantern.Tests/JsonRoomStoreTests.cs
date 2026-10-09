@@ -35,6 +35,63 @@ public sealed class JsonRoomStoreTests
         Assert.Equal(["Kitchen Table", "Garden", "Room 1"], reopened.Load().Select(r => r.Name));
     }
 
+    /// <summary>
+    /// The room the host made on Monday is the same room on Tuesday, whatever it is called by then. That is
+    /// what the identity in the file is for: a window told "you are in Study" could not have known that on
+    /// Wednesday, because by then Study might be called something else, and the words are all it had.
+    /// </summary>
+    [Fact]
+    public async Task ARoomKeepsItsIdentityAcrossARestart()
+    {
+        using var file = new TempRoomFile();
+
+        var study = new Room("Study");
+
+        using (var store = new JsonRoomStore(file.Path))
+        {
+            await store.SaveAsync([study, new Room("Garden")]);
+        }
+
+        using var reopened = new JsonRoomStore(file.Path);
+        Assert.Equal(study.Id, reopened.Load().Single(r => r.Name == "Study").Id);
+    }
+
+    /// <summary>
+    /// A file written by an older build of the program, or by a person in Notepad, says nothing about
+    /// identities. Two rooms that never said who they were are still not the same room as each other.
+    /// </summary>
+    [Fact]
+    public void RoomsThatArriveWithoutIdentitiesGetDifferentOnes()
+    {
+        using var file = new TempRoomFile("""{"rooms": [{"name": "Kitchen Table"}, {"name": "Garden"}]}""");
+
+        using var store = new JsonRoomStore(file.Path);
+        var loaded = store.Load();
+
+        Assert.Equal(["Kitchen Table", "Garden"], loaded.Select(r => r.Name));
+        Assert.All(loaded, room => Assert.NotEqual(Guid.Empty, room.Id));
+        Assert.NotEqual(loaded[0].Id, loaded[1].Id);
+    }
+
+    /// <summary>
+    /// Two rooms claiming one identity is the exact confusion an identity exists to prevent, and a
+    /// hand-edited file is how it happens. The first room keeps the identity and the copy is given its own -
+    /// dropping the second room would be a quieter failure, and a worse one.
+    /// </summary>
+    [Fact]
+    public void TwoRoomsCannotBorrowOneIdentity()
+    {
+        var id = Guid.NewGuid();
+        using var file = new TempRoomFile($$"""{"rooms": [{"id": "{{id}}", "name": "Study"}, {"id": "{{id}}", "name": "Study Two"}]}""");
+
+        using var store = new JsonRoomStore(file.Path);
+        var loaded = store.Load();
+
+        Assert.Equal(["Study", "Study Two"], loaded.Select(r => r.Name));
+        Assert.Equal(id, loaded[0].Id);
+        Assert.NotEqual(id, loaded[1].Id);
+    }
+
     [Fact]
     public async Task AReopenedRoomHasNobodyInItAndNothingToRead()
     {

@@ -36,6 +36,7 @@ is the finding, and "it worked in the end" hides it.
 | 0.3 | Start Lantern on each machine **without** `--loopback`. | Each status bar reads `over Bluetooth, as <12 hex digits>`. | ☐ | |
 | 0.4 | Write each machine's printed address on paper. | You will need it if step 2 finds nothing. | ☐ | |
 | 0.5 | Windows Defender Firewall: allow Lantern when prompted, once per machine. | No prompt appears again during this run. | ☐ | |
+| 0.6 | `git describe --tags` on both machines. | The **same build on both**. Since v1.0.2 a frame names a room by its identity rather than by its name, so an older laptop is refused every room it asks for (`docs/notes/room-identity.md`). | ☐ | |
 
 ## 1. Host a chat (scenario 1, over the radio)
 

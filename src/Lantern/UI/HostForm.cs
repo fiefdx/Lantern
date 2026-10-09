@@ -47,12 +47,12 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        if (!ConfirmDeleteRoom(room))
+        if (!ConfirmDeleteRoom(room.Name))
         {
             return;
         }
 
-        await RunAsync(() => Service.DeleteRoomAsync(room));
+        await RunAsync(() => Service.DeleteRoomAsync(room.Id));
     }
 
     /// <summary>Edit ▸ Rename: the same dialog, pre-filled (F3). Leaving the name alone is a no-op.</summary>
@@ -64,14 +64,14 @@ public partial class HostForm : ChatForm
             return;
         }
 
-        var renamed = AskForRoomName("Rename Room", current, name => name == current ? null : IsDuplicate(name));
+        var renamed = AskForRoomName("Rename Room", current.Name, name => name == current.Name ? null : IsDuplicate(name));
 
-        if (renamed is null || renamed == current)
+        if (renamed is null || renamed == current.Name)
         {
             return;
         }
 
-        await RunAsync(() => Service.RenameRoomAsync(current, renamed));
+        await RunAsync(() => Service.RenameRoomAsync(current.Id, renamed));
     }
 
     /// <summary>

@@ -24,7 +24,7 @@ Names used below are the ones typed into the nickname box: the host is **Ana**, 
 | | Check | Why it is on this list |
 |---:|---|---|
 | ☐ | Both laptops paired, and the pairing *still there* (Settings says ready) | Pairing is Windows' job and Windows forgets. Lantern dials only machines it already knows |
-| ☐ | Both on the **tagged build**: `git describe --tags` says `v1.0` on both | A demo of a working tree is a demo of something that no longer exists |
+| ☐ | Both on the **same tagged build**: `git describe --tags` says the same thing on both | A demo of a working tree is a demo of something that no longer exists — and since v1.0.2 the difference is not cosmetic: `JOIN_ROOM` carries a room's identity, so an older laptop is turned away from every room |
 | ☐ | Radio on, airplane mode off, both laptops **on the same floor** | RFCOMM is tens of metres; the demo walks one laptop away, it does not start there |
 | ☐ | Sound audible on the receiving laptop, and the sound scheme not "No Sounds" | F10 is a feature; silent speakers make it an unseen feature |
 | ☐ | `holiday.jpg`, `deck.zip` on the Desktop of Client A's laptop, and `%TEMP%\empty` folder created for the file to be saved into | Nobody demos well while browsing a disk |

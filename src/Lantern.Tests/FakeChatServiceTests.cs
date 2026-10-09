@@ -41,7 +41,7 @@ public class FakeChatServiceTests
         var fired = 0;
         service.MembersChanged += (_, _) => fired++;
 
-        await service.JoinRoomAsync("Room 2");
+        await service.JoinByNameAsync("Room 2");
 
         Assert.Contains(service.Members, u => u.Nickname == "Victory");
         Assert.True(fired > 0);
@@ -51,9 +51,9 @@ public class FakeChatServiceTests
     public async Task LeavingByJoiningNothingClearsMembers()
     {
         var service = new FakeChatService("Victory", isHost: false);
-        await service.JoinRoomAsync("Room 1");
+        await service.JoinByNameAsync("Room 1");
 
-        await service.JoinRoomAsync(string.Empty);
+        await service.JoinByNameAsync(string.Empty);
 
         Assert.Empty(service.Members);
     }
@@ -63,8 +63,8 @@ public class FakeChatServiceTests
     {
         var service = new FakeChatService("Victory", isHost: false);
 
-        await service.JoinRoomAsync("Room 2");
-        await service.JoinRoomAsync(string.Empty);
+        await service.JoinByNameAsync("Room 2");
+        await service.JoinByNameAsync(string.Empty);
 
         var notices = service.Transcript.OfType<SystemMessage>().Select(m => m.Preview).ToArray();
         Assert.Contains(notices, n => n.Contains(SystemMessage.JoinSuffix));
@@ -75,7 +75,7 @@ public class FakeChatServiceTests
     public async Task SendingRecordsTheMessageInTheRoomTranscript()
     {
         var service = new FakeChatService("Haitao");
-        await service.JoinRoomAsync("Room 1");
+        await service.JoinByNameAsync("Room 1");
 
         await service.SendAsync(new TextMessage("Haitao", "Room 1", "hello"));
 
@@ -102,7 +102,7 @@ public class FakeChatServiceTests
         var service = new FakeChatService("Victory", isHost: false);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.CreateRoomAsync("Nope"));
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.DeleteRoomAsync("Room 1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.DeleteByNameAsync("Room 1"));
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class FakeChatServiceTests
     {
         var service = new FakeChatService("Haitao");
 
-        await service.RenameRoomAsync("Room 1", "Renamed");
+        await service.RenameByNameAsync("Room 1", "Renamed");
 
         Assert.Contains("Renamed", service.Rooms.Select(r => r.Name));
         Assert.Equal(3, service.Rooms.Single(r => r.Name == "Renamed").Members.Count);
@@ -131,7 +131,7 @@ public class FakeChatServiceTests
     {
         var service = new FakeChatService("Haitao");
 
-        await service.DeleteRoomAsync("Room 3");
+        await service.DeleteByNameAsync("Room 3");
 
         Assert.DoesNotContain("Room 3", service.Rooms.Select(r => r.Name));
     }
@@ -140,7 +140,7 @@ public class FakeChatServiceTests
     public async Task IncomingFileIsAnnouncedAsAJob()
     {
         var service = new FakeChatService("Haitao");
-        await service.JoinRoomAsync("Room 1");
+        await service.JoinByNameAsync("Room 1");
         FileTransferJob? announced = null;
         service.IncomingFile += (_, job) => announced = job;
 

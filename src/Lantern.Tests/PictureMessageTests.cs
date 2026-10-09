@@ -120,9 +120,8 @@ public sealed class PictureMessageTests
         // the host is the one that decides: a peer built without that check must not be able to make
         // every machine in the room hold a picture bigger than a frame.
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Mallory"), Frame.JoinRoom("Room 1"));
-        await SendRawAsync(raw, Frame.Picture(
-            Guid.NewGuid(), "Room 1", "Mallory", "huge.png", new byte[(int)ValidationRules.MaxPictureBytes + 1], DateTime.Now));
+        await SendRawAsync(raw, Frame.Hello("Mallory"), Frame.JoinRoom(server.Id("Room 1")));
+        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", "huge.png", new byte[(int)ValidationRules.MaxPictureBytes + 1], DateTime.Now));
 
         var refusal = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("MB", refusal.Header.Error, StringComparison.Ordinal);
@@ -134,7 +133,7 @@ public sealed class PictureMessageTests
         // The connection survives the refusal: a refused picture is a refusal, not a reason to drop the
         // person. If the oversized frame had been written to the stream regardless, everything after this
         // would come back as a corrupt-frame error instead.
-        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), "Room 1", "Mallory", "still here?", DateTime.Now));
+        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", "still here?", DateTime.Now));
         var heard = (TextMessage)await seenByDov.ItemAsync(m => m is TextMessage, "the sentence after the refusal");
         Assert.Equal("still here?", heard.Body);
     }
@@ -179,8 +178,8 @@ public sealed class PictureMessageTests
         await HostJoinsAsync(server, "Room 1");
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Mallory"), Frame.JoinRoom("Room 1"));
-        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), "Room 1", "Mallory", "blank.png", [], DateTime.Now));
+        await SendRawAsync(raw, Frame.Hello("Mallory"), Frame.JoinRoom(server.Id("Room 1")));
+        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", "blank.png", [], DateTime.Now));
 
         var refusal = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("empty", refusal.Header.Error, StringComparison.OrdinalIgnoreCase);
@@ -193,7 +192,7 @@ public sealed class PictureMessageTests
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), "Room 1", "Mallory", "sunset.png", SmallPng(), DateTime.Now));
+        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", "sunset.png", SmallPng(), DateTime.Now));
 
         var refusal = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("room", refusal.Header.Error, StringComparison.OrdinalIgnoreCase);
@@ -213,11 +212,11 @@ public sealed class PictureMessageTests
         var seenByInes = WatchMessages(ines);
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
-        await SendRawAsync(raw, Frame.Hello("Cara"), Frame.JoinRoom("Room 1"));
+        await SendRawAsync(raw, Frame.Hello("Cara"), Frame.JoinRoom(server.Id("Room 1")));
 
         // Both the name and the room in this frame are lies: Cara is not Dov, and Cara is standing in
         // Room 1. The server answers for both, exactly as it does for a text message (T2.4).
-        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), "Room 2", "Dov", "mislabelled.png", SmallPng(), DateTime.Now));
+        await SendRawAsync(raw, Frame.Picture(Guid.NewGuid(), server.RoomOrThrow("Room 2"), "Dov", "mislabelled.png", SmallPng(), DateTime.Now));
 
         var arrived = (PictureMessage)await seenByDov.ItemAsync(m => m is PictureMessage, "the photo to reach the room");
         Assert.Equal("Cara", arrived.SenderNickname);
@@ -262,9 +261,9 @@ public sealed class PictureMessageTests
         await cara.SendAsync(new PictureMessage("Cara", "Room 1", "keeps.png", bytes));
         await seenByDov.ItemAsync(m => m is PictureMessage, "the photo to arrive");
 
-        await dov.JoinRoomAsync("Room 2");
+        await dov.JoinByNameWhenShownAsync("Room 2");
         await Watch.UntilAsync(() => dov.CurrentRoomName == "Room 2", "Dov to be in Room 2");
-        await dov.JoinRoomAsync("Room 1");
+        await dov.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => dov.CurrentRoomName == "Room 1", "Dov to be back");
 
         // F6 replays a room's history when it is entered again, and a photo is part of that history: the
@@ -321,7 +320,7 @@ public sealed class PictureMessageTests
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -331,7 +330,7 @@ public sealed class PictureMessageTests
         foreach (var client in clients)
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync(roomName);
+            await client.JoinByNameWhenShownAsync(roomName);
         }
 
         await Watch.UntilAsync(

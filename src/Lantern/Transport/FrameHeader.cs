@@ -30,7 +30,18 @@ public sealed record FrameHeader
     [JsonPropertyName("id")]
     public Guid? Id { get; init; }
 
-    /// <summary>Room the frame is about. Absent for frames that precede any room (HELLO).</summary>
+    /// <summary>
+    /// Which room the frame is about, by identity. This is the field to trust when deciding what a frame
+    /// refers to.
+    /// </summary>
+    [JsonPropertyName("roomId")]
+    public Guid? RoomId { get; init; }
+
+    /// <summary>
+    /// The room's name as this frame's author knew it, which changes the instant the host renames the room.
+    /// Content rather than identity: it travels with messages so a transcript line says where it was
+    /// written, and with lists so a packet trace is readable. Absent for frames that precede any room (HELLO).
+    /// </summary>
     [JsonPropertyName("room")]
     public string? Room { get; init; }
 
@@ -53,9 +64,9 @@ public sealed record FrameHeader
     [JsonPropertyName("at")]
     public DateTime? SentAt { get; init; }
 
-    /// <summary>Room names for ROOM_LIST.</summary>
+    /// <summary>The rooms for ROOM_LIST: each one by identity, with the name it answers to.</summary>
     [JsonPropertyName("rooms")]
-    public IReadOnlyList<string>? Rooms { get; init; }
+    public IReadOnlyList<FrameRoom>? Rooms { get; init; }
 
     /// <summary>Members for MEMBER_LIST.</summary>
     [JsonPropertyName("members")]
@@ -89,6 +100,13 @@ public sealed record FrameHeader
 }
 
 /// <summary>One entry of a MEMBER_LIST frame.</summary>
+/// <summary>
+/// One room in a ROOM_LIST: what it is, and what it is called. Both, because this frame is how a side learns
+/// the name of a room whose identity it already has - so a rename arrives as the same identity answering to a
+/// different name, which is the difference between a room being renamed and a room being replaced.
+/// </summary>
+public sealed record FrameRoom(Guid Id, string Name);
+
 public sealed record FrameMember(
     [property: JsonPropertyName("id")] string ConnectionId,
     [property: JsonPropertyName("nick")] string Nickname);

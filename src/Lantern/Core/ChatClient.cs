@@ -83,6 +83,9 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     /// <summary>Room this client is in, or null. Mirrors what the server believes.</summary>
     public string? CurrentRoomName => state.CurrentRoomName;
 
+    /// <summary>Which room this side is in, by identity, or null. What a window compares; the name above is what it shows.</summary>
+    public Guid? CurrentRoomId => state.CurrentRoomId;
+
     public bool IsConnected => link is not null;
 
     /// <inheritdoc />
@@ -162,13 +165,12 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
         => throw new InvalidOperationException("A client does not listen for connections.");
 
     /// <inheritdoc />
-    public async Task JoinRoomAsync(string? name, CancellationToken cancel = default)
+    public async Task JoinRoomAsync(Guid? roomId, CancellationToken cancel = default)
     {
-        var wanted = ValidationRules.Normalize(name);
-        state.ExpectRoom(wanted);
+        state.ExpectRoom(roomId);
 
-        // An empty room name is how "leave the current room" travels on the wire.
-        await WriteOrThrowAsync(Frame.JoinRoom(wanted), cancel).ConfigureAwait(false);
+        // Nothing to join is how "leave the current room" travels on the wire.
+        await WriteOrThrowAsync(Frame.JoinRoom(roomId), cancel).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -184,7 +186,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                     throw new InvalidOperationException(error);
                 }
 
-                await WriteOrThrowAsync(Frame.FromMessage(text), cancel).ConfigureAwait(false);
+                await WriteOrThrowAsync(Frame.FromMessage(text, RoomOrThrow()), cancel).ConfigureAwait(false);
                 Keep(text);
                 break;
 
@@ -196,7 +198,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                     throw new InvalidOperationException(pictureError);
                 }
 
-                await WriteOrThrowAsync(Frame.FromMessage(picture), cancel).ConfigureAwait(false);
+                await WriteOrThrowAsync(Frame.FromMessage(picture, RoomOrThrow()), cancel).ConfigureAwait(false);
                 Keep(picture);
                 break;
 
@@ -214,7 +216,25 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     /// The host does not echo a message back to its author, so this side keeps its own copy or the
     /// transcript would lose every line the user sent when they next enter the room.
     /// </summary>
-    private void Keep(Message message) => state.Record(message);
+    private void Keep(Message message) => state.Keep(message);
+
+    /// <summary>
+    /// The room this side is standing in, as an object with an identity - which is what a frame needs in
+    /// order to say which room it is carrying. Saying it by name would be saying which room this side thinks
+    /// the name belongs to, and the host is the one that decides.
+    /// </summary>
+    private Lantern.Domain.Room RoomOrThrow()
+    {
+        // The link is the more basic fact. A window whose connection has gone does have a room it is standing
+        // in and no way to reach it, and telling such a person to pick a room would be a sentence about the
+        // wrong thing - and about a room they are still standing in.
+        if (link is null)
+        {
+            throw NotConnected();
+        }
+
+        return state.FindRoom(state.CurrentRoomId) ?? throw new InvalidOperationException("Pick a room first.");
+    }
 
     // -------------------------------------------------------- host-only actions
 
@@ -222,17 +242,17 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
     public Task CreateRoomAsync(string name, CancellationToken cancel = default) => HostOnly();
 
     /// <inheritdoc />
-    public Task RenameRoomAsync(string currentName, string newName, CancellationToken cancel = default) => HostOnly();
+    public Task RenameRoomAsync(Guid roomId, string newName, CancellationToken cancel = default) => HostOnly();
 
     /// <inheritdoc />
-    public Task DeleteRoomAsync(string name, CancellationToken cancel = default) => HostOnly();
+    public Task DeleteRoomAsync(Guid roomId, CancellationToken cancel = default) => HostOnly();
 
     /// <inheritdoc />
     public FileTransferJob SendFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var room = CurrentRoomName ?? throw new InvalidOperationException("Pick a room before sending a file.");
+        var room = state.FindRoom(state.CurrentRoomId) ?? throw new InvalidOperationException("Pick a room before sending a file.");
         var file = Path.GetFullPath(path);
 
         if (!File.Exists(file))
@@ -248,7 +268,7 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
             throw new InvalidOperationException($"Lantern does not send files over {FileSize.Describe(LanternProtocol.MaxReceivedFileBytes)}.");
         }
 
-        var job = new FileTransferJob(Path.GetFileName(file), new FileInfo(file).Length, senderNickname: Nickname, roomName: room);
+        var job = new FileTransferJob(Path.GetFileName(file), new FileInfo(file).Length, senderNickname: Nickname, roomName: room.Name, roomId: room.Id);
 
         // The window is not asked to hold still for a file it cannot watch: what it gets back is the job,
         // which is the thing to watch, and the bytes go on moving afterwards on their own thread.
@@ -479,11 +499,14 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
 
     // ---------------------------------------------------------------- writing
 
+    /// <summary>The sentence for a frame with nowhere to go, said the same way wherever it is found.</summary>
+    private static InvalidOperationException NotConnected() => new("Not connected.");
+
     private async Task WriteOrThrowAsync(Frame frame, CancellationToken cancel)
     {
         if (link is null)
         {
-            throw new InvalidOperationException("Not connected.");
+            throw NotConnected();
         }
 
         try

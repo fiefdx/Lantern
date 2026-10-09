@@ -38,16 +38,32 @@ public interface IChatService
     Task CreateRoomAsync(string name, CancellationToken cancel = default);
 
     /// <summary>Rename a room. Host only.</summary>
-    Task RenameRoomAsync(string currentName, string newName, CancellationToken cancel = default);
+    /// <summary>
+    /// Renames the room with this identity. Rooms are asked for by identity, never by name: the name is the
+    /// thing being changed, and two windows can be looking at two different names for one room while the host
+    /// is partway through typing the third.
+    /// </summary>
+    Task RenameRoomAsync(Guid roomId, string newName, CancellationToken cancel = default);
 
     /// <summary>Delete a room. Host only. Anyone inside is kicked with a notice (F11).</summary>
-    Task DeleteRoomAsync(string name, CancellationToken cancel = default);
+    /// <summary>Deletes the room with this identity. See <see cref="RenameRoomAsync"/> for why that is how rooms are asked for.</summary>
+    Task DeleteRoomAsync(Guid roomId, CancellationToken cancel = default);
 
     /// <summary>
     /// Leave the current room, if any, and join <paramref name="name"/> (F6).
     /// A null or blank name means “join nothing”, i.e. just leave.
     /// </summary>
-    Task JoinRoomAsync(string? name, CancellationToken cancel = default);
+    /// <summary>
+    /// Leaves whatever room this side is in and joins the room with this identity; <see langword="null"/>
+    /// means join nothing (F6).
+    /// <para>
+    /// An identity rather than a name, because a name is what the host may change at any moment: asking for
+    /// "Study" is asking for whichever room answers to that on the host's machine right now, which is not
+    /// necessarily the row a person clicked. Names are still what rooms are called - see
+    /// <see cref="Lantern.Domain.Room.Name"/> - they are just no longer what they are identified by.
+    /// </para>
+    /// </summary>
+    Task JoinRoomAsync(Guid? roomId, CancellationToken cancel = default);
 
     /// <summary>Broadcast a message to the room the local user is in.</summary>
     Task SendAsync(Message message, CancellationToken cancel = default);

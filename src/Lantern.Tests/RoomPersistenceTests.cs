@@ -43,8 +43,8 @@ public sealed class RoomPersistenceTests
         await using var server = new ChatServer(new BtLoopbackServer("Test Host"), "Test Host", roomStore: store);
 
         Assert.True(server.TryCreateRoom("Garden", out _));
-        Assert.True(server.TryRenameRoom("Room 1", "Kitchen Table", out _));
-        Assert.True(server.TryDeleteRoom("Room 3", out _));
+        Assert.True(server.TryRenameRoom(server.Id("Room 1"), "Kitchen Table", out _));
+        Assert.True(server.TryDeleteRoom(server.Id("Room 3"), out _));
         await server.SavesCompletedAsync();
 
         // Read it back with a store of its own, which is what the next start of the program does.
@@ -60,7 +60,7 @@ public sealed class RoomPersistenceTests
         using (var store = new JsonRoomStore(file.Path))
         {
             await using var first = new ChatServer(new BtLoopbackServer("Test Host"), "Test Host", roomStore: store);
-            Assert.True(first.TryDeleteRoom("Room 2", out _));
+            Assert.True(first.TryDeleteRoom(first.Id("Room 2"), out _));
             await first.SavesCompletedAsync();
         }
 

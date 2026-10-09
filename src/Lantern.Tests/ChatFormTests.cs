@@ -49,7 +49,7 @@ public class ChatFormTests
             using var form = new Lantern.UI.HostForm(service);
             var rooms = (ListBox)Find(form, "lstRooms")!;
 
-            Assert.Equal(service.Rooms.Select(r => r.Name), rooms.Items.Cast<string>());
+            Assert.Equal(service.Rooms.Select(r => r.Name), rooms.Items.Names());
         });
     }
 
@@ -64,7 +64,7 @@ public class ChatFormTests
 
             service.Rooms.Add(new Room("Announced later"));
 
-            Assert.Contains("Announced later", rooms.Items.Cast<string>());
+            Assert.Contains("Announced later", rooms.Items.Names());
         });
     }
 

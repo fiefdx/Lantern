@@ -61,7 +61,7 @@ public sealed class EndToEndScenarioTests
 
         var fromHost = WatchMessages(host.Host);
 
-        await cara.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
 
         // A member list only ever comes from the server, so seeing herself in it is proof the join landed.
         await Watch.UntilAsync(() => cara.Members.Count == 1, "the server to put Cara in the room");
@@ -83,13 +83,13 @@ public sealed class EndToEndScenarioTests
     public async Task Scenario4TheHostAndTwoClientsHoldATextConversationInOneRoom()
     {
         await using var host = await HostAChatAsync();
-        await host.Host.JoinRoomAsync("Room 1");
+        await host.Host.JoinByNameAsync("Room 1");
 
         await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
-        await cara.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
 
         await using var davide = await JoinAsync("Davide", host.Server.Endpoint);
-        await davide.JoinRoomAsync("Room 1");
+        await davide.JoinByNameWhenShownAsync("Room 1");
 
         // Nobody speaks until all three windows agree on who is in the room.
         await EveryoneSeesEveryone(host.Host, cara, davide);
@@ -133,11 +133,11 @@ public sealed class EndToEndScenarioTests
     public async Task Scenario4EveryWindowHoldsTheSameConversationHistory()
     {
         await using var host = await HostAChatAsync();
-        await host.Host.JoinRoomAsync("Room 2");
+        await host.Host.JoinByNameAsync("Room 2");
 
         await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
         var fromCara = WatchMessages(cara);      // subscribed before joining, so her own notice is seen
-        await cara.JoinRoomAsync("Room 2");
+        await cara.JoinByNameWhenShownAsync("Room 2");
         await EveryoneSeesEveryone(host.Host, cara);
 
         await host.Host.SendAsync(Line(host.Host, "Room 2", "the host spoke"));
@@ -171,16 +171,16 @@ public sealed class EndToEndScenarioTests
     public async Task Scenario3LeavingARoomIsAnnouncedAndEveryListFollows()
     {
         await using var host = await HostAChatAsync();
-        await host.Host.JoinRoomAsync("Room 2");
+        await host.Host.JoinByNameAsync("Room 2");
 
         await using var davide = await JoinAsync("Davide", host.Server.Endpoint);
-        await davide.JoinRoomAsync("Room 2");
+        await davide.JoinByNameWhenShownAsync("Room 2");
         await EveryoneSeesEveryone(host.Host, davide);
 
         var fromDavide = WatchMessages(davide);
         var fromHost = WatchMessages(host.Host);
 
-        await davide.JoinRoomAsync(null);          // Room → (none) on the window
+        await davide.JoinByNameAsync(null);          // Room → (none) on the window
 
         await Watch.UntilAsync(() => fromHost.Items.Any(m => m.Preview.Contains("left")), "the host to hear the leaving");
         await Watch.UntilAsync(() => host.Host.Members.Count == 1, "the host's list to drop him");
@@ -199,10 +199,10 @@ public sealed class EndToEndScenarioTests
     public async Task Scenario3DisconnectingIsTreatedTheSameAsLeaving()
     {
         await using var host = await HostAChatAsync();
-        await host.Host.JoinRoomAsync("Room 1");
+        await host.Host.JoinByNameAsync("Room 1");
 
         var cara = await JoinAsync("Cara", host.Server.Endpoint);
-        await cara.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
         await EveryoneSeesEveryone(host.Host, cara);
 
         var fromHost = WatchMessages(host.Host);
@@ -224,7 +224,7 @@ public sealed class EndToEndScenarioTests
         await using var host = await HostAChatAsync();
 
         await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
-        await cara.JoinRoomAsync("Room 3");
+        await cara.JoinByNameWhenShownAsync("Room 3");
         await Watch.UntilAsync(() => cara.Members.Count == 1, "Cara to be in the room on her own");
 
         var lost = new Watch<string>();
@@ -249,14 +249,14 @@ public sealed class EndToEndScenarioTests
     public async Task TwoRoomsTalkToNobodyButTheirOwnMembers()
     {
         await using var host = await HostAChatAsync();
-        await host.Host.JoinRoomAsync("Room 1");
+        await host.Host.JoinByNameAsync("Room 1");
 
         await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
-        await cara.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
         await EveryoneSeesEveryone(host.Host, cara);
 
         await using var davide = await JoinAsync("Davide", host.Server.Endpoint);
-        await davide.JoinRoomAsync("Room 2");      // a different room of the same chat
+        await davide.JoinByNameWhenShownAsync("Room 2");      // a different room of the same chat
         await Watch.UntilAsync(() => davide.Members.Count == 1, "Davide to be alone in Room 2");
 
         var fromHost = WatchMessages(host.Host);
@@ -296,12 +296,12 @@ public sealed class EndToEndScenarioTests
         await using var host = await HostAChatAsync();
 
         await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
-        await cara.JoinRoomAsync("Room 3");
+        await cara.JoinByNameWhenShownAsync("Room 3");
         await Watch.UntilAsync(() => cara.Members.Count == 1, "Cara to be in Room 3 on her own");
 
         var fromCara = WatchMessages(cara);
 
-        await host.Host.DeleteRoomAsync("Room 3");
+        await host.Host.DeleteByNameAsync("Room 3");
 
         await Watch.UntilAsync(
             () => fromCara.Items.Any(m => m.Preview.Contains("closed by the host")),

@@ -42,34 +42,41 @@ public sealed class Frame
         ServerName = serverName,
     });
 
-    public static Frame RoomList(IEnumerable<string> roomNames) => new(new FrameHeader
+    /// <summary>
+    /// The room list, with each room's identity beside its name. This frame is where a rename arrives: the
+    /// same identity answering to a different name, rather than one room going away and another appearing.
+    /// </summary>
+    public static Frame RoomList(IEnumerable<Room> rooms) => new(new FrameHeader
     {
         Type = FrameType.ROOM_LIST,
-        Rooms = roomNames.ToArray(),
+        Rooms = rooms.Select(r => new FrameRoom(r.Id, r.Name)).ToArray(),
     });
 
-    public static Frame JoinRoom(string roomName) => new(new FrameHeader
+    /// <summary>Ask to be put in a room. Nothing to join - the empty case - is how "leave" travels.</summary>
+    public static Frame JoinRoom(Guid? roomId) => new(new FrameHeader
     {
         Type = FrameType.JOIN_ROOM,
-        Room = roomName,
+        RoomId = roomId,
     });
 
-    public static Frame Text(Guid id, string roomName, string nickname, string text, DateTime sentAt) => new(new FrameHeader
+    public static Frame Text(Guid id, Room room, string nickname, string text, DateTime sentAt) => new(new FrameHeader
     {
         Type = FrameType.TEXT,
         Id = id,
-        Room = roomName,
+        RoomId = room.Id,
+        Room = room.Name,
         Nickname = nickname,
         Text = text,
         SentAt = sentAt,
     });
 
-    public static Frame Picture(Guid id, string roomName, string nickname, string fileName, byte[] data, DateTime sentAt) => new(
+    public static Frame Picture(Guid id, Room room, string nickname, string fileName, byte[] data, DateTime sentAt) => new(
         new FrameHeader
         {
             Type = FrameType.PICTURE,
             Id = id,
-            Room = roomName,
+            RoomId = room.Id,
+            Room = room.Name,
             Nickname = nickname,
             FileName = fileName,
             SizeBytes = data.LongLength,
@@ -77,11 +84,14 @@ public sealed class Frame
         },
         data);
 
-    public static Frame FileMeta(Guid messageId, Guid transferId, string roomName, string nickname, string fileName, long sizeBytes) => new(new FrameHeader
+    /// <param name="roomId">Which room the file belongs to, by identity.</param>
+    /// <param name="roomName">What that room is called, for the transcript line every window prints.</param>
+    public static Frame FileMeta(Guid messageId, Guid transferId, Guid roomId, string roomName, string nickname, string fileName, long sizeBytes) => new(new FrameHeader
     {
         Type = FrameType.FILE_META,
         Id = messageId,
         TransferId = transferId,
+        RoomId = roomId,
         Room = roomName,
         Nickname = nickname,
         FileName = fileName,
@@ -110,25 +120,33 @@ public sealed class Frame
         TransferId = transferId,
     });
 
-    public static Frame MemberList(string roomName, IEnumerable<User> members) => new(new FrameHeader
+    /// <summary>
+    /// Who is in a room. The room is named by identity, including the empty case
+    /// (<c>roomId: null</c>) that says "this side is standing nowhere" - a bare empty list cannot tell
+    /// "nobody is here" from "the room you were in was closed".
+    /// </summary>
+    public static Frame MemberList(Guid? roomId, string? roomName, IEnumerable<User> members) => new(new FrameHeader
     {
         Type = FrameType.MEMBER_LIST,
+        RoomId = roomId,
         Room = roomName,
         Members = members.Select(m => new FrameMember(m.ConnectionId, m.Nickname)).ToArray(),
     });
 
-    public static Frame SystemNotice(string roomName, string notice) => new(new FrameHeader
+    public static Frame SystemNotice(Room room, string notice) => new(new FrameHeader
     {
         Type = FrameType.SYSTEM_NOTICE,
-        Room = roomName,
+        RoomId = room.Id,
+        Room = room.Name,
         Text = notice,
         SentAt = DateTime.Now,
     });
 
-    public static Frame Error(string message, string? roomName = null) => new(new FrameHeader
+    public static Frame Error(string message, Room? room = null) => new(new FrameHeader
     {
         Type = FrameType.ERROR,
-        Room = roomName,
+        RoomId = room?.Id,
+        Room = room?.Name,
         Error = message,
     });
 
@@ -137,13 +155,18 @@ public sealed class Frame
     /// <summary>
     /// Wraps a domain message in the frame that carries it. A FILE_MESSAGE becomes FILE_META: the
     /// bytes follow as numbered FILE_CHUNK frames, never inside this one.
+    /// <para>
+    /// The room is said here rather than taken from the message, because the room is not the message's to
+    /// say: the side broadcasting decides which room a line belongs to, and its name at that moment is the
+    /// name that goes out. A message quoting an older name for the room is history, not an instruction.
+    /// </para>
     /// </summary>
-    public static Frame FromMessage(Message message) => message switch
+    public static Frame FromMessage(Message message, Room room) => message switch
     {
-        TextMessage text => Text(text.Id, text.RoomName, text.SenderNickname, text.Body, text.SentAt),
-        PictureMessage picture => Picture(picture.Id, picture.RoomName, picture.SenderNickname, picture.FileName, picture.Data, picture.SentAt),
-        FileMessage file => FileMeta(file.Id, file.TransferId, file.RoomName, file.SenderNickname, file.FileName, file.SizeBytes),
-        SystemMessage notice => SystemNotice(notice.RoomName, notice.Body),
+        TextMessage text => Text(text.Id, room, text.SenderNickname, text.Body, text.SentAt),
+        PictureMessage picture => Picture(picture.Id, room, picture.SenderNickname, picture.FileName, picture.Data, picture.SentAt),
+        FileMessage file => FileMeta(file.Id, file.TransferId, room.Id, room.Name, file.SenderNickname, file.FileName, file.SizeBytes),
+        SystemMessage notice => SystemNotice(room, notice.Body),
         _ => throw new ArgumentException($"Unknown message type {message.GetType().Name}.", nameof(message)),
     };
 

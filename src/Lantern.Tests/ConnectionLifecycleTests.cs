@@ -31,7 +31,7 @@ public sealed class ConnectionLifecycleTests
             foreach (var client in crowd)
             {
                 await client.ConnectAsync(server.Endpoint);
-                await client.JoinRoomAsync("Room 1");
+                await client.JoinByNameWhenShownAsync("Room 1");
                 client.ConnectionLost += (_, reason) => lost.Add(reason);
             }
 
@@ -67,7 +67,7 @@ public sealed class ConnectionLifecycleTests
         var client = new ChatClient("Cara");
         var lost = new Watch<Exception>();
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         client.ConnectionLost += (_, reason) => lost.Add(reason);
         await Watch.UntilAsync(() => server.ConnectedCount == 2, "the join");
 
@@ -83,7 +83,10 @@ public sealed class ConnectionLifecycleTests
         Assert.Equal(1, server.ConnectedCount);       // the host is still alone, and still the only one
 
         // What the person can still do with a dead client is nothing, in words rather than in a hang.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.JoinRoomAsync("Room 1"));
+        // Any room at all, named by an identity this client was never given: it is the join button, and the
+        // join button needs the connection like every other frame does.
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => client.JoinRoomAsync(Guid.NewGuid()));
+        Assert.Contains("connect", refused.Message, StringComparison.OrdinalIgnoreCase);
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(new TextMessage("Cara", "Room 1", "hello?")));
 
         // Joining again means the startup window and a fresh Scan, which every other test in this file
@@ -102,7 +105,7 @@ public sealed class ConnectionLifecycleTests
         foreach (var client in first)
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
         }
 
         await Watch.UntilAsync(() => server.ConnectedCount == 3, "both guests");
@@ -115,12 +118,12 @@ public sealed class ConnectionLifecycleTests
         await Watch.UntilAsync(() => server.ConnectedCount == 1, "the chat to be back to one");
 
         Assert.Equal(1, server.ConnectedCount);
-        Assert.Equal(["Hosty"], server.FindRoom("Room 1")!.Members.Select(u => u.Nickname));
+        Assert.Equal(["Hosty"], server.RoomNamed("Room 1")!.Members.Select(u => u.Nickname));
 
         // A chat that has lost everybody is still a chat: the rooms stayed, and someone new can walk in.
         await using var later = new ChatClient("Late");
         await later.ConnectAsync(server.Endpoint);
-        await later.JoinRoomAsync("Room 1");
+        await later.JoinByNameWhenShownAsync("Room 1");
 
         await Watch.UntilAsync(() => later.Members.Count == 2, " the latecomer to be welcomed");
     }
@@ -136,13 +139,13 @@ public sealed class ConnectionLifecycleTests
         await using var dov = new ChatClient("Dov");
         await cara.ConnectAsync(server.Endpoint);
         await dov.ConnectAsync(server.Endpoint);
-        await cara.JoinRoomAsync("Room 1");
-        await dov.JoinRoomAsync("Room 1");
+        await cara.JoinByNameWhenShownAsync("Room 1");
+        await dov.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => dov.Members.Count == 3, "all three in the room");
 
         var dovMessages = WatchMessages(dov);
 
-        await cara.JoinRoomAsync(null);        // what the Leave button sends
+        await cara.JoinByNameAsync(null);        // what the Leave button sends
 
         var leave = await hostFrames.ItemAsync(
             f => f.Type == FrameType.SYSTEM_NOTICE && f.Header.Text!.Contains("left"),
@@ -200,7 +203,7 @@ public sealed class ConnectionLifecycleTests
             await using var cara = new ChatClient("Cara");
             var lost = new Watch<Exception>();
             await cara.ConnectAsync(server.Endpoint);
-            await cara.JoinRoomAsync("Room 1");
+            await cara.JoinByNameWhenShownAsync("Room 1");
             cara.ConnectionLost += (_, reason) => lost.Add(reason);
 
             using var form = new WatchingHost(host) { Confirms = false };      // "no, I did not mean it"
@@ -231,7 +234,7 @@ public sealed class ConnectionLifecycleTests
 
             await using var cara = new ChatClient("Cara");
             await cara.ConnectAsync(server.Endpoint);
-            await cara.JoinRoomAsync("Room 1");
+            await cara.JoinByNameWhenShownAsync("Room 1");
 
             using var form = new WatchingClient(cara);
             form.Show();
@@ -266,7 +269,7 @@ public sealed class ConnectionLifecycleTests
 
             await using var cara = new ChatClient("Cara");
             await cara.ConnectAsync(server.Endpoint);
-            await cara.JoinRoomAsync("Room 1");
+            await cara.JoinByNameWhenShownAsync("Room 1");
             await Watch.UntilAsync(() => cara.Members.Count == 2, "the two of them");
 
             using var form = new WatchingClient(cara) { Confirms = true };
@@ -280,7 +283,7 @@ public sealed class ConnectionLifecycleTests
                 "the host to hear about it");
             Assert.Contains("Cara", leave.Header.Text);
 
-            await Watch.UntilAsync(() => server.FindRoom("Room 1")!.Members.Count == 1, "the list to shrink");
+            await Watch.UntilAsync(() => server.RoomNamed("Room 1")!.Members.Count == 1, "the list to shrink");
 
             Assert.Equal("Status: left the room", Status(form));
             Assert.True(cara.IsConnected, "leaving a room is not leaving the chat");
@@ -299,7 +302,7 @@ public sealed class ConnectionLifecycleTests
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -328,8 +331,9 @@ public sealed class ConnectionLifecycleTests
     private static void Click(Form form, string button)
         => Assert.IsType<Button>(Find(form, button)).PerformClick();
 
+    /// <summary>Clicks the row that says this name, which is all a person has to go on.</summary>
     private static void SelectRoom(Form form, string name)
-        => Assert.IsType<ListBox>(Find(form, "lstRooms")).SelectedItem = name;
+        => Assert.IsType<ListBox>(Find(form, "lstRooms")).SelectByName(name);
 
     private static void ClickMenu(Form form, string item)
     {

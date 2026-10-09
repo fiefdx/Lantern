@@ -56,8 +56,11 @@ public sealed partial class ChatServer
             throw new FileNotFoundException("That file is not there any more.", file);
         }
 
-        var job = new FileTransferJob(Path.GetFileName(file), new FileInfo(file).Length, senderNickname: sender.Nickname, roomName: room.Name);
-        var transfer = NewTransfer(job.MessageId, job.Id, room.Name, job.FileName, sender.ConnectionId, job, new FileInfo(file).Length);
+        var job = new FileTransferJob(Path.GetFileName(file), new FileInfo(file).Length, senderNickname: sender.Nickname, roomName: room.Name, roomId: room.Id);
+
+        // The transfer is tied to the room by identity: a file on its way across the room should still find
+        // its recipients when the host renames the room halfway through, which a name could not promise.
+        var transfer = NewTransfer(job.MessageId, job.Id, room.Id, job.FileName, sender.ConnectionId, job, new FileInfo(file).Length);
 
         _ = Task.Run(() => StreamLocalFileAsync(transfer, job, file));
 
@@ -224,11 +227,11 @@ public sealed partial class ChatServer
         // file as the same event; only when it sent none does the host invent one.
         var messageId = frame.Header.Id ?? Guid.NewGuid();
 
-        var transfer = NewTransfer(messageId, id, room.Name, name, session.ConnectionId, localJob: null, size);
+        var transfer = NewTransfer(messageId, id, room.Id, name, session.ConnectionId, localJob: null, size);
 
         // The room hears the host's version of the announcement: this person, in this room, with this name.
         // What the sender chose to write in those fields is its own business.
-        await RelayAsync(transfer, Frame.FileMeta(messageId, id, room.Name, session.Nickname, name, size)).ConfigureAwait(false);
+        await RelayAsync(transfer, Frame.FileMeta(messageId, id, room.Id, room.Name, session.Nickname, name, size)).ConfigureAwait(false);
     }
 
     private async Task ReceiveFileChunkAsync(Frame frame, ChatServerSession session)
@@ -350,13 +353,13 @@ public sealed partial class ChatServer
 
     // ------------------------------------------------------------------ plumbing
 
-    private Transfer NewTransfer(Guid messageId, Guid transferId, string roomName, string fileName, string senderConnectionId, FileTransferJob? localJob, long sizeBytes)
+    private Transfer NewTransfer(Guid messageId, Guid transferId, Guid roomId, string fileName, string senderConnectionId, FileTransferJob? localJob, long sizeBytes)
     {
         var transfer = new Transfer
         {
             Id = transferId,
             MessageId = messageId,
-            RoomName = roomName,
+            RoomId = roomId,
             FileName = fileName,
             SenderConnectionId = senderConnectionId,
             SizeBytes = sizeBytes,
@@ -430,7 +433,7 @@ public sealed partial class ChatServer
     {
         lock (gate)
         {
-            var room = rooms.FirstOrDefault(r => r.Name.Equals(transfer.RoomName, StringComparison.OrdinalIgnoreCase));
+            var room = rooms.FirstOrDefault(r => r.Id == transfer.RoomId);
 
             if (room is null)
             {
@@ -508,7 +511,7 @@ public sealed partial class ChatServer
                 && session.QueuedBytes > watermark
                 && !transfer.Declined.Contains(session.ConnectionId)
                 && session.ConnectionId != transfer.SenderConnectionId
-                && rooms.Any(r => r.Name.Equals(transfer.RoomName, StringComparison.OrdinalIgnoreCase) && r.HasMember(session.ConnectionId)));
+                && rooms.Any(r => r.Id == transfer.RoomId && r.HasMember(session.ConnectionId)));
         }
     }
 
@@ -617,7 +620,8 @@ public sealed partial class ChatServer
         /// <summary>The id of the transcript line this file announced, kept so every window agrees on it.</summary>
         public required Guid MessageId { get; init; }
 
-        public required string RoomName { get; init; }
+        /// <summary>Which room the file is going round, by identity - so a rename mid-transfer is not fatal.</summary>
+        public required Guid RoomId { get; init; }
 
         public required string FileName { get; init; }
 

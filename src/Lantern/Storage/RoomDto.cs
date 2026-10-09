@@ -12,7 +12,14 @@ namespace Lantern.Storage;
 /// </remarks>
 internal sealed record RoomDto
 {
-    /// <summary>The room's name, as the host typed it.</summary>
+    /// <summary>
+    /// Which room this is, written so that renaming a room on disk stays the same room. Optional on read:
+    /// a file written before rooms had identities is still a room list, and those rooms are given ones when
+    /// they are loaded.
+    /// </summary>
+    public string? Id { get; init; }
+
+    /// <summary>The room's name, as the host typed it. What a person reads, not what identifies it.</summary>
     public required string Name { get; init; }
 }
 

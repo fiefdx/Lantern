@@ -39,7 +39,7 @@ public sealed class MultiClientHostTests
             Assert.Equal(expected, Names(client.Members));
         }
 
-        Assert.Equal(expected, Names(server.FindRoom("Room 1")!.Members));
+        Assert.Equal(expected, Names(server.RoomNamed("Room 1")!.Members));
         Assert.Equal("Room 1", server.RoomOf(host)?.Name);
     }
 
@@ -59,7 +59,7 @@ public sealed class MultiClientHostTests
         // The room is already talking when the third chair is added.
         await using var ines = new ChatClient("Ines");
         await ines.ConnectAsync(server.Endpoint);
-        await ines.JoinRoomAsync("Room 1");
+        await ines.JoinByNameWhenShownAsync("Room 1");
 
         await Watch.UntilAsync(() => cara.Members.Count == 4 && dov.Members.Count == 4 && ines.Members.Count == 4,
             "four chairs in everyone's list");
@@ -130,9 +130,9 @@ public sealed class MultiClientHostTests
         await inTwo.ConnectAsync(server.Endpoint);
         await inThree.ConnectAsync(server.Endpoint);
 
-        await inOne.JoinRoomAsync("Room 1");
-        await inTwo.JoinRoomAsync("Room 2");
-        await inThree.JoinRoomAsync("Room 3");
+        await inOne.JoinByNameWhenShownAsync("Room 1");
+        await inTwo.JoinByNameWhenShownAsync("Room 2");
+        await inThree.JoinByNameWhenShownAsync("Room 3");
 
         await Watch.UntilAsync(
             () => inOne.Members.Count == 2 && inTwo.Members.Count == 1 && inThree.Members.Count == 1,
@@ -239,12 +239,12 @@ public sealed class MultiClientHostTests
             await Task.WhenAll(crowd.Select(async client =>
             {
                 await client.ConnectAsync(server.Endpoint);
-                await client.JoinRoomAsync("Room 1");
+                await client.JoinByNameWhenShownAsync("Room 1");
             }));
 
             await Watch.UntilAsync(() => crowd.All(c => c.Members.Count == 9), "everyone to see nine people");
 
-            Assert.Equal(9, server.FindRoom("Room 1")!.Members.Count);
+            Assert.Equal(9, server.RoomNamed("Room 1")!.Members.Count);
             // The first to arrive and the last see the same crowd.
             Assert.Equal(Names(crowd[0].Members), Names(crowd[7].Members));
         }
@@ -269,7 +269,7 @@ public sealed class MultiClientHostTests
 
         var ines = new ChatClient("Ines");
         await ines.ConnectAsync(server.Endpoint);
-        await ines.JoinRoomAsync("Room 1");
+        await ines.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => cara.Members.Count == 4, "the fourth to arrive");
 
         var caraMessages = WatchMessages(cara);
@@ -282,7 +282,7 @@ public sealed class MultiClientHostTests
 
         Assert.Equal(["Cara", "Dov", "Hosty"], Names(cara.Members));
         Assert.Equal(["Cara", "Dov", "Hosty"], Names(dov.Members));
-        Assert.Equal(3, server.FindRoom("Room 1")!.Members.Count);
+        Assert.Equal(3, server.RoomNamed("Room 1")!.Members.Count);
 
         var notice = (SystemMessage)await caraMessages.ItemAsync(m => m is SystemMessage, "the notice that someone went");
         Assert.Contains("Ines", notice.Body, StringComparison.Ordinal);
@@ -307,7 +307,7 @@ public sealed class MultiClientHostTests
             client => client,
             client => WatchMessages(client));
 
-        Assert.True(server.TryDeleteRoom("Room 1", out _));
+        Assert.True(server.TryDeleteRoom(server.Id("Room 1"), out _));
 
         foreach (var (client, watch) in notices)
         {
@@ -326,7 +326,7 @@ public sealed class MultiClientHostTests
         }
 
         // The room is gone from the chat, not merely emptied: there is nothing to click on any more.
-        Assert.Null(server.FindRoom("Room 1"));
+        Assert.Null(server.RoomNamed("Room 1"));
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public sealed class MultiClientHostTests
 
         await Watch.UntilAsync(() => alex.Members.Count == 3, "both Alexes and the host");
 
-        var crowd = server.FindRoom("Room 1")!.Members;
+        var crowd = server.RoomNamed("Room 1")!.Members;
 
         // Two people who both called themselves Alex, so they are kept apart by who they are connected
         // as rather than by what they are called. A room whose list drops one of them has lost a person.
@@ -378,7 +378,7 @@ public sealed class MultiClientHostTests
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -388,7 +388,7 @@ public sealed class MultiClientHostTests
         foreach (var client in clients)
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync(roomName);
+            await client.JoinByNameWhenShownAsync(roomName);
         }
 
         await Watch.UntilAsync(

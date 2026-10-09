@@ -28,6 +28,16 @@ public abstract partial class ChatForm : Form
     private bool roomsRefreshPending;
 
     /// <summary>
+    /// The room a join is on its way to, while it is on its way. The list is highlighted for this rather than
+    /// for <see cref="CurrentRoom"/> during a switch, because the person has already chosen and a room list
+    /// that arrives in the middle of the join must not put the highlight back where they came from.
+    /// </summary>
+    private Guid? enteringRoomId;
+
+    /// <summary>Which join <see cref="enteringRoomId"/> belongs to, so an older answer that arrives late loses.</summary>
+    private Guid enteringToken;
+
+    /// <summary>
     /// How many times one room list may cause the list to be redrawn. Not a magic number: it is “several more
     /// times than anybody will change the rooms while we are drawing”. Reaching it means something is handing
     /// this window room lists faster than it can draw them, which is the loop this guard exists to stop.
@@ -70,8 +80,8 @@ public abstract partial class ChatForm : Form
     /// <summary>The room this window is in, or <see langword="null"/> when none is selected.</summary>
     protected Room? CurrentRoom { get; private set; }
 
-    /// <summary>Name of the highlighted room in the list, whether or not it has been entered.</summary>
-    protected string? SelectedRoom => lstRooms.SelectedItem as string;
+    /// <summary>The highlighted room in the list, whether or not it has been entered.</summary>
+    protected Room? SelectedRoom => (lstRooms.SelectedItem as RoomRow)?.Room;
 
     // ------------------------------------------------------------- plumbing
 
@@ -241,27 +251,46 @@ public abstract partial class ChatForm : Form
         }
     }
 
-    /// <summary>Draws the current rooms and puts the highlight back where this window really is.</summary>
+    /// <summary>
+    /// Draws the current rooms and puts the highlight on the room this window is in - or on the one it is on
+    /// its way to, while a join is in the air.
+    /// </summary>
+    /// <remarks>
+    /// Every decision in here is made on <see cref="Room.Id"/>. The name would have done the same for a
+    /// window on its own, and nothing else: a rename hands out a new <see cref="Room"/> for the same room,
+    /// and a window that had been remembering names was left holding a room nobody could find again - which
+    /// is what a rename used to do to everybody standing in one, transcript included.
+    /// </remarks>
     private void RepaintRooms()
     {
-        // Read before the list is emptied, because emptying it drops the selection.
-        var anchor = CurrentRoom?.Name ?? SelectedRoom;
+        var listed = Service.Rooms.ToArray();
+
+        // Follow the room across its own rename. Holding the old object would mean a transcript that nothing
+        // else in the program writes to any more, and a window that stops changing after it has been renamed.
+        if (CurrentRoom is { } standing && listed.FirstOrDefault(r => r.Id == standing.Id) is { } stillThere && !ReferenceEquals(stillThere, standing))
+        {
+            CurrentRoom = stillThere;
+        }
+
+        var wanted = enteringRoomId ?? CurrentRoom?.Id;
 
         lstRooms.BeginUpdate();
         lstRooms.Items.Clear();
-        foreach (var room in Service.Rooms)
+
+        foreach (var room in listed)
         {
-            lstRooms.Items.Add(room.Name);
+            lstRooms.Items.Add(new RoomRow(room));
         }
 
         lstRooms.EndUpdate();
 
-        var index = anchor is null ? -1 : lstRooms.Items.IndexOf(anchor);
+        var index = wanted is null ? -1 : RowOf(wanted.Value);
+
         if (index >= 0)
         {
             lstRooms.SelectedIndex = index;
         }
-        else if (CurrentRoom is not null)
+        else if (CurrentRoom is not null && !listed.Any(r => r.Id == CurrentRoom.Id))
         {
             // The room we were in disappeared (the host deleted it). Only that counts: a room this window
             // was never in going away is somebody else's news.
@@ -269,30 +298,56 @@ public abstract partial class ChatForm : Form
         }
     }
 
+    /// <summary>
+    /// Which row shows a room, by identity. The name is not consulted: while a rename is arriving two rows can
+    /// carry the same name, and only one of them is the room.
+    /// </summary>
+    private int RowOf(Guid roomId)
+    {
+        for (var i = 0; i < lstRooms.Items.Count; i++)
+        {
+            if (lstRooms.Items[i] is RoomRow row && row.Room.Id == roomId)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// One row of the room list. It holds the room rather than its name because everything done to a room -
+    /// entered, renamed, deleted - has to be done to <em>that</em> room, and a name is the one thing about a
+    /// room that is not stable. The name is still what the row says out loud.
+    /// </summary>
+    protected sealed record RoomRow(Room Room)
+    {
+        public override string ToString() => Room.Name;
+    }
+
     private void LstRooms_SelectedIndexChanged(object? sender, EventArgs e)
     {
-        if (!syncing && lstRooms.SelectedItem is string name && name != CurrentRoom?.Name)
+        if (!syncing && lstRooms.SelectedItem is RoomRow row && row.Room.Id != CurrentRoom?.Id)
         {
-            _ = EnterRoomAsync(name);
+            _ = EnterRoomAsync(row.Room);
         }
     }
 
     /// <summary>
-    /// Points the list at the room this window is in, or at nothing when it is in no room.
+    /// Points the list at a room by identity - at the one this window is in, or at nothing when it is in none.
     /// </summary>
     /// <remarks>
     /// Used when an attempt to enter a room did not end with this window in it. Left as it was, the highlight
     /// would go on naming a room the window is not in, and the next room list would treat that highlight as an
     /// order and try the same door again - quietly, forever, in the company of nothing else changing.
     /// </remarks>
-    private void HighlightWhereIAm()
+    private void Highlight(Guid? roomId)
     {
         var wasSyncing = syncing;
         syncing = true;
         try
         {
-            var name = CurrentRoom?.Name;
-            lstRooms.SelectedIndex = name is null ? -1 : lstRooms.Items.IndexOf(name);
+            lstRooms.SelectedIndex = roomId is null ? -1 : RowOf(roomId.Value);
         }
         finally
         {
@@ -300,34 +355,72 @@ public abstract partial class ChatForm : Form
         }
     }
 
-    private async Task EnterRoomAsync(string name)
+    /// <summary>This window is no longer on its way anywhere, and the list shows where it actually is.</summary>
+    private void StopEntering()
     {
-        await RunAsync(async () =>
+        enteringRoomId = null;
+        Highlight(CurrentRoom?.Id);
+    }
+
+    private async Task EnterRoomAsync(Room room)
+    {
+        // Two clicks, two answers, and the link does not promise which comes back first. Whichever click is
+        // newer is the one this window obeys; the older answer is dropped rather than allowed to move the
+        // window into a room somebody stopped asking for.
+        var token = Guid.NewGuid();
+        enteringToken = token;
+        enteringRoomId = room.Id;
+
+        try
         {
-            try
+            await RunAsync(async () =>
             {
-                await Service.JoinRoomAsync(name);
-            }
-            catch (Exception)
-            {
-                // The room said no. Say it back in the bar below - but first take the highlight off the
-                // door, because a highlight is a promise this window keeps trying to keep.
-                HighlightWhereIAm();
-                throw;
-            }
+                try
+                {
+                    await Service.JoinRoomAsync(room.Id);
+                }
+                catch (Exception)
+                {
+                    // The room said no. Say it back in the bar below - but first take the highlight off the
+                    // door, because a highlight is a promise this window keeps trying to keep.
+                    if (enteringToken == token)
+                    {
+                        StopEntering();
+                    }
 
-            CurrentRoom = Service.Rooms.FirstOrDefault(r => r.Name == name);
-            if (CurrentRoom is null)
-            {
-                HighlightWhereIAm();
-                SetStatus($"failed: no room \"{name}\"");
-                return;
-            }
+                    throw;
+                }
 
-            ShowMembers();
-            ShowTranscript();
-            SetStatus($"in room \"{name}\"");
-        });
+                if (enteringToken != token)
+                {
+                    return;
+                }
+
+                CurrentRoom = Service.Rooms.FirstOrDefault(r => r.Id == room.Id);
+
+                if (CurrentRoom is null)
+                {
+                    StopEntering();
+                    SetStatus($"failed: no room \"{room.Name}\"");
+                    return;
+                }
+
+                ShowMembers();
+                ShowTranscript();
+
+                // The list follows the window, not the other way about: a room list that arrived while this
+                // join was in the air was drawn from a state that did not yet know where the window was going.
+                Highlight(CurrentRoom.Id);
+                SetStatus($"in room \"{room.Name}\"");
+            });
+        }
+        finally
+        {
+            if (enteringToken == token)
+            {
+                StopEntering();
+            }
+        }
     }
 
     /// <summary>Redraws the transcript from the current room's own history (F6).</summary>

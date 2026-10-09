@@ -47,11 +47,11 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
 
         await Watch.UntilAsync(() => client.Members.Count == 2, "the client to see both members");
 
-        Assert.Equal(2, server.FindRoom("Room 1")!.Members.Count);
+        Assert.Equal(2, server.RoomNamed("Room 1")!.Members.Count);
         Assert.Equal(["Cara", "Hosty"], client.Members.Select(u => u.Nickname).OrderBy(n => n, StringComparer.Ordinal));
         Assert.Equal("Room 1", client.CurrentRoomName);
         Assert.NotNull(server.RoomOf(local));
@@ -67,7 +67,7 @@ public sealed class ChatEngineLoopbackTests
         await using (var client = new ChatClient("Cara"))
         {
             await client.ConnectAsync(server.Endpoint);
-            await client.JoinRoomAsync("Room 1");
+            await client.JoinByNameWhenShownAsync("Room 1");
 
             var join = await frames.ItemAsync(
                 f => f.Type == FrameType.SYSTEM_NOTICE && f.Header.Text!.Contains("join"),
@@ -84,8 +84,8 @@ public sealed class ChatEngineLoopbackTests
 
         await Watch.UntilAsync(RoomHasOnlyTheHost, "the member list to shrink");
 
-        bool RoomHasOnlyTheHost() => server.FindRoom("Room 1")!.Members.Count == 1;
-        Assert.Equal(["Hosty"], server.FindRoom("Room 1")!.Members.Select(u => u.Nickname));
+        bool RoomHasOnlyTheHost() => server.RoomNamed("Room 1")!.Members.Count == 1;
+        Assert.Equal(["Hosty"], server.RoomNamed("Room 1")!.Members.Select(u => u.Nickname));
     }
 
     [Fact]
@@ -96,14 +96,14 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
-        await Watch.UntilAsync(() => server.FindRoom("Room 1")!.Members.Count == 2, "the join");
+        await client.JoinByNameWhenShownAsync("Room 1");
+        await Watch.UntilAsync(() => server.RoomNamed("Room 1")!.Members.Count == 2, "the join");
 
-        await client.JoinRoomAsync("Room 2");
+        await client.JoinByNameWhenShownAsync("Room 2");
 
-        await Watch.UntilAsync(() => server.FindRoom("Room 1")!.Members.Count == 1, "Room 1 to be emptied");
-        Assert.Equal(["Hosty"], server.FindRoom("Room 1")!.Members.Select(u => u.Nickname));
-        Assert.Equal(["Cara"], server.FindRoom("Room 2")!.Members.Select(u => u.Nickname));
+        await Watch.UntilAsync(() => server.RoomNamed("Room 1")!.Members.Count == 1, "Room 1 to be emptied");
+        Assert.Equal(["Hosty"], server.RoomNamed("Room 1")!.Members.Select(u => u.Nickname));
+        Assert.Equal(["Cara"], server.RoomNamed("Room 2")!.Members.Select(u => u.Nickname));
     }
 
     [Fact]
@@ -114,10 +114,10 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => client.Members.Count == 2, "the client to see the room it joined");
 
-        await client.JoinRoomAsync(null);
+        await client.JoinByNameAsync(null);
 
         // The host's room shrinks first; the frame telling the client is still in flight, so wait for
         // the client's own view instead of asserting on state that has not arrived yet.
@@ -140,7 +140,7 @@ public sealed class ChatEngineLoopbackTests
         await using var client = new ChatClient("Cara");
         var clientMessages = WatchMessages(client);
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
 
         await client.SendAsync(new TextMessage("Cara", "Room 1", "hello from the client"));
@@ -173,10 +173,10 @@ public sealed class ChatEngineLoopbackTests
 
         await inRoomOne.ConnectAsync(server.Endpoint);
         await inRoomTwo.ConnectAsync(server.Endpoint);
-        await inRoomOne.JoinRoomAsync("Room 1");
-        await inRoomTwo.JoinRoomAsync("Room 2");
+        await inRoomOne.JoinByNameWhenShownAsync("Room 1");
+        await inRoomTwo.JoinByNameWhenShownAsync("Room 2");
         await Watch.UntilAsync(
-            () => server.FindRoom("Room 2")!.Members.Count == 2 && server.FindRoom("Room 1")!.Members.Count == 1,
+            () => server.RoomNamed("Room 2")!.Members.Count == 2 && server.RoomNamed("Room 1")!.Members.Count == 1,
             "both joins");
 
         await inRoomTwo.SendAsync(new TextMessage("Two", "Room 2", "only Room 2 should hear this"));
@@ -199,7 +199,7 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => client.Members.Count == 2, "the join");
 
         for (var i = 0; i < 50; i++)
@@ -223,8 +223,8 @@ public sealed class ChatEngineLoopbackTests
         await client.ConnectAsync(server.Endpoint);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateRoomAsync("Sneaky"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.RenameRoomAsync("Room 1", "Sneaky"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.DeleteRoomAsync("Room 1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.RenameByNameAsync("Room 1", "Sneaky"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.DeleteByNameAsync("Room 1"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.StartAsync());
 
         Assert.DoesNotContain("Sneaky", server.Rooms.Select(r => r.Name));
@@ -239,7 +239,7 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => client.Members.Count == 2, "the honest client to be in the room");
 
         // Refused on this side before anything is written, so the window can say why (F10).
@@ -248,8 +248,8 @@ public sealed class ChatEngineLoopbackTests
         // The same refusal arrives when a peer ignores the rule and puts it on the wire anyway.
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.JoinRoom("Room 1"));
-        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), "Room 1", "Mallory", new string('y', ValidationRules.MessageMaxLength + 1), DateTime.Now));
+        await SendRawAsync(raw, Frame.JoinRoom(server.Id("Room 1")));
+        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", new string('y', ValidationRules.MessageMaxLength + 1), DateTime.Now));
 
         var refusal = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("characters", refusal.Header.Error);
@@ -266,7 +266,7 @@ public sealed class ChatEngineLoopbackTests
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
 
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), "Room 1", "Mallory", "anyone there?", DateTime.Now));
+        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Mallory", "anyone there?", DateTime.Now));
 
         var error = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("room", error.Header.Error!, StringComparison.OrdinalIgnoreCase);
@@ -281,10 +281,13 @@ public sealed class ChatEngineLoopbackTests
         await client.ConnectAsync(server.Endpoint);
         client.ServerError += (_, text) => problems.Add(text);
 
-        await client.JoinRoomAsync("Nowhere");
+        // A room that does not exist is an identity that is not on the list, which is what a window asking
+        // for a row it never had amounts to now. The host answers in words, and re-sends the list so that the
+        // window cannot go on showing a room it is not in.
+        await client.JoinRoomAsync(Guid.NewGuid());
 
-        var problem = await problems.ItemAsync(t => t.Contains("Nowhere"), "the refusal");
-        Assert.Contains("No room", problem);
+        var problem = await problems.ItemAsync(t => t.Contains("room"), "the refusal");
+        Assert.Contains("not here any more", problem);
         Assert.Null(client.CurrentRoomName);
 
         // The client's list is re-sent so the window cannot stay showing a room that isn't there.
@@ -308,7 +311,7 @@ public sealed class ChatEngineLoopbackTests
         await using var server = await StartAsync();
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
 
         // A file is a transfer, not a message: a FileMessage says a file is coming and has no way to send
         // it, so this is a mistake about what a message is.
@@ -317,7 +320,7 @@ public sealed class ChatEngineLoopbackTests
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await SendRawAsync(raw, Frame.RoomList(["Room 1"]));
+        await SendRawAsync(raw, Frame.RoomList([new Room("Room 1")]));
 
         var error = await ReadRawAsync(raw, FrameType.ERROR);
         Assert.Contains("ROOM_LIST", error.Header.Error);
@@ -332,8 +335,8 @@ public sealed class ChatEngineLoopbackTests
 
         using var raw = await new BtLoopbackClient().ConnectAsync(server.Endpoint);
         await SendRawAsync(raw, Frame.Hello("Mallory"));
-        await JoinRawAsync(raw, "Room 1");
-        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), "Room 1", "Someone Else", "I am not me", DateTime.Now));
+        await JoinRawAsync(raw, server.RoomOrThrow("Room 1"));
+        await SendRawAsync(raw, Frame.Text(Guid.NewGuid(), server.RoomOrThrow("Room 1"), "Someone Else", "I am not me", DateTime.Now));
 
         var arrived = await hostFrames.ItemAsync(f => f.Type == FrameType.TEXT, "the text frame");
 
@@ -371,16 +374,95 @@ public sealed class ChatEngineLoopbackTests
         Assert.Null(created);
         await Watch.UntilAsync(() => client.Rooms.Any(r => r.Name == "Lobby"), "the new room to arrive");
 
-        Assert.True(server.TryRenameRoom("Lobby", "Lounge", out var renamed));
+        Assert.True(server.TryRenameRoom(server.Id("Lobby"), "Lounge", out var renamed));
         Assert.Null(renamed);
         await Watch.UntilAsync(() => client.Rooms.Any(r => r.Name == "Lounge"), "the rename to arrive");
 
-        Assert.True(server.TryDeleteRoom("Room 3", out var deleted));
+        Assert.True(server.TryDeleteRoom(server.Id("Room 3"), out var deleted));
         Assert.Null(deleted);
         await Watch.UntilAsync(() => !client.Rooms.Any(r => r.Name == "Room 3"), "the deletion to arrive");
 
         Assert.Equal(["Room 1", "Room 2", "Lounge"], client.Rooms.Select(r => r.Name));
         Assert.NotEmpty(roomChanges.Items);
+    }
+
+    /// <summary>
+    /// Renaming a room changes what it is called and nothing else. The people inside stay inside; the room each
+    /// of them is looking at stays the room they are standing in; and the next thing anybody says still lands
+    /// where they were already standing.
+    /// <para>
+    /// Rooms used to be found by name, on both machines at once, so a rename moved the room out from under
+    /// everybody in it: their windows kept showing the transcript they had been reading, while the engine had a
+    /// different object with a different name and nobody's membership. This is the test that says that room is
+    /// still the room.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ARenamedRoomKeepsThePeopleWhoWereInIt()
+    {
+        await using var server = await StartAsync();
+        await using var cara = new ChatClient("Cara");
+        await using var dov = new ChatClient("Dov");
+
+        await cara.ConnectAsync(server.Endpoint);
+        await cara.JoinByNameWhenShownAsync("Room 2");
+        await dov.ConnectAsync(server.Endpoint);
+        await dov.JoinByNameWhenShownAsync("Room 2");
+
+        var roomId = server.Id("Room 2");
+        Assert.Equal("Room 2", cara.CurrentRoomName);
+
+        Assert.True(server.TryRenameRoom(roomId, "Quiet Corner", out var error));
+        Assert.Null(error);
+
+        // Both windows are still in a room, and it is the renamed one - not in nothing, and not in the room
+        // whose old name they happen to still be holding.
+        await Watch.UntilAsync(
+            () => cara.CurrentRoomName == "Quiet Corner" && dov.CurrentRoomName == "Quiet Corner",
+            "both windows to follow the rename");
+
+        Assert.Equal(roomId, cara.CurrentRoomId);
+        Assert.Contains("Cara", server.RoomNamed("Quiet Corner")!.Members.Select(u => u.Nickname));
+        Assert.Contains("Dov", server.RoomNamed("Quiet Corner")!.Members.Select(u => u.Nickname));
+
+        // And the room is still reachable by the people standing in it, which is what a room is for.
+        var heard = WatchMessages(dov);
+        await cara.SendAsync(new TextMessage("Cara", "Quiet Corner", "still here"));
+        await heard.ItemAsync(
+            m => m is TextMessage text && text.Body == "still here",
+            "the message to reach the renamed room");
+    }
+
+    /// <summary>
+    /// The name a message carries is content, not an address: it says what the room was called when the line
+    /// was written. Rewriting the room's name must not rewrite history, and must not make the line undeliverable
+    /// either - which is why the routing above goes by identity and the text keeps saying the old name.
+    /// </summary>
+    [Fact]
+    public async Task ALinesRoomNameIsHistoryRatherThanAnAddress()
+    {
+        await using var server = await StartAsync();
+        await using var cara = new ChatClient("Cara");
+        await using var dov = new ChatClient("Dov");
+
+        await cara.ConnectAsync(server.Endpoint);
+        await cara.JoinByNameWhenShownAsync("Room 2");
+        await dov.ConnectAsync(server.Endpoint);
+        await dov.JoinByNameWhenShownAsync("Room 2");
+
+        var heard = WatchMessages(dov);
+        await cara.SendAsync(new TextMessage("Cara", "Room 2", "before the rename"));
+        var line = await heard.ItemAsync(m => m is TextMessage text && text.Body == "before the rename", "the message");
+
+        Assert.Equal("Room 2", line.RoomName);
+
+        Assert.True(server.TryRenameRoom(server.Id("Room 2"), "Quiet Corner", out _));
+        await Watch.UntilAsync(() => dov.CurrentRoomName == "Quiet Corner", "the window to follow the rename");
+
+        // The line the window already has still says where it was written. That is a fact about the past and
+        // not an address: rewriting it would rewrite what somebody read, and the room it names no longer
+        // answers to that name - which is exactly why nothing routes by it any more.
+        Assert.Equal("Room 2", line.RoomName);
     }
 
     [Fact]
@@ -405,10 +487,10 @@ public sealed class ChatEngineLoopbackTests
         await using var client = new ChatClient("Cara");
         var messages = WatchMessages(client);
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 2");
-        await Watch.UntilAsync(() => server.FindRoom("Room 2")!.Members.Count == 1, "the join");
+        await client.JoinByNameWhenShownAsync("Room 2");
+        await Watch.UntilAsync(() => server.RoomNamed("Room 2")!.Members.Count == 1, "the join");
 
-        Assert.True(server.TryDeleteRoom("Room 2", out _));
+        Assert.True(server.TryDeleteRoom(server.Id("Room 2"), out _));
 
         var notice = (SystemMessage)await messages.ItemAsync(
             m => m is SystemMessage s && s.Body.Contains("closed by the host"),
@@ -427,15 +509,15 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 2");
-        await Watch.UntilAsync(() => server.FindRoom("Room 2")!.Members.Count == 2, "both members");
+        await client.JoinByNameWhenShownAsync("Room 2");
+        await Watch.UntilAsync(() => server.RoomNamed("Room 2")!.Members.Count == 2, "both members");
 
-        Assert.True(server.TryRenameRoom("Room 2", "Quiet Corner", out _));
+        Assert.True(server.TryRenameRoom(server.Id("Room 2"), "Quiet Corner", out _));
 
-        var renamed = server.FindRoom("Quiet Corner");
+        var renamed = server.RoomNamed("Quiet Corner");
         Assert.NotNull(renamed);
         Assert.Equal(2, renamed.Members.Count);
-        Assert.Null(server.FindRoom("Room 2"));
+        Assert.Null(server.RoomNamed("Room 2"));
     }
 
     // ----------------------------------------------------- connection loss (6)
@@ -447,7 +529,7 @@ public sealed class ChatEngineLoopbackTests
         await using var client = new ChatClient("Cara");
         var lost = new Watch<Exception>();
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         client.ConnectionLost += (_, reason) => lost.Add(reason);
 
         await server.StopAsync();
@@ -471,8 +553,8 @@ public sealed class ChatEngineLoopbackTests
 
         var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
-        await Watch.UntilAsync(() => server.FindRoom("Room 1")!.Members.Count == 2, "the join");
+        await client.JoinByNameWhenShownAsync("Room 1");
+        await Watch.UntilAsync(() => server.RoomNamed("Room 1")!.Members.Count == 2, "the join");
 
         // Abrupt on purpose: there is no goodbye frame, the host learns from the socket closing.
         await client.DisposeAsync();
@@ -480,7 +562,7 @@ public sealed class ChatEngineLoopbackTests
         var leave = await hostFrames.ItemAsync(f => f.Type == FrameType.SYSTEM_NOTICE && f.Header.Text!.Contains("left"), "the leave notice");
         Assert.Contains("Cara", leave.Header.Text);
         await Watch.UntilAsync(() => server.ConnectedCount == 1, "the session to be dropped");
-        Assert.Equal(["Hosty"], server.FindRoom("Room 1")!.Members.Select(u => u.Nickname));
+        Assert.Equal(["Hosty"], server.RoomNamed("Room 1")!.Members.Select(u => u.Nickname));
     }
 
     [Fact]
@@ -513,7 +595,7 @@ public sealed class ChatEngineLoopbackTests
 
         await using var client = new ChatClient("Cara");
         await client.ConnectAsync(server.Endpoint);
-        await client.JoinRoomAsync("Room 1");
+        await client.JoinByNameWhenShownAsync("Room 1");
         await Watch.UntilAsync(() => client.Members.Count == 2, "both members in the list");
 
         var heard = new Watch<string>();
@@ -554,7 +636,7 @@ public sealed class ChatEngineLoopbackTests
     {
         var local = new LocalParticipant("Hosty");
         Assert.True(server.Register(local));
-        server.Join(local, roomName);
+        server.JoinByName(local, roomName);
         await Task.CompletedTask;
         return local;
     }
@@ -612,6 +694,6 @@ public sealed class ChatEngineLoopbackTests
         }
     }
 
-    private static Task JoinRawAsync(IClientLink link, string roomName)
-        => SendRawAsync(link, Frame.JoinRoom(roomName));
+    private static Task JoinRawAsync(IClientLink link, Room room)
+        => SendRawAsync(link, Frame.JoinRoom(room.Id));
 }

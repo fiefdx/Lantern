@@ -9,7 +9,7 @@ public sealed class FileTransferJob
     private long bytesDone;
     private readonly TaskCompletionSource<bool> finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public FileTransferJob(string fileName, long sizeBytes, Guid? id = null, string? senderNickname = null, string? roomName = null, Guid? messageId = null)
+    public FileTransferJob(string fileName, long sizeBytes, Guid? id = null, string? senderNickname = null, string? roomName = null, Guid? messageId = null, Guid roomId = default)
     {
         FileName = Path.GetFileName(string.IsNullOrWhiteSpace(fileName)
             ? throw new ArgumentException("File name is required.", nameof(fileName))
@@ -29,6 +29,7 @@ public sealed class FileTransferJob
         MessageId = messageId ?? Guid.NewGuid();
         SenderNickname = senderNickname ?? string.Empty;
         RoomName = roomName ?? string.Empty;
+        RoomId = roomId;
         Cancel = new CancellationTokenSource();
     }
 
@@ -45,6 +46,13 @@ public sealed class FileTransferJob
     public string SenderNickname { get; }
 
     public string RoomName { get; }
+
+    /// <summary>
+    /// Which room this file is being sent to, by identity - which is what the wire has to say, because the
+    /// name only says what the room is called at the moment. Zero when the job describes a file arriving from
+    /// elsewhere, where the room it belongs to is whatever this side is standing in.
+    /// </summary>
+    public Guid RoomId { get; }
 
     /// <summary>Set by the owner so progress can be marshaled to the UI thread.</summary>
     public IProgress<double>? Progress { get; set; }

@@ -1,4 +1,5 @@
 using Lantern.Core;
+using Lantern.Domain;
 using Lantern.Transport;
 using Xunit;
 
@@ -58,7 +59,7 @@ public class LoopbackTransportTests
         // And a frame with a binary body, since that is what stresses a real stream.
         var body = new byte[40_000];
         new Random(5).NextBytes(body);
-        await FrameCodec.WriteAsync(clientLink.Output, Frame.Picture(Guid.NewGuid(), "Room 1", "Haitao", "a.png", body, DateTime.Now));
+        await FrameCodec.WriteAsync(clientLink.Output, Frame.Picture(Guid.NewGuid(), new Room("Room 1"), "Haitao", "a.png", body, DateTime.Now));
 
         var picture = await FrameCodec.ReadAsync(serverLink.Input);
 
@@ -81,7 +82,7 @@ public class LoopbackTransportTests
         // interleave their bytes, which is what a session's write queue is for (T2.4).
         for (var i = 0; i < 50; i++)
         {
-            await FrameCodec.WriteAsync(clientLink!.Output, Frame.Text(Guid.NewGuid(), "Room 1", "Haitao", $"m{i}", DateTime.Now));
+            await FrameCodec.WriteAsync(clientLink!.Output, Frame.Text(Guid.NewGuid(), new Room("Room 1"), "Haitao", $"m{i}", DateTime.Now));
         }
 
         var read = new List<string?>();

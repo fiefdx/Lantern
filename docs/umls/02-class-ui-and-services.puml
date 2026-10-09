@@ -59,8 +59,11 @@ interface IChatService <<interface>> {
   + StartAsync() : Task
   + ConnectAsync(e : ServerEndpoint) : Task
   + CreateRoomAsync(name : string) : Task
-  + DeleteRoomAsync(name : string) : Task
-  + JoinRoomAsync(name : string) : Task
+  ' a room is acted on by its identity: the name is what it is called,
+  ' and the host may be changing that (v1.0.2, docs/notes/room-identity.md)
+  + DeleteRoomAsync(roomId : Guid) : Task
+  + RenameRoomAsync(roomId : Guid, newName : string) : Task
+  + JoinRoomAsync(roomId : Guid?) : Task
   + SendAsync(m : Message) : Task
   + SendFileAsync(path : string) : Task
   + SaveReceivedFileAsync(job, path) : Task
@@ -90,9 +93,9 @@ package "Application core" {
 
   class ChatClient <<service>> {
     - link : IClientLink
-    - currentRoom : string
+    - currentRoomId : Guid?
     + ConnectAsync(e) : Task
-    + JoinRoomAsync(name) : Task
+    + JoinRoomAsync(roomId : Guid?) : Task
     + SendAsync(m) : Task
     + SendFileAsync(path) : Task
     + CreateRoomAsync(name) : Task

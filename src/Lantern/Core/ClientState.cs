@@ -20,10 +20,17 @@ namespace Lantern.Core;
 internal sealed class ClientState
 {
     private readonly object gate = new();
-    private readonly Dictionary<string, Room> roomsByName = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Every room this side knows, by identity. There is no lookup by name on purpose: the name is what the
+    /// host may change at any moment, so a room found by name is a room that can be silently the wrong one -
+    /// or two rooms, which is what used to happen on a rename.
+    /// </summary>
+    private readonly Dictionary<Guid, Room> roomsById = [];
+
     private readonly List<Room> rooms = [];
     private readonly List<User> members = [];
-    private string? currentRoomName;
+    private Guid? currentRoomId;
 
     /// <summary>Raised after the room list changes. The window re-reads <see cref="Rooms"/>.</summary>
     public event EventHandler? RoomsChanged;
@@ -55,29 +62,35 @@ internal sealed class ClientState
         }
     }
 
-    /// <summary>The room this side believes it is in, or null.</summary>
-    public string? CurrentRoomName
+    /// <summary>
+    /// Which room this side believes it is in, by identity. This is the thing to compare with; the name of
+    /// the current room is <see cref="CurrentRoomName"/>, and that is for showing to a person.
+    /// </summary>
+    public Guid? CurrentRoomId
     {
         get
         {
             lock (gate)
             {
-                return currentRoomName;
+                return currentRoomId;
             }
         }
     }
 
-    /// <summary>The room object for a name, if it is known.</summary>
-    public Room? FindRoom(string? name)
+    /// <summary>What the room this side is in is called right now, or null when it is in none.</summary>
+    public string? CurrentRoomName => FindRoom(CurrentRoomId)?.Name;
+
+    /// <summary>The room with this identity, if it is known.</summary>
+    public Room? FindRoom(Guid? id)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        if (id is null)
         {
             return null;
         }
 
         lock (gate)
         {
-            return roomsByName.GetValueOrDefault(name);
+            return roomsById.GetValueOrDefault(id.Value);
         }
     }
 
@@ -99,7 +112,7 @@ internal sealed class ClientState
                 return null;
 
             case FrameType.MEMBER_LIST:
-                ApplyMemberList(frame.Header.Room, frame.Header.Members);
+                ApplyMemberList(frame.Header.RoomId, frame.Header.Members);
                 return null;
 
             case FrameType.TEXT:
@@ -110,7 +123,9 @@ internal sealed class ClientState
 
                 if (message is not null)
                 {
-                    Record(message);
+                    // The frame says which room it belongs to by identity. Routing it by the name in it would
+                    // put a line sent just before a rename into a room invented from the old name.
+                    Record(message, frame.Header.RoomId ?? default);
                 }
 
                 return message;
@@ -121,44 +136,55 @@ internal sealed class ClientState
     }
 
     /// <summary>
-    /// Records something this side said. The server does not echo a message back to its author, so
-    /// without this, re-entering a room would replay everyone else's lines and lose your own.
+    /// Records something this side said, into the room it was said in. The server does not echo a message
+    /// back to its author, so without this, re-entering a room would replay everyone else's lines and lose
+    /// your own.
     /// </summary>
-    public void Record(Message message)
+    public void Keep(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        if (string.IsNullOrWhiteSpace(message.RoomName))
+        Record(message, CurrentRoomId ?? throw new InvalidOperationException("You are not in a room."));
+    }
+
+    /// <summary>
+    /// Puts a line into the room the frame named. An unknown identity is still kept: the next ROOM_LIST
+    /// decides whether that room is shown, and a message that arrived is evidence a room exists even if the
+    /// list is one frame behind.
+    /// </summary>
+    public void Record(Message message, Guid roomId)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (roomId == Guid.Empty)
         {
+            // A frame with nothing in either room field. Nothing to file it under, and inventing a room from
+            // a name is how one room became two.
             return;
         }
 
         lock (gate)
         {
-            if (!roomsByName.TryGetValue(message.RoomName, out var room))
+            if (!roomsById.TryGetValue(roomId, out var room))
             {
-                // Traffic about a room we have not been told about yet. Keep it: the next ROOM_LIST
-                // decides whether the room is shown, and a message that arrived is evidence the room
-                // exists even if the list is one frame behind.
-                room = new Room(message.RoomName);
-                roomsByName[message.RoomName] = room;
+                roomsById[roomId] = room = new Room(roomId, message.RoomName);
             }
 
-            room.Append(message);
+            // Adopt, not Append: the name this line quotes may be one the room stopped answering to while
+            // the line was in the air.
+            room.Adopt(message);
         }
     }
 
     /// <summary>
-    /// Sets the current room as soon as the request to join leaves, so the window does not wait for
-    /// the round trip to enable itself. Every reply corrects it if the host refused.
+    /// Sets the current room as soon as the request to join leaves, so the window does not wait for the round
+    /// trip to enable itself. Every reply corrects it if the host refused.
     /// </summary>
-    public void ExpectRoom(string? name)
+    public void ExpectRoom(Guid? roomId)
     {
-        var wanted = ValidationRules.Normalize(name);
-
         lock (gate)
         {
-            currentRoomName = wanted.Length == 0 ? null : wanted;
+            currentRoomId = roomId == Guid.Empty ? null : roomId;
         }
     }
 
@@ -168,15 +194,15 @@ internal sealed class ClientState
         lock (gate)
         {
             members.Clear();
-            currentRoomName = null;
+            currentRoomId = null;
         }
 
         Dispatch.Safe(() => MembersChanged?.Invoke(this, EventArgs.Empty));
     }
 
-    private void ApplyRoomList(IReadOnlyList<string>? names)
+    private void ApplyRoomList(IReadOnlyList<FrameRoom>? listed)
     {
-        if (names is null)
+        if (listed is null)
         {
             return;
         }
@@ -185,30 +211,38 @@ internal sealed class ClientState
         {
             rooms.Clear();
 
-            foreach (var name in names)
+            foreach (var entry in listed)
             {
-                // Rooms survive a trip through the list by name, so a room's transcript is not thrown
-                // away every time the host re-sends the list.
-                if (!roomsByName.TryGetValue(name, out var room))
+                if (roomsById.TryGetValue(entry.Id, out var known))
                 {
-                    room = new Room(name);
-                    roomsByName[name] = room;
+                    // The same room, possibly called something else now. Renamed in place - same identity,
+                    // same transcript - because dropping it and making a new one is what used to throw away
+                    // the history of a room the host had merely renamed.
+                    var room = string.Equals(known.Name, entry.Name, StringComparison.Ordinal)
+                        ? known
+                        : known.RenamedTo(entry.Name);
+
+                    roomsById[entry.Id] = room;
+                    rooms.Add(room);
+                    continue;
                 }
 
-                rooms.Add(room);
+                var fresh = new Room(entry.Id, entry.Name);
+                roomsById[entry.Id] = fresh;
+                rooms.Add(fresh);
             }
 
-            if (currentRoomName is not null && !roomsByName.ContainsKey(currentRoomName))
+            if (currentRoomId is not null && !roomsById.ContainsKey(currentRoomId.Value))
             {
                 // The host closed the room this side was standing in.
-                currentRoomName = null;
+                currentRoomId = null;
             }
         }
 
         Dispatch.Safe(() => RoomsChanged?.Invoke(this, EventArgs.Empty));
     }
 
-    private void ApplyMemberList(string? roomName, IReadOnlyList<FrameMember>? incoming)
+    private void ApplyMemberList(Guid? roomId, IReadOnlyList<FrameMember>? incoming)
     {
         lock (gate)
         {
@@ -220,9 +254,9 @@ internal sealed class ClientState
             }
 
             // The list is authoritative about which room it describes, including the empty list that
-            // says "nobody is anywhere": without the else, a list for the room just left — still in
-            // flight when the leave was sent — would put this side back inside it.
-            currentRoomName = string.IsNullOrWhiteSpace(roomName) ? null : roomName;
+            // says "nobody is anywhere": without the assignment, a list for the room just left - still in
+            // flight when the leave was sent - would put this side back inside it.
+            currentRoomId = roomId;
         }
 
         // Raised outside the lock, and wrapped: the window showing this state is the thing most likely

@@ -13,7 +13,16 @@ namespace Lantern.Tests;
 /// </summary>
 public class FrameCodecTests
 {
-    private static Frame Sample => Frame.Text(Guid.NewGuid(), "Room 1", "Haitao", "hi", new DateTime(2026, 1, 2, 3, 4, 5));
+    /// <summary>
+    /// The room every frame in here is about. The codec has no idea what a room is and that is part of the
+    /// point: an identity and a name go in, and the same identity and name come out, however the bytes were
+    /// split on the way.
+    /// </summary>
+    private static readonly Guid WireRoomId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+
+    private static Room WireRoom(string name = "Room 1") => new(WireRoomId, name);
+
+    private static Frame Sample => Frame.Text(Guid.NewGuid(), WireRoom(), "Haitao", "hi", new DateTime(2026, 1, 2, 3, 4, 5));
 
     // ------------------------------------------------------------- round trip
 
@@ -28,15 +37,15 @@ public class FrameCodecTests
         {
             Frame.Hello("Haitao"),
             Frame.HelloAck("Haitao"),
-            Frame.RoomList(["Room 1", "Room 2"]),
-            Frame.JoinRoom("Room 1"),
-            Frame.Text(id, "Room 1", "Haitao", "hi", at),
-            Frame.Picture(id, "Room 1", "Haitao", "a.png", [1, 2, 3, 4], at),
-            Frame.FileMeta(id, transfer, "Room 1", "Haitao", "notes.txt", 4096),
+            Frame.RoomList([WireRoom("Room 1"), WireRoom("Room 2")]),
+            Frame.JoinRoom(WireRoomId),
+            Frame.Text(id, WireRoom("Room 1"), "Haitao", "hi", at),
+            Frame.Picture(id, WireRoom("Room 1"), "Haitao", "a.png", [1, 2, 3, 4], at),
+            Frame.FileMeta(id, transfer, WireRoomId, "Room 1", "Haitao", "notes.txt", 4096),
             Frame.FileChunk(transfer, 7, [9, 8, 7]),
             Frame.FileDone(transfer),
-            Frame.MemberList("Room 1", [new User("c1", "Haitao"), new User("c2", "Victory")]),
-            Frame.SystemNotice("Room 1", "Victory - join this chat"),
+            Frame.MemberList(WireRoomId, "Room 1", [new User("c1", "Haitao"), new User("c2", "Victory")]),
+            Frame.SystemNotice(WireRoom("Room 1"), "Victory - join this chat"),
             Frame.Error("no such room"),
         };
 
@@ -53,7 +62,7 @@ public class FrameCodecTests
     [Fact]
     public void AnEmptyBodyStaysEmpty()
     {
-        var decoded = DecodeSingle(FrameCodec.Encode(Frame.JoinRoom("Room 1")));
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.JoinRoom(WireRoomId)));
 
         Assert.Empty(decoded.Body);
     }
@@ -68,7 +77,7 @@ public class FrameCodecTests
             body[i] = (byte)i;
         }
 
-        var encoded = FrameCodec.Encode(Frame.Picture(Guid.NewGuid(), "Room 1", "Haitao", "a.bin", body, DateTime.Now));
+        var encoded = FrameCodec.Encode(Frame.Picture(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", "a.bin", body, DateTime.Now));
 
         // The byte sequence itself must appear contiguously in what went on the wire.
         Assert.Contains(body, encoded);
@@ -84,7 +93,7 @@ public class FrameCodecTests
         var body = new byte[700 * 1024];
         new Random(1234).NextBytes(body);
 
-        var decoded = DecodeSingle(FrameCodec.Encode(Frame.Picture(Guid.NewGuid(), "Room 1", "Haitao", "big.png", body, DateTime.Now)));
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.Picture(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", "big.png", body, DateTime.Now)));
 
         Assert.Equal(body.Length, decoded.Body.Length);
         Assert.Equal(body, decoded.Body);
@@ -95,9 +104,49 @@ public class FrameCodecTests
     {
         var id = Guid.NewGuid();
 
-        var decoded = DecodeSingle(FrameCodec.Encode(Frame.Text(id, "Room 1", "Haitao", "hi", DateTime.Now)));
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.Text(id, WireRoom("Room 1"), "Haitao", "hi", DateTime.Now)));
 
         Assert.Equal(id, decoded.Header.Id);
+    }
+
+    /// <summary>
+    /// A frame about a room says which room it means by identity, so the identity has to come out of the bytes
+    /// intact. A name that arrived changed is a room renamed by a transmission; an identity that arrived
+    /// changed is a message delivered into somebody else's room, which is the mistake the identity exists to
+    /// stop.
+    /// </summary>
+    [Fact]
+    public void ARoomsIdentitySurvivesTheWire()
+    {
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.JoinRoom(WireRoomId)));
+
+        Assert.Equal(WireRoomId, decoded.Header.RoomId);
+    }
+
+    /// <summary>
+    /// A room list carries both halves of a room: the identity, which is what the other machine uses from then
+    /// on, and the name, which is what it prints. Without the first a window cannot act on a room; without the
+    /// second it cannot say what it is looking at.
+    /// </summary>
+    [Fact]
+    public void ARoomListCarriesTheIdentityAndTheName()
+    {
+        var study = Guid.NewGuid();
+        var garden = Guid.NewGuid();
+
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.RoomList([new Room(study, "Study"), new Room(garden, "Garden")])));
+
+        Assert.Equal([study, garden], decoded.Header.Rooms!.Select(r => r.Id));
+        Assert.Equal(["Study", "Garden"], decoded.Header.Rooms!.Select(r => r.Name));
+    }
+
+    /// <summary>Joining nothing - leaving - must not arrive as joining room zero.</summary>
+    [Fact]
+    public void LeavingARoomIsNotJoiningSomeOtherRoom()
+    {
+        var decoded = DecodeSingle(FrameCodec.Encode(Frame.JoinRoom(null)));
+
+        Assert.Null(decoded.Header.RoomId);
     }
 
     // -------------------------------------------------- the stream-quirk tests
@@ -123,8 +172,8 @@ public class FrameCodecTests
     [Fact]
     public void TwoFramesInOneReadBothComeOut()
     {
-        var first = Frame.Text(Guid.NewGuid(), "Room 1", "Haitao", "one", DateTime.Now);
-        var second = Frame.Text(Guid.NewGuid(), "Room 1", "Victory", "two", DateTime.Now);
+        var first = Frame.Text(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", "one", DateTime.Now);
+        var second = Frame.Text(Guid.NewGuid(), WireRoom("Room 1"), "Victory", "two", DateTime.Now);
 
         var decoder = new FrameDecoder();
         decoder.Append(FrameCodec.Encode(first).Concat(FrameCodec.Encode(second)).ToArray());
@@ -157,7 +206,7 @@ public class FrameCodecTests
     {
         // The interesting boundaries — inside the length prefix, inside the header length, in the
         // middle of the JSON, between header and body — are not special-cased, so sweep all of them.
-        var expected = Frame.Picture(Guid.NewGuid(), "Room 1", "Haitao", "a.png", [1, 2, 3, 4, 5, 6, 7, 8], DateTime.Now);
+        var expected = Frame.Picture(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", "a.png", [1, 2, 3, 4, 5, 6, 7, 8], DateTime.Now);
         var bytes = FrameCodec.Encode(expected);
 
         for (var split = 1; split < bytes.Length; split++)
@@ -196,7 +245,7 @@ public class FrameCodecTests
         var decoder = new FrameDecoder();
         for (var i = 0; i < 500; i++)
         {
-            decoder.Append(FrameCodec.Encode(Frame.Text(Guid.NewGuid(), "Room 1", "Haitao", $"m{i}", DateTime.Now)));
+            decoder.Append(FrameCodec.Encode(Frame.Text(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", $"m{i}", DateTime.Now)));
         }
 
         var count = decoder.ReadAllAvailable().Count();
@@ -291,7 +340,7 @@ public class FrameCodecTests
     {
         // ReadAsync consumes exactly one frame, so any leftover bytes stay in the stream for the
         // next call rather than being dropped on the floor.
-        var expected = Enumerable.Range(0, 20).Select(i => Frame.Text(Guid.NewGuid(), "Room 1", "Haitao", $"m{i}", DateTime.Now)).ToArray();
+        var expected = Enumerable.Range(0, 20).Select(i => Frame.Text(Guid.NewGuid(), WireRoom("Room 1"), "Haitao", $"m{i}", DateTime.Now)).ToArray();
         var bytes = expected.SelectMany(FrameCodec.Encode).ToArray();
 
         await using var stream = new MemoryStream(bytes);
@@ -331,9 +380,9 @@ public class FrameCodecTests
     {
         var message = new TextMessage("Haitao", "Room 1", "hi there", new DateTime(2026, 5, 6, 7, 8, 9));
 
-        var back = DecodeSingle(FrameCodec.Encode(Frame.FromMessage(message))).ToMessage();
+        var back = DecodeSingle(FrameCodec.Encode(Frame.FromMessage(message, WireRoom(message.RoomName)))).ToMessage();
 
-        Assert.Equal(FrameType.TEXT, Frame.FromMessage(message).Type);
+        Assert.Equal(FrameType.TEXT, Frame.FromMessage(message, WireRoom(message.RoomName)).Type);
         var text = Assert.IsType<TextMessage>(back);
         Assert.Equal(message.Id, text.Id);
         Assert.Equal(message.Body, text.Body);
@@ -349,7 +398,7 @@ public class FrameCodecTests
         new Random(7).NextBytes(data);
         var message = new PictureMessage("Haitao", "Room 1", "shot.png", data, DateTime.Now);
 
-        var frame = Frame.FromMessage(message);
+        var frame = Frame.FromMessage(message, WireRoom(message.RoomName));
         var back = DecodeSingle(FrameCodec.Encode(frame)).ToMessage();
 
         Assert.Equal(FrameType.PICTURE, frame.Type);
@@ -362,7 +411,7 @@ public class FrameCodecTests
     {
         var message = new FileMessage("Haitao", "Room 1", "notes.txt", 4096, sentAt: DateTime.Now);
 
-        var frame = Frame.FromMessage(message);
+        var frame = Frame.FromMessage(message, WireRoom(message.RoomName));
         var back = DecodeSingle(FrameCodec.Encode(frame)).ToMessage();
 
         Assert.Equal(FrameType.FILE_META, frame.Type);
@@ -377,7 +426,7 @@ public class FrameCodecTests
     [Fact]
     public void ASysNoticeBecomesASystemNoticeFrame()
     {
-        var frame = Frame.FromMessage(SystemMessage.Join("Room 1", "Victory"));
+        var frame = Frame.FromMessage(SystemMessage.Join("Room 1", "Victory"), WireRoom("Room 1"));
 
         var back = DecodeSingle(FrameCodec.Encode(frame)).ToMessage();
 
@@ -388,7 +437,7 @@ public class FrameCodecTests
     [Fact]
     public void FramesThatAreNotMessagesMapToNothing()
     {
-        Frame[] frames = [Frame.Hello("Haitao"), Frame.RoomList(["a"]), Frame.MemberList("Room 1", []), Frame.FileDone(Guid.NewGuid())];
+        Frame[] frames = [Frame.Hello("Haitao"), Frame.RoomList([WireRoom("a")]), Frame.MemberList(WireRoomId, "Room 1", []), Frame.FileDone(Guid.NewGuid())];
 
         Assert.All(frames, frame => Assert.Null(frame.ToMessage()));
     }

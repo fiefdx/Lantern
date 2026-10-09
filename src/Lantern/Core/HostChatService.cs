@@ -132,10 +132,10 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
     // ------------------------------------------------------------ room moves
 
     /// <inheritdoc />
-    public Task JoinRoomAsync(string? name, CancellationToken cancel = default)
+    public Task JoinRoomAsync(Guid? roomId, CancellationToken cancel = default)
     {
         // In process, so the frames arrive before this returns: no optimistic update, no round trip.
-        server.Join(me, name);
+        server.Join(me, roomId);
         return Task.CompletedTask;
     }
 
@@ -146,12 +146,12 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
         => server.TryCreateRoom(name, out var error) ? Task.CompletedTask : Throw(error);
 
     /// <inheritdoc />
-    public Task RenameRoomAsync(string currentName, string newName, CancellationToken cancel = default)
-        => server.TryRenameRoom(currentName, newName, out var error) ? Task.CompletedTask : Throw(error);
+    public Task RenameRoomAsync(Guid roomId, string newName, CancellationToken cancel = default)
+        => server.TryRenameRoom(roomId, newName, out var error) ? Task.CompletedTask : Throw(error);
 
     /// <inheritdoc />
-    public Task DeleteRoomAsync(string name, CancellationToken cancel = default)
-        => server.TryDeleteRoom(name, out var error) ? Task.CompletedTask : Throw(error);
+    public Task DeleteRoomAsync(Guid roomId, CancellationToken cancel = default)
+        => server.TryDeleteRoom(roomId, out var error) ? Task.CompletedTask : Throw(error);
 
     private static Task Throw(string? error) => throw new InvalidOperationException(error ?? "That did not work.");
 
@@ -172,7 +172,7 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
 
                 // The server broadcasts to the room except its author, so this window's own copy is
                 // kept here rather than sent around a loop to come back.
-                state.Record(text);
+                state.Record(text, state.CurrentRoomId ?? Guid.Empty);
                 server.SendText(me, text.Body, text.Id, text.SentAt);
                 break;
 
@@ -182,7 +182,7 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
                 // in, and only the host's view of that counts - which is what makes two windows agree.
                 if (server.SendPicture(me, picture.FileName, picture.Data, picture.Id, picture.SentAt) is { } sent)
                 {
-                    state.Record(sent);
+                    state.Record(sent, state.CurrentRoomId ?? Guid.Empty);
                 }
 
                 break;

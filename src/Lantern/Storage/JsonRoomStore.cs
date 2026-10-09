@@ -93,11 +93,11 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
 
         var rooms = new List<Room>();
 
-        // An entry is a name or a hole where a name should have been. Holes are dropped rather than
+        // An entry is a room or a hole where a room should have been. Holes are dropped rather than
         // poisoning the whole file: the other rooms are somebody's work.
         foreach (var entry in entries.Where(e => e is not null))
         {
-            var name = ValidationRules.Normalize(entry);
+            var name = ValidationRules.Normalize(entry!.Value.Name);
 
             if (!ValidationRules.IsValidRoomName(name))
             {
@@ -111,7 +111,16 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
                 continue;
             }
 
-            rooms.Add(new Room(name));
+            // A file edited by hand can repeat an identity, and two rooms with one identity is the exact
+            // confusion the identity exists to prevent. The first room keeps it; the copy is given its own.
+            var id = entry.Value.Id;
+
+            if (id is not null && rooms.Any(r => r.Id == id))
+            {
+                id = null;
+            }
+
+            rooms.Add(new Room(id ?? Guid.NewGuid(), name));
         }
 
         // Nothing usable, but the file did list something: it is junk, and junk gets the defaults.
@@ -133,7 +142,7 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
         var file = new RoomsFileDto
         {
             Version = LanternProtocol.Version,
-            Rooms = [.. rooms.Select(r => new RoomDto { Name = r.Name })],
+            Rooms = [.. rooms.Select(r => new RoomDto { Id = r.Id.ToString("N"), Name = r.Name })],
         };
 
         var text = JsonSerializer.Serialize(file, Json);
@@ -202,7 +211,13 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
     }
 
     /// <summary>
-    /// The entries of a room list, each one a name or null where a name should have been; null result
+    /// One entry of a room list: which room it is, if the file said, and what it is called. A null entry is
+    /// a hole where a room should have been.
+    /// </summary>
+    private readonly record struct RoomEntry(Guid? Id, string? Name);
+
+    /// <summary>
+    /// The entries of a room list, each one a room or null where a room should have been; null result
     /// means the text is not a room list at all.
     /// </summary>
     /// <remarks>
@@ -210,7 +225,7 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
     /// file by hand would write. A file that a marker might produce is a file the program has to answer,
     /// because F9 is checked by opening it in Notepad.
     /// </remarks>
-    private static List<string?>? ReadEntries(string text)
+    private static List<RoomEntry?>? ReadEntries(string text)
     {
         JsonDocument document;
 
@@ -231,38 +246,58 @@ public sealed class JsonRoomStore : IRoomStore, IDisposable
                 && root.TryGetProperty("rooms", out var rooms)
                 && rooms.ValueKind == JsonValueKind.Array)
             {
-                return NamesOf(rooms.EnumerateArray());
+                return EntriesOf(rooms.EnumerateArray());
             }
 
             if (root.ValueKind == JsonValueKind.Array)
             {
-                return NamesOf(root.EnumerateArray());
+                return EntriesOf(root.EnumerateArray());
             }
 
             return null;
         }
     }
 
-    private static List<string?> NamesOf(IEnumerable<JsonElement> entries)
+    private static List<RoomEntry?> EntriesOf(IEnumerable<JsonElement> entries)
     {
-        var names = new List<string?>();
+        var rooms = new List<RoomEntry?>();
 
         foreach (var entry in entries)
         {
-            string? name = entry.ValueKind switch
+            if (entry.ValueKind == JsonValueKind.String)
             {
-                JsonValueKind.String => entry.GetString(),
-                JsonValueKind.Object
-                    when entry.TryGetProperty("name", out var property) && property.ValueKind == JsonValueKind.String
-                    => property.GetString(),
-                _ => null,
-            };
+                // The bare-array shape somebody writes by hand: a name, and an identity to be had later.
+                rooms.Add(new RoomEntry(null, entry.GetString()));
+                continue;
+            }
+
+            if (entry.ValueKind == JsonValueKind.Object
+                && entry.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+            {
+                rooms.Add(new RoomEntry(ReadId(entry), name.GetString()));
+                continue;
+            }
 
             // A hole is kept as a hole: a file that lists three things and gives no name for any of them
             // is junk, while a file that lists nothing at all is a decision. Load() tells those apart.
-            names.Add(name);
+            rooms.Add(null);
         }
 
-        return names;
+        return rooms;
+    }
+
+    /// <summary>
+    /// The identity a file claims, or nothing when it said none or said something unrecognisable. A room
+    /// from a file written before rooms had identities is still the room the host made, and it gets one
+    /// the moment it is loaded.
+    /// </summary>
+    private static Guid? ReadId(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("id", out var property) || property.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return Guid.TryParse(property.GetString(), out var id) ? id : null;
     }
 }
