@@ -98,11 +98,17 @@ public sealed class KnownHostsStoreTests : IDisposable
         Assert.Equal("F8E4E3F9603B", Assert.Single(store.Recent()).ServerName);
     }
 
-    [Fact]
-    public async Task AHistoryFileNobodyCanReadIsNoHistoryRatherThanACrash()
+    [Theory]
+    // The empty case is not the same as a missing file, and it is worth its own row: a process killed between
+    // creating the file and writing it leaves one that exists and has nothing in it. The answer is still
+    // "no history", because a program that cannot show its scan list because of a stray file is worse than a
+    // program that has forgotten which laptops it has joined.
+    [InlineData("")]
+    [InlineData("{ this is not json, it is a shoebox ")]
+    public async Task AHistoryFileNobodyCanReadIsNoHistoryRatherThanACrash(string contents)
     {
         var file = FreshPath();
-        await File.WriteAllTextAsync(file, "{ this is not json, it is a shoebox ");
+        await File.WriteAllTextAsync(file, contents);
 
         using var store = new JsonKnownHostsStore(file);
 

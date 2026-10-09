@@ -109,7 +109,7 @@ public sealed class IncomingFileUiTests
             service.AdvanceFile(job, 4096);
 
             await Watch.UntilAsync(() => File.Exists(request.Path), "the file to be written once it had all arrived");
-            Assert.Equal("simulated payload for notes.txt", await File.ReadAllTextAsync(request.Path));
+            Assert.Equal("simulated payload for notes.txt", await ReadAfterAnyoneElseHasLetGoAsync(request.Path));
 
             try
             {
@@ -460,6 +460,30 @@ public sealed class IncomingFileUiTests
     private static Control Find(Control parent, string name)
         => parent.Controls.Find(name, searchAllChildren: true).FirstOrDefault()
             ?? throw new InvalidOperationException($"no control named {name}");
+
+    /// <summary>
+    /// Reading a file that has just appeared on Windows means asking again. Something inspects a new file the
+    /// moment it lands - antivirus, the search indexer, a thumbnailer - and holds it in a way that refuses a
+    /// second reader for a moment. The program is done with it by then: the save is a rename out of the spool,
+    /// and a rename cannot happen while the source is open. So this waits for whoever else was looking, and
+    /// still fails on the bytes if the bytes are wrong.
+    /// </summary>
+    private static async Task<string> ReadAfterAnyoneElseHasLetGoAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(Watch.DefaultTimeoutMs * 2);
+
+        while (true)
+        {
+            try
+            {
+                return await File.ReadAllTextAsync(path);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(50);
+            }
+        }
+    }
 
     private static string NewFolder()
     {

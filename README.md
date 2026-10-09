@@ -153,7 +153,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 437 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 438 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no
