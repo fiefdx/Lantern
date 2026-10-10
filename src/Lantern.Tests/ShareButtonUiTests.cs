@@ -36,7 +36,8 @@ public sealed class ShareButtonUiTests
 
                 // The sender sees their own photo, because nothing is echoed back and the window is what
                 // puts it on the screen.
-                Assert.Contains("Haitao: [image] sunset.png", chat.Text, StringComparison.Ordinal);
+                Assert.Contains(chat.Lines, line => line.EndsWith("Haitao", StringComparison.Ordinal));
+                Assert.Contains(chat.Lines, line => line.Contains("[image] sunset.png", StringComparison.Ordinal));
                 Assert.Contains("sunset.png", form.StatusText, StringComparison.Ordinal);
             }
             finally

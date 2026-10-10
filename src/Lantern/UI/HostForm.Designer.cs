@@ -44,7 +44,7 @@ partial class HostForm
         btnNew.Size = new Size(34, 26);
         btnNew.TabIndex = 0;
         btnNew.Text = "New";
-        toolTip.SetToolTip(btnNew, "Create a room (scenario 3)");
+        toolTip.SetToolTip(btnNew, "Create a room (Ctrl+N)");
         btnNew.UseVisualStyleBackColor = true;
         btnNew.Click += OnNewRoomClick;
         //
@@ -58,7 +58,7 @@ partial class HostForm
         btnDelete.Size = new Size(52, 26);
         btnDelete.TabIndex = 1;
         btnDelete.Text = "Delete";
-        toolTip.SetToolTip(btnDelete, "Delete the selected room");
+        toolTip.SetToolTip(btnDelete, "Delete the highlighted room (Ctrl+D)");
         btnDelete.UseVisualStyleBackColor = true;
         btnDelete.Click += OnDeleteRoomClick;
         //

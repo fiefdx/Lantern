@@ -42,10 +42,31 @@ public partial class HostForm : ChatForm
         btnDelete.Enabled = Service.IsHost;
     }
 
-    /// <summary>"New" → <see cref="AskForRoomName"/> → <see cref="IChatService.CreateRoomAsync"/>.</summary>
-    private async void OnNewRoomClick(object? sender, EventArgs e)
+    private async void OnNewRoomClick(object? sender, EventArgs e) => await CreateRoomAsync();
+
+    private async void OnDeleteRoomClick(object? sender, EventArgs e) => await DeleteRoomAsync();
+
+    /// <summary>Edit ▸ New room. The same thing the button does, because it is the same thing being asked for.</summary>
+    protected override async void NewRoomMenuItem_Click(object? sender, EventArgs e) => await CreateRoomAsync();
+
+    /// <summary>Edit ▸ Delete room.</summary>
+    protected override async void DeleteRoomMenuItem_Click(object? sender, EventArgs e) => await DeleteRoomAsync();
+
+    /// <summary>
+    /// "New" → <see cref="AskForRoomName"/> → <see cref="IChatService.CreateRoomAsync"/>, and then into the room
+    /// that was made.
+    /// </summary>
+    /// <remarks>
+    /// A room the host made and did not enter is a room with nobody in it: the host would have to click it as
+    /// well, and a feature whose second step is obvious is a feature with an extra step. Someone who wants to
+    /// make a room and stay where they are can leave it again with one click on the room they came from - and
+    /// a room is not destroyed by nobody being in it, it is only empty.
+    /// <para>
+    /// Duplicate names are refused by the dialog as they are typed, not after the OK click (F5).
+    /// </para>
+    /// </remarks>
+    private async Task CreateRoomAsync()
     {
-        // Duplicate names are refused by the dialog as they are typed, not after the OK click.
         var name = AskForRoomName("New Room", string.Empty, IsDuplicate);
 
         if (name is null)
@@ -54,10 +75,21 @@ public partial class HostForm : ChatForm
         }
 
         await RunAsync(() => Service.CreateRoomAsync(name));
+
+        // Only if it really arrived: a room refused by the service (two windows, one name) must not be followed
+        // by a request to enter a room that is not there, which would say the wrong thing in the bar below.
+        if (Service.Rooms.Any(room => room.Name == name))
+        {
+            await EnterRoomByNameAsync(name);
+        }
     }
 
-    /// <summary>"Delete" → <see cref="ConfirmDeleteRoom"/> → <see cref="IChatService.DeleteRoomAsync"/>.</summary>
-    private async void OnDeleteRoomClick(object? sender, EventArgs e)
+    /// <summary>
+    /// "Delete" → <see cref="ConfirmDeleteRoom"/> → <see cref="IChatService.DeleteRoomAsync"/>, on the room the
+    /// list is pointed at. Asking is not decoration: everybody inside is about to be put out, and the room's
+    /// transcript goes with it.
+    /// </summary>
+    private async Task DeleteRoomAsync()
     {
         if (SelectedRoom is not { } room)
         {

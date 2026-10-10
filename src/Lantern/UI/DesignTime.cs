@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Lantern.Core;
+using Lantern.Domain;
 using Lantern.Storage;
 
 namespace Lantern.UI;
@@ -85,4 +86,37 @@ internal static class DesignTime
     /// to judge a column width.
     /// </summary>
     internal static IKnownHosts? KnownHosts() => IsHosting() ? null : new JsonKnownHostsStore();
+
+    /// <summary>
+    /// The picture a picture window is drawn with: one made here, of a blue rectangle and a word, so that the
+    /// window being designed has something to lay itself around - scale, scroll and centre against a real
+    /// shape rather than against an empty grey box that shows nobody whether the layout works.
+    /// <para>
+    /// Anywhere else this is refused. A window showing a picture nobody sent is the same mistake as a window
+    /// showing a chat nobody joined, and it is caught at the constructor rather than at the button.
+    /// </para>
+    /// </summary>
+    internal static PictureMessage Picture(string window)
+        => IsHosting()
+            ? new PictureMessage(Nickname, "Room 1", "sample.png", SamplePicture())
+            : throw new InvalidOperationException(
+                $"{window} shows a picture, which has to be handed to it. Open it from the transcript line that carries one.");
+
+    /// <summary>A small PNG, made here so the design surface has a picture that is nobody's photo.</summary>
+    private static byte[] SamplePicture()
+    {
+        using var bitmap = new Bitmap(320, 200);
+        using (var g = Graphics.FromImage(bitmap))
+        {
+            g.Clear(Color.White);
+            using var band = new SolidBrush(Color.FromArgb(0x1F, 0x4E, 0x79));
+            g.FillRectangle(band, 16, 16, 288, 168);
+            g.DrawString("Lantern", SystemFonts.DefaultFont, Brushes.White, 40f, 84f);
+        }
+
+        using var buffer = new MemoryStream();
+        bitmap.Save(buffer, System.Drawing.Imaging.ImageFormat.Png);
+
+        return buffer.ToArray();
+    }
 }

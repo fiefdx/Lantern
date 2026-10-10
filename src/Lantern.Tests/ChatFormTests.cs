@@ -153,7 +153,11 @@ public class ChatFormTests
 
             service.SimulateIncoming(new TextMessage("User 2", "Room 1", "arrived from the wire"));
 
-            Assert.Contains("User 2: arrived from the wire", chat.Text);
+            // F13: who sent it is in the headline and what they sent is on the line below, in another colour.
+            // Asserting the old one-line form would have been asserting the bug.
+            Assert.Contains("arrived from the wire", chat.Text);
+            Assert.DoesNotContain("User 2: arrived from the wire", chat.Text);
+            Assert.Contains(chat.Lines, line => line.EndsWith("User 2", StringComparison.Ordinal));
         });
     }
 

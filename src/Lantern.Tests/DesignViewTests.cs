@@ -22,6 +22,7 @@ public class DesignViewTests
         { typeof(ClientForm) },
         { typeof(NewRoomDialog) },
         { typeof(ConfirmDialog) },
+        { typeof(PictureViewerForm) },
     };
 
     [Theory]
@@ -67,6 +68,13 @@ public class DesignViewTests
         // "Are you sure?" is not a question this program is allowed to ask on its own behalf; the questions
         // live in ConfirmQuit, ConfirmDeleteRoom and ConfirmLeaveRoom, which is where the wording is decided.
         => Sta.Run(() => Assert.Throws<InvalidOperationException>(() => new ConfirmDialog()));
+
+    [Fact]
+    public void OutsideTheDesignerAPictureWindowStillCannotBeBuiltWithoutAPicture()
+        // The window that shows a photo is built with the photo, like the chat windows are built with a chat.
+        // The design surface is given one made on the spot - a blue rectangle with a word in it, so the window
+        // being designed has a real shape to scale, scroll and centre against.
+        => Sta.Run(() => Assert.Throws<InvalidOperationException>(() => new PictureViewerForm()));
 
     [Fact]
     public void ABlankRoomDialogIsAWholeRoomDialog()

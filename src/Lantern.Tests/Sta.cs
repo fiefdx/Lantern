@@ -32,6 +32,16 @@ internal static class Sta
         thread.Start();
         thread.Join(TimeSpan.FromSeconds(30));
 
+        // A body that never finished is a failure, not a pass. It used to be a pass: the join gave up after
+        // thirty seconds and the test carried on as though the thread had returned, which meant the one thing
+        // a UI test most plausibly gets wrong - sitting in front of a modal nobody is going to click - looked
+        // exactly like the test working. The window that asks before the host closes is a real example: it is
+        // right in front of a person and a dead end in a test runner.
+        if (thread.IsAlive)
+        {
+            throw new TimeoutException("the UI body is still running after 30 s - most likely a modal dialog waiting for a click");
+        }
+
         if (failure is not null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();

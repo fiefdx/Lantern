@@ -232,6 +232,149 @@ public class RoomManagementUiTests
         => owner.Controls.Find(name, searchAllChildren: true).FirstOrDefault()
            ?? throw new InvalidOperationException($"the window has no control named '{name}'");
 
+    // --------------------------------------------------- F5 in the group: the menu does the same thing
+
+    [Fact]
+    public void TheHostsMenuCreatesARoomAsWellAsTheButton()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new AnswerableHost(service) { Answer = "Garden" };
+
+            form.Show();
+
+            ClickMenu(form, "newRoomMenuItem");
+
+            Assert.Contains("Garden", service.Rooms.Select(r => r.Name));
+            Assert.Contains("Garden", RoomNames(form));
+        });
+    }
+
+    [Fact]
+    public void CreatingARoomWalksTheHostIntoIt()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new AnswerableHost(service) { Answer = "Garden" };
+
+            form.Show();
+            SelectRoom(form, "Room 1");
+
+            Click(form, "btnNew");
+
+            // A room the host made and did not enter is a room with nobody in it, and the host would have to
+            // click it as well. They can leave it again with one click back, and nobody is harmed by an empty
+            // room - it is empty, not destroyed.
+            Assert.True(StandingIn(service, "Garden"));
+            Assert.False(StandingIn(service, "Room 1"));
+            Assert.Contains("in room \"Garden\"", Status(form), StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void TheHostsMenuDeletesTheHighlightedRoom()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new AnswerableHost(service) { Confirms = true };
+
+            form.Show();
+            SelectRoom(form, "Room 2");
+
+            ClickMenu(form, "deleteRoomMenuItem");
+
+            Assert.DoesNotContain("Room 2", service.Rooms.Select(r => r.Name));
+            Assert.DoesNotContain("Room 2", RoomNames(form));
+        });
+    }
+
+    [Fact]
+    public void DestroyingTheRoomYouAreStandingInDoesNotLeaveTheWindowInIt()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new AnswerableHost(service) { Confirms = true };
+
+            form.Show();
+            SelectRoom(form, "Room 1");
+
+            // The room the list is pointed at is the room this window is in, which is the usual case rather
+            // than an edge: a host tidying up deletes the rooms they are standing in.
+            ClickMenu(form, "deleteRoomMenuItem");
+
+            Assert.DoesNotContain("Room 1", RoomNames(form));
+            Assert.DoesNotContain("Room 1", service.Rooms.Select(r => r.Name));
+
+            // And the window knows it is nowhere: no room means no typing into it (F6), and the transcript of a
+            // room that no longer exists is not shown to anybody. It does not go blank either - a window with
+            // nowhere to send to says what to do next rather than sitting there empty.
+            Assert.False(Find<TextBox>(form, "txtMessage").Enabled);
+            Assert.False(Find<Button>(form, "btnSend").Enabled);
+            Assert.DoesNotContain("Room 1", ChatPane(form), StringComparison.Ordinal);
+            Assert.Contains("Select a room", ChatPane(form), StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void AClientsRoomItemsAreThereAndShut()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("User 2", isHost: false);
+            using var form = new ClientForm(service);
+
+            form.Show();
+
+            // A client sees what rooms there are and may not change them (F5) - the items are in the menu so
+            // that the window is the same shape on both sides, and greyed so that no way to ask ends in nothing
+            // happening silently.
+            Assert.False(Menu(form, "newRoomMenuItem").Enabled);
+            Assert.False(Menu(form, "renameMenuItem").Enabled);
+            Assert.False(Menu(form, "deleteRoomMenuItem").Enabled);
+
+            var before = service.Rooms.Select(r => r.Name).ToArray();
+
+            Menu(form, "newRoomMenuItem").PerformClick();
+            Menu(form, "deleteRoomMenuItem").PerformClick();
+
+            Assert.Equal(before, service.Rooms.Select(r => r.Name));
+        });
+    }
+
+    [Fact]
+    public void TheMenuShortcutsDoNotStealKeysTheMessageboxNeeds()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new AnswerableHost(service);
+
+            form.Show();
+
+            Assert.Equal(Keys.Control | Keys.N, Menu(form, "newRoomMenuItem").ShortcutKeys);
+            Assert.Equal(Keys.Control | Keys.D, Menu(form, "deleteRoomMenuItem").ShortcutKeys);
+
+            // No item claims a plain, unmodified key. A menu shortcut takes that key away from whatever has the
+            // focus, and the box next to this menu is where somebody is typing - so Del cannot be a shortcut here.
+            var edit = Find<MenuStrip>(form, "menuStrip").Items.Find("editMenu", searchAllChildren: true)[0];
+
+            foreach (var item in ((ToolStripMenuItem)edit).DropDownItems.OfType<ToolStripMenuItem>())
+            {
+                Assert.True(
+                    item.ShortcutKeys == Keys.None || (item.ShortcutKeys & Keys.Modifiers) != Keys.None,
+                    item.Name + " claims a key that belongs to the keyboard");
+            }
+        });
+    }
+
+    /// <summary>Menu items are not controls, so they are looked up on the menu strip itself.</summary>
+    private static ToolStripMenuItem Menu(Form form, string name)
+        => (ToolStripMenuItem)Find<MenuStrip>(form, "menuStrip").Items.Find(name, searchAllChildren: true)[0];
+
     private static void Click(Form form, string button)
         => Find<Button>(form, button).PerformClick();
 

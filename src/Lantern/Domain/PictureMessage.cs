@@ -24,6 +24,39 @@ public sealed class PictureMessage : Message
     public override string Preview => $"[image] {FileName} ({SizeBytes:N0} bytes)";
 
     /// <summary>
+    /// The picture at its own size, for looking at; null when the bytes are not a decodable image.
+    /// </summary>
+    /// <remarks>
+    /// A copy, and that is the point. <see cref="Image.FromStream(Stream)"/> keeps reading from the stream
+    /// while the image is drawn, so the image loaded straight out of <see cref="Data"/> would need its stream
+    /// kept alive for exactly as long as somebody is looking at the photo - a leak with a title bar, and one
+    /// that only lets go when the last viewer closes. The copy owns its own pixels and the stream goes now.
+    /// </remarks>
+    public Image? ToImage()
+    {
+        try
+        {
+            using var source = new MemoryStream(Data);
+            using var loaded = Image.FromStream(source);
+
+            return new Bitmap(loaded);
+        }
+        catch (OutOfMemoryException)
+        {
+            // Image.FromStream reports a bad codec/payload this way.
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Scaled copy of the picture, longest edge capped at <see cref="ThumbnailEdge"/>.
     /// Returns null when the bytes are not a decodable image (the transcript then shows
     /// only <see cref="Preview"/>).

@@ -368,6 +368,43 @@ public sealed class PictureMessageTests
         }
     }
 
+    [Fact]
+    public void APictureDecodesAtItsOwnSizeForLookingAt()
+    {
+        // A thumbnail caps an edge at 160 pixels because it sits in a line of text. The window a photo opens
+        // in (F14) shows the photo, so it asks for the other thing: the picture at its own size.
+        var message = new PictureMessage("User 2", "Room 1", "small.png", SmallPng());
+
+        using var image = message.ToImage();
+
+        Assert.NotNull(image);
+        Assert.Equal(4, image!.Width);
+        Assert.Equal(2, image.Height);
+    }
+
+    [Fact]
+    public void TheDecodedPictureOutLivesTheStreamItCameFrom()
+    {
+        // Image.FromStream keeps reading from its stream while the image is drawn, so an image handed out over
+        // a stream that has since been closed is a bomb with a delay - and a photo window is exactly the thing
+        // that draws it later, on a repaint, when the message that carried it is long gone. Drawing it is the
+        // only way to know the copy really is a copy.
+        var message = new PictureMessage("User 2", "Room 1", "small.png", SmallPng());
+
+        using var image = message.ToImage();
+
+        Assert.NotNull(image);
+
+        using (var graphics = Graphics.FromImage(image!))
+        {
+            graphics.FillRectangle(Brushes.Red, 0, 0, image!.Width, image.Height);
+        }
+
+        // And bytes that are not a picture are no picture rather than an exception, so the transcript keeps its
+        // line and the window that was asked to show them has something true to say.
+        Assert.Null(new PictureMessage("User 2", "Room 1", "notes.txt", System.Text.Encoding.UTF8.GetBytes("a shopping list")).ToImage());
+    }
+
     private static Watch<Frame> WatchFrames(LocalParticipant participant)
     {
         var watch = new Watch<Frame>();

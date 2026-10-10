@@ -64,7 +64,9 @@ public sealed class PictureTranscriptUiTests
             rooms.SelectedIndex = 0;
             service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", Png(6, 3)));
 
-            Assert.Contains("User 2: [image] sunset.png", chat.Text, StringComparison.Ordinal);
+            // F13: the sender is in the headline and the picture's caption is the content, on the line below.
+            Assert.Contains(chat.Lines, line => line.EndsWith("User 2", StringComparison.Ordinal));
+            Assert.Contains(chat.Lines, line => line.Contains("[image] sunset.png", StringComparison.Ordinal));
 
             // The caption alone would satisfy F7 on paper and fail it in practice: the picture has to be
             // in the same window, above the fold of scrolling, without anybody opening anything.
@@ -90,7 +92,7 @@ public sealed class PictureTranscriptUiTests
             rooms.SelectedIndex = 0;
             service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "notes.txt", System.Text.Encoding.UTF8.GetBytes("not a picture")));
 
-            Assert.Contains("User 2: [image] notes.txt", chat.Text, StringComparison.Ordinal);
+            Assert.Contains(chat.Lines, line => line.Contains("[image] notes.txt", StringComparison.Ordinal));
             Assert.DoesNotContain(@"\pict", chat.Rtf, StringComparison.Ordinal);
 
             // And the window is still a window afterwards: the next message arrives normally.
@@ -128,7 +130,7 @@ public sealed class PictureTranscriptUiTests
     }
 
     [Fact]
-    public void DoubleClickingTheCaptionOfAPictureOpensThatPicture()
+    public void DoubleClickingAPictureOpensThatPictureAndNotTheOneAboveIt()
     {
         Sta.Run(() =>
         {
@@ -149,31 +151,72 @@ public sealed class PictureTranscriptUiTests
             service.SimulateIncoming(first);
             service.SimulateIncoming(second);
 
-            var caption = chat.Lines.Single(line => line.Contains("two.png", StringComparison.Ordinal));
-            form.OpenTranscriptLine(caption);
+            // A double click is answered by where in the transcript it fell, and not by matching text: since
+            // F13 an entry is a headline, a caption and a thumbnail, only the caption names the file, and two
+            // photos from the same sender in the same minute have identical headlines.
+            Assert.True(form.TryOpenPictureAt(CaretOf(chat, "two.png")));
 
-            // The picture the caption names, and not the first one that happens to be in the room.
+            // The picture that was clicked on, and not the first one that happens to be in the room.
             var opened = Assert.Single(form.Opened);
             Assert.Equal("two.png", opened.FileName);
             Assert.Equal(second.Id, opened.Id);
 
-            // The caption of the other photo still opens its own picture, and a line that is not a picture
-            // does nothing at all - no viewer, no error, no guessing about which message was meant.
-            form.OpenTranscriptLine(chat.Lines.First(line => line.Contains("one.png", StringComparison.Ordinal)));
+            Assert.True(form.TryOpenPictureAt(CaretOf(chat, "one.png")));
             Assert.Equal(2, form.Opened.Count);
             Assert.Equal("one.png", form.Opened[^1].FileName);
-
-            // A line that is not a caption does nothing at all: no viewer, no error, no guessing about
-            // which message the person meant. The transcript is matched by line, not by "nearest picture".
-            form.OpenTranscriptLine("nothing like a transcript line");
-            form.OpenTranscriptLine("two.png");
-            form.OpenTranscriptLine(string.Empty);
-            Assert.Equal(2, form.Opened.Count);
         });
     }
 
     [Fact]
-    public void ADoubleClickUsesTheLineUnderTheCaret()
+    public void EveryPartOfAPicturesEntryOpensItAndNothingElseDoes()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new OpeningForm(service);
+
+            form.Show();
+
+            var rooms = (ListBox)Find(form, "lstRooms")!;
+            var chat = (RichTextBox)Find(form, "rtbChat")!;
+
+            rooms.SelectedIndex = 0;
+            service.SimulateIncoming(new TextMessage("User 2", "Room 1", "a line in between"));
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "both.png", Png(6, 3)));
+
+            // The headline says nobody's file name and the thumbnail says nothing at all, and both open the
+            // photo: what a person aims at is the entry, not the line that happens to mention a file.
+            //
+            // LastIndexOf, not IndexOf: the line above it - a message that is not a picture, from the same
+            // sender, in the same minute - has exactly the same headline. Matching transcript text to decide
+            // which message a click meant is how the wrong photo gets opened, which is why the window works in
+            // positions and this test has to say which occurrence it means.
+            var headline = chat.Lines.Last(line => line.EndsWith("User 2", StringComparison.Ordinal));
+            Assert.True(form.TryOpenPictureAt(chat.Text.LastIndexOf(headline, StringComparison.Ordinal)));
+
+            form.ClearOpened();
+
+            // The last character in the window is the line break that ends the entry, and the one before it is
+            // the thumbnail itself - so the thumbnail is inside the picture's own span, and its line break is
+            // not anybody's picture.
+            Assert.True(form.TryOpenPictureAt(chat.TextLength - 2));
+            Assert.False(form.TryOpenPictureAt(chat.TextLength - 1));
+            form.ClearOpened();
+
+            // A line in between, the top of the transcript, past the end, and off the end altogether: no
+            // viewer, no error, no guessing about which message the person meant. Nothing here falls back to
+            // "the nearest picture", because a transcript that opens a photo nobody clicked on is worse than
+            // one that does nothing.
+            Assert.False(form.TryOpenPictureAt(CaretOf(chat, "a line in between")));
+            Assert.False(form.TryOpenPictureAt(0));
+            Assert.False(form.TryOpenPictureAt(chat.TextLength));
+            Assert.False(form.TryOpenPictureAt(-5));
+            Assert.Empty(form.Opened);
+        });
+    }
+
+    [Fact]
+    public void ADoubleClickUsesWhateverTheCaretIsStandingOn()
     {
         Sta.Run(() =>
         {
@@ -195,7 +238,7 @@ public sealed class PictureTranscriptUiTests
             Assert.True(index >= 0);
 
             chat.SelectionStart = index;
-            form.OpenTranscriptLineAtCaret();
+            form.OpenPictureAtCaret();
 
             var opened = Assert.Single(form.Opened);
             Assert.Equal(picture.Id, opened.Id);
@@ -205,7 +248,7 @@ public sealed class PictureTranscriptUiTests
             form.ClearOpened();
             chat.SelectionStart = 0;
             rooms.SelectedIndex = 1;
-            form.OpenTranscriptLineAtCaret();
+            form.OpenPictureAtCaret();
             Assert.Empty(form.Opened);
         });
     }
@@ -320,6 +363,21 @@ public sealed class PictureTranscriptUiTests
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Where in the transcript a piece of text is, which is what a double click is answered by (F13 made an
+    /// entry several lines long, so "the line you clicked" and "the picture you meant" are no longer the same
+    /// question). Fails loudly rather than returning -1, which would make a missing line look like a click
+    /// that correctly opened nothing.
+    /// </summary>
+    private static int CaretOf(RichTextBox chat, string text)
+    {
+        var index = chat.Text.IndexOf(text, StringComparison.Ordinal);
+
+        Assert.True(index >= 0, "the transcript does not contain " + text + " at all");
+
+        return index;
     }
 
     /// <summary>

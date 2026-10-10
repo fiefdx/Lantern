@@ -32,7 +32,9 @@ partial class ChatForm
         fileMenu = new ToolStripMenuItem();
         quitMenuItem = new ToolStripMenuItem();
         editMenu = new ToolStripMenuItem();
+        newRoomMenuItem = new ToolStripMenuItem();
         renameMenuItem = new ToolStripMenuItem();
+        deleteRoomMenuItem = new ToolStripMenuItem();
         viewMenu = new ToolStripMenuItem();
         clearChatMenuItem = new ToolStripMenuItem();
         helpMenu = new ToolStripMenuItem();
@@ -91,15 +93,34 @@ partial class ChatForm
         //
         // editMenu
         //
-        editMenu.DropDownItems.AddRange(new ToolStripItem[] { renameMenuItem });
+        // The room a person is standing in is the room they want to make and unmake, so room management is on
+        // the window that shows the rooms and not only on two small buttons in their header (F5). The same three
+        // things - make one, name one, destroy one - in the order a person does them.
+        editMenu.DropDownItems.AddRange(new ToolStripItem[] { newRoomMenuItem, renameMenuItem, deleteRoomMenuItem });
         editMenu.Name = "editMenu";
         editMenu.Text = "&Edit";
+        //
+        // newRoomMenuItem
+        //
+        // Ctrl+N, and deliberately no Del: a shortcut on a menu item takes the key away from whatever the person
+        // is typing into, and the message box is directly next to this menu.
+        newRoomMenuItem.Name = "newRoomMenuItem";
+        newRoomMenuItem.ShortcutKeys = Keys.Control | Keys.N;
+        newRoomMenuItem.Text = "&New room";
+        newRoomMenuItem.Click += NewRoomMenuItem_Click;
         //
         // renameMenuItem
         //
         renameMenuItem.Name = "renameMenuItem";
         renameMenuItem.Text = "&Rename room";
         renameMenuItem.Click += RenameMenuItem_Click;
+        //
+        // deleteRoomMenuItem
+        //
+        deleteRoomMenuItem.Name = "deleteRoomMenuItem";
+        deleteRoomMenuItem.ShortcutKeys = Keys.Control | Keys.D;
+        deleteRoomMenuItem.Text = "&Delete room";
+        deleteRoomMenuItem.Click += DeleteRoomMenuItem_Click;
         //
         // viewMenu
         //
@@ -411,7 +432,9 @@ partial class ChatForm
     private ToolStripMenuItem fileMenu;
     private ToolStripMenuItem quitMenuItem;
     private ToolStripMenuItem editMenu;
+    private ToolStripMenuItem newRoomMenuItem;
     private ToolStripMenuItem renameMenuItem;
+    private ToolStripMenuItem deleteRoomMenuItem;
     private ToolStripMenuItem viewMenu;
     private ToolStripMenuItem clearChatMenuItem;
     private ToolStripMenuItem helpMenu;

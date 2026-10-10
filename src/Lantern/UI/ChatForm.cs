@@ -1,6 +1,5 @@
 using Lantern.Core;
 using Lantern.Domain;
-using Lantern.Storage;
 
 namespace Lantern.UI;
 
@@ -54,11 +53,38 @@ public partial class ChatForm : Form
     private bool busy;
 
     /// <summary>
-    /// Which picture, if any, is drawn on each transcript line (F7). Keyed by the line as it was
-    /// written, because that is what the transcript can be asked about: the double click knows the text
-    /// under the caret and nothing else. Rebuilt whenever the transcript is redrawn.
+    /// Which picture, if any, is written where in the transcript (F7), as character positions.
+    /// <para>
+    /// Positions rather than line text because an entry is no longer one line (F13): it is a headline, the
+    /// message under it and, for a photo, the thumbnail under that - three lines, only one of which names the
+    /// file, and the headline is the same text for every message that minute from that sender. The double click
+    /// knows the character under the caret and nothing else, so that is what an entry is keyed by. Positions
+    /// also survive word wrap, which line numbers do not: the same text gets more lines when the window gets
+    /// narrower, and a transcript that opened the wrong photo after somebody resized the window would be a
+    /// transcript that opened the wrong photo.
+    /// </para>
+    /// Rebuilt whenever the transcript is redrawn.
     /// </summary>
-    private readonly Dictionary<string, PictureMessage> openable = new(StringComparer.Ordinal);
+    private readonly List<PictureSpan> pictures = new();
+
+    /// <summary>One picture message, and the span of transcript it occupies: from its first character to just past its last.</summary>
+    private sealed record PictureSpan(int Start, int End, PictureMessage Picture);
+
+    /// <summary>
+    /// The picture windows this window has open (F14). One per picture, so looking at the same photo twice
+    /// brings back the window that is already there instead of stacking another copy of it.
+    /// </summary>
+    private readonly List<PictureViewerForm> viewers = new();
+
+    /// <summary>
+    /// The picture windows this window has open. They belong to this window: closing it closes them, and a
+    /// person who closes the room a photo was sent in should not be left holding the photo.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public IReadOnlyList<PictureViewerForm> OpenPictures => viewers;
+
+    /// <summary>How many characters of transcript this window has written - where the next entry will start.</summary>
+    private int TranscriptEnd => rtbChat.TextLength;
 
     /// <summary>
     /// The window as the design surface builds it: over a chat that talks to nothing, because the designer has
@@ -402,6 +428,22 @@ public partial class ChatForm : Form
         Highlight(CurrentRoom?.Id);
     }
 
+    /// <summary>
+    /// Goes into a room by name - by the same door as a click in the list, because there is one way to enter a
+    /// room in this window and a second way would be a second set of rules about who may enter what.
+    /// </summary>
+    protected async Task EnterRoomByNameAsync(string name)
+    {
+        var room = Service.Rooms.FirstOrDefault(r => r.Name == name);
+
+        if (room is null || room.Id == CurrentRoom?.Id)
+        {
+            return;
+        }
+
+        await EnterRoomAsync(room);
+    }
+
     private async Task EnterRoomAsync(Room room)
     {
         // Two clicks, two answers, and the link does not promise which comes back first. Whichever click is
@@ -466,8 +508,7 @@ public partial class ChatForm : Form
     /// <summary>Redraws the transcript from the current room's own history (F6).</summary>
     private void ShowTranscript()
     {
-        rtbChat.Clear();
-        openable.Clear();
+        ClearTranscript();
         var editable = CurrentRoom is not null;
         txtMessage.Enabled = editable;
         if (!busy)
@@ -1014,60 +1055,95 @@ public partial class ChatForm : Form
     // ------------------------------------------------------------- F7: opening a picture
 
     /// <summary>
-    /// F7: a thumbnail is 160 pixels; the photo is not. Double-clicking the caption opens the picture
-    /// itself, because "share a photo" that nobody can actually look at is only half a feature.
+    /// F7: a thumbnail is 160 pixels; the photo is not. Double-clicking anywhere on a photo's entry - its
+    /// headline, its caption or the thumbnail itself - opens the picture itself (F14), because "share a photo"
+    /// that nobody can actually look at is only half a feature.
     /// </summary>
-    private void RtbChat_MouseDoubleClick(object? sender, MouseEventArgs e) => OpenTranscriptLineAtCaret();
+    private void RtbChat_MouseDoubleClick(object? sender, MouseEventArgs e)
+        => TryOpenPictureAt(rtbChat.GetCharIndexFromPosition(e.Location));
 
-    /// <summary>Opens whatever picture the transcript line under the caret carries, if any.</summary>
-    public void OpenTranscriptLineAtCaret()
+    /// <summary>Opens the picture the caret is standing on, if the caret is standing on one.</summary>
+    public void OpenPictureAtCaret() => TryOpenPictureAt(rtbChat.SelectionStart);
+
+    /// <summary>
+    /// Opens the picture written at <paramref name="caret"/>, and says whether there was one.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the mouse so the rule - transcript furniture that is not a picture does nothing - is
+    /// answerable without a caret, a click and a window. Not by text: two photos from the same person in the
+    /// same minute have the same headline, and the file name is in the caption but not in the thumbnail, so any
+    /// text match gets one of them wrong. The span the entry was written into is the only thing that knows.
+    /// </remarks>
+    public bool TryOpenPictureAt(int caret)
     {
-        if (openable.Count == 0)
+        foreach (var span in pictures)
         {
-            return;
+            if (caret >= span.Start && caret < span.End)
+            {
+                OpenPicture(span.Picture);
+                return true;
+            }
         }
 
-        var lineIndex = rtbChat.GetLineFromCharIndex(rtbChat.SelectionStart);
-
-        if (lineIndex >= 0 && lineIndex < rtbChat.Lines.Length)
-        {
-            OpenTranscriptLine(rtbChat.Lines[lineIndex]);
-        }
+        return false;
     }
 
     /// <summary>
-    /// Opens the picture shown on a transcript line. Separate from the mouse so the rule - a line that
-    /// is not a picture does nothing - is answerable without a caret, a click and a window.
+    /// Shows the picture in its own window (F14): bigger than the transcript can be, and scalable, because the
+    /// thing a person double-clicks a thumbnail for is to see the photo.
     /// </summary>
-    public void OpenTranscriptLine(string line)
-    {
-        if (openable.GetValueOrDefault(line) is { } picture)
-        {
-            OpenPicture(picture);
-        }
-    }
-
-    /// <summary>
-    /// Puts the bytes where this machine keeps what arrived and asks the system to show them. Overridden
-    /// by tests, which have no business launching the user's photo viewer.
-    /// </summary>
+    /// <remarks>
+    /// Nothing is written to disk to do it. The bytes are already here, in the message - until now looking at a
+    /// photo in a transcript also put a copy of it in a cache folder and asked the system's photo viewer, which
+    /// is two surprises (a file nobody asked for, and a window that is not this program's) in the path of a
+    /// double click. Getting the file out is still possible and is now a thing the person asks for, on the
+    /// viewer's own Save button.
+    /// <para>
+    /// One window per picture, and a second double click on the same photo raises the window that is already
+    /// open. A person comparing two photos wants two windows; a person who double-clicked the same one three
+    /// times wants one.
+    /// </para>
+    /// </remarks>
     protected virtual void OpenPicture(PictureMessage picture)
     {
         ArgumentNullException.ThrowIfNull(picture);
 
+        var already = viewers.FirstOrDefault(v => v.Picture.Id == picture.Id);
+
+        if (already is not null)
+        {
+            if (already.WindowState == FormWindowState.Minimized)
+            {
+                already.WindowState = FormWindowState.Normal;
+            }
+
+            already.Activate();
+            return;
+        }
+
         try
         {
-            var path = ReceivedPayloads.Save(picture.FileName, picture.Id, picture.Data);
-            SetStatus(ReceivedPayloads.TryOpen(path)
-                ? $"opening {picture.FileName}"
-                : $"no viewer for it: kept in {path}");
+            var viewer = NewPictureViewer(picture);
+
+            viewers.Add(viewer);
+            viewer.FormClosed += (_, _) => viewers.Remove(viewer);
+
+            // Owned, not modal: the room keeps talking while the photo is up, and a person reading a photo
+            // while three people argue about it is the normal case, not the exception.
+            viewer.Show(this);
+
+            SetStatus($"showing {picture.FileName}");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or OutOfMemoryException or ArgumentException or NotSupportedException)
         {
-            // Not being able to write the cache is a thing to say, not a reason to lose the window.
+            // GDI+ reports an undecodable payload through most of those. The line stays in the transcript
+            // either way, and the bar says what happened instead of the window dying on a click.
             SetStatus($"could not open {picture.FileName}: {ex.Message}");
         }
     }
+
+    /// <summary>The window a picture is shown in. Overridden only so a test can build a subclass of it.</summary>
+    protected virtual PictureViewerForm NewPictureViewer(PictureMessage picture) => new(picture);
 
     // ------------------------------------------------------------- transcript
 
@@ -1100,31 +1176,61 @@ public partial class ChatForm : Form
             ? $"[{message.SentAt:HH:mm}] {message.Preview}"
             : $"[{message.SentAt:HH:mm}] {message.SenderNickname}: {message.Preview}";
 
-        rtbChat.SelectionStart = rtbChat.TextLength;
-        rtbChat.SelectionLength = 0;
-        rtbChat.SelectionColor = message.Kind == MessageKind.JOIN_LEAVE_NOTICE ? Color.Gray : SystemColors.WindowText;
-        rtbChat.AppendText(line);
+        var start = TranscriptEnd;
+        var content = TranscriptStyle.ContentColorFor(message);
+
+        // F13: the headline on its line, the message on the next, in another colour. The line break belongs to
+        // the content's colour rather than the headline's, so that selecting an entry and copying it out of the
+        // transcript carries the message in one colour rather than a stray blue newline.
+        WriteRun(TranscriptStyle.Headline(message), TranscriptStyle.HeadlineColorFor(message));
+        WriteRun(Environment.NewLine, content);
+        WriteRun(TranscriptStyle.Content(message), content);
 
         if (message is PictureMessage picture)
         {
-            // The caption is written first and the thumbnail under it, so a picture that turns out not
-            // to be a picture at all still leaves a line in the transcript (see RtfPicture).
-            openable[line] = picture;
+            // The entry's lines come first and the thumbnail under them, so a picture that turns out not
+            // to be a picture at all still leaves its entry in the transcript (see RtfPicture).
+            WriteRun(Environment.NewLine, content);
 
             if (RtfPicture.InlineFor(picture) is { } rtf)
             {
-                rtbChat.AppendText(Environment.NewLine);
                 AppendRtf(rtf);
             }
+
+            pictures.Add(new PictureSpan(start, TranscriptEnd, picture));
         }
 
-        rtbChat.AppendText(Environment.NewLine);
+        WriteRun(Environment.NewLine, content);
         rtbChat.ScrollToCaret();
 
         if (message.Kind == MessageKind.JOIN_LEAVE_NOTICE)
         {
             ShowMembers();
         }
+    }
+
+    /// <summary>
+    /// Appends text at the end of the transcript in one colour. Every byte the transcript is made of comes
+    /// through here, which is what makes “every message has a headline in one colour and its content in
+    /// another” a property of the window rather than of the messages that happened to be sent.
+    /// </summary>
+    private void WriteRun(string text, Color color)
+    {
+        rtbChat.SelectionStart = rtbChat.TextLength;
+        rtbChat.SelectionLength = 0;
+        rtbChat.SelectionColor = color;
+        rtbChat.AppendText(text);
+    }
+
+    /// <summary>
+    /// Empties the transcript and forgets where the pictures in it were. Both halves are needed: an entry that
+    /// is no longer on screen but is still in <see cref="pictures"/> would be opened by the click that lands on
+    /// whatever replaced it at that position.
+    /// </summary>
+    private void ClearTranscript()
+    {
+        rtbChat.Clear();
+        pictures.Clear();
     }
 
     /// <summary>
@@ -1156,13 +1262,33 @@ public partial class ChatForm : Form
 
     // ------------------------------------------------------------------ menu
 
-    /// <summary>Room management is host-only; clients see the menu item but cannot use it.</summary>
-    protected void SetRoomEditingEnabled(bool enabled) => renameMenuItem.Enabled = enabled;
+    /// <summary>
+    /// Room management is host-only; clients see the menu items but cannot use them. The buttons in the header
+    /// are greyed the same way (<see cref="HostForm"/>), so there is no way to ask for a room that ends in
+    /// nothing happening, and no way that is not visible.
+    /// </summary>
+    protected void SetRoomEditingEnabled(bool enabled)
+    {
+        newRoomMenuItem.Enabled = enabled;
+        renameMenuItem.Enabled = enabled;
+        deleteRoomMenuItem.Enabled = enabled;
+    }
+
+    /// <summary>
+    /// Edit ▸ New room. The base form says who can: a client is looking at somebody else's rooms, and a
+    /// request it is not allowed to make is refused in the bar rather than swallowed.
+    /// </summary>
+    protected virtual void NewRoomMenuItem_Click(object? sender, EventArgs e)
+        => SetStatus("only the host can create rooms");
 
     protected virtual void RenameMenuItem_Click(object? sender, EventArgs e)
         => SetStatus("only the host can rename rooms");
 
-    private void ClearChatMenuItem_Click(object? sender, EventArgs e) => rtbChat.Clear();
+    /// <summary>Edit ▸ Delete room. Same refusal, same reason.</summary>
+    protected virtual void DeleteRoomMenuItem_Click(object? sender, EventArgs e)
+        => SetStatus("only the host can delete rooms");
+
+    private void ClearChatMenuItem_Click(object? sender, EventArgs e) => ClearTranscript();
 
     private void AboutMenuItem_Click(object? sender, EventArgs e)
         => MessageBox.Show(
