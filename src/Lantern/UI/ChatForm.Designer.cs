@@ -216,9 +216,11 @@ partial class ChatForm
         //
         // rtbChat
         //
+        rtbChat.BackColor = Color.White;
         rtbChat.BorderStyle = BorderStyle.None;
         rtbChat.Dock = DockStyle.Fill;
         rtbChat.Font = new Font("Segoe UI", 9.75F);
+        rtbChat.ForeColor = Color.Black;
         rtbChat.Location = new Point(190, 38);
         rtbChat.Name = "rtbChat";
         rtbChat.ReadOnly = true;

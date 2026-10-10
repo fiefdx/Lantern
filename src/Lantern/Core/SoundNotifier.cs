@@ -54,10 +54,21 @@ public sealed class SoundNotifier : IDisposable
         // left alone: it is how a test counts the cues it was given.
         play = player ?? (cue =>
         {
-            if (!Muted)
+            if (Muted)
             {
-                PlayerFor(cue)?.Play();
+                return;
             }
+
+            var sound = PlayerFor(cue);
+            if (sound is null)
+            {
+                // Said out loud once, because a file that did not come with the program is otherwise
+                // indistinguishable from a machine with the volume down, and only one of those is fixable.
+                NoticedSilence($"{NameOf(cue)} is not next to Lantern");
+                return;
+            }
+
+            sound.Play();
         });
     }
 
@@ -70,6 +81,22 @@ public sealed class SoundNotifier : IDisposable
 
     /// <summary>Off for this window - the mute a person would ask for, if the menu had one yet.</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Why this window has not been able to make a noise, or null if nothing has gone wrong. The first reason
+    /// only: a notifier that complained about every message would be worse than one that says nothing.
+    /// </summary>
+    /// <remarks>
+    /// There because "the sound does not work" is otherwise undiagnosable from the outside: the cue is a fifth
+    /// of a second, it may be swallowed by an open window on somebody else's machine, and every failure here is
+    /// deliberately silent, because a chat message must never fail because of a sound card. That is right for
+    /// the message and useless for the person, so the reason is kept and the window is told once - and the bar
+    /// can say <i>no sound: message.wav is not next to Lantern</i> instead of nothing at all happening.
+    /// </remarks>
+    public string? WhySilent { get; private set; }
+
+    /// <summary>The reason in <see cref="WhySilent"/>, on the way to whoever will say it out loud.</summary>
+    public event Action<string>? CouldNotPlay;
 
     /// <summary>How many of each cue this notifier has been asked for, oldest first. Only filled in when a player was injected.</summary>
     private readonly List<SoundCue> played = [];
@@ -134,17 +161,55 @@ public sealed class SoundNotifier : IDisposable
         {
             play(cue);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // No sound card, a desktop session with no window station, a wav truncated by a bad copy. None of
-            // them is a reason a chat message fails to arrive, and none of them is worth showing a person a
-            // dialog about.
+            // them is a reason a chat message fails to arrive, and none of them is worth interrupting a person
+            // for - so the chat goes on and the window is told once, quietly, in the bar it already uses.
+            NoticedSilence($"{NameOf(cue)} could not be played ({ex.Message})");
         }
     }
 
+    /// <summary>Keeps the first reason and says it once. The window decides whether to show it; the chat never waits for an answer.</summary>
+    private void NoticedSilence(string reason)
+    {
+        lock (gate)
+        {
+            if (WhySilent is not null)
+            {
+                return;
+            }
+
+            WhySilent = reason;
+        }
+
+        try
+        {
+            CouldNotPlay?.Invoke(reason);
+        }
+        catch (Exception)
+        {
+            // A window that cannot be told about the silence is not a second reason to stop chatting.
+        }
+    }
+
+    /// <summary>The name a person can look for in the folder next to Lantern.exe.</summary>
+    private static string NameOf(SoundCue cue) => Path.GetFileName(PathFor(cue));
+
+    /// <summary>
+    /// Where the two wav files live: next to the program, so replacing a file changes the sound.
+    /// <para>
+    /// Settable for the same reason the sounds are files rather than resources - somebody may want them somewhere
+    /// of their own - and because "the sound is not next to Lantern" is a thing a window has to be able to say,
+    /// which is not testable without somewhere that has no sounds in it. Tests that move this back and forth run
+    /// one at a time, like the rest of the suite (see AssemblyInfo).
+    /// </para>
+    /// </summary>
+    public static string SoundDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "Media");
+
     /// <summary>Where a cue's sound lives: next to the program, so replacing the file changes the sound.</summary>
     public static string PathFor(SoundCue cue)
-        => Path.Combine(AppContext.BaseDirectory, "Media", cue == SoundCue.Message ? "message.wav" : "file-ready.wav");
+        => Path.Combine(SoundDirectory, cue == SoundCue.Message ? "message.wav" : "file-ready.wav");
 
     private SoundPlayer? PlayerFor(SoundCue cue)
     {
@@ -155,6 +220,8 @@ public sealed class SoundNotifier : IDisposable
                 return known;
             }
 
+            // Said by the caller, not from in here: this runs holding the gate, and whoever is told about a
+            // missing sound is a window that may be busy with something else.
             var path = PathFor(cue);
             var player = File.Exists(path) ? new SoundPlayer(path) : null;
 

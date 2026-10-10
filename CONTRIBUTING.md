@@ -74,6 +74,18 @@ A task is done only when it:
   hand the form that answer once the handler has run, happy or not — so the dialog's own guard is bypassed by the
   thing that closed it. The form's result belongs to the code that checked (`Accept()`), not to the control.
   `DialogResult.Cancel` on a Cancel button is fine and normal: nobody has to vet "I take it back".
+* **A feature the suite cannot perceive gets measured, or gets looked at.** Nothing here has ears or eyes: a cue
+  reaches the tests as a value of an enum and a colour reaches them as a symbol. So anything a person is supposed
+  to *hear* is measured in the test (`SoundNotifierTests` reads the wav's format, length and peak level), anything
+  written in the transcript is measured as a contrast ratio against the surface it sits on
+  (`TranscriptLayoutTests`), and the surface itself is compared with the other surfaces in the same window — four
+  of them are one surface. Both rules were paid for: see `docs/notes/hearing-it-and-seeing-it.md`.
+* **When in doubt, draw the window and open the picture.** A test can build a form, `Show()` it, `DrawToBitmap`
+  into a `Bitmap`, save it as a PNG in `Path.GetTempPath()` and write the path with `ITestOutputHelper` — then
+  *look at it*, and sample a pixel or two. It is the only way to know what a person sees, and it is the way the
+  grey chat area was found: about a minute of work, and it settles an argument that screenshots in a report
+  cannot. (Close the form at the end of such a test or hand the teardown over: `HostForm` asks before a host
+  quits, and `Sta.Run` now throws rather than reporting a stuck test as passing.)
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.

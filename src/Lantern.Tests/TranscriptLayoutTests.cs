@@ -218,6 +218,75 @@ public class TranscriptLayoutTests
     /// disconnects everybody) and a modal sitting in front of a test runner, which waits thirty seconds for
     /// nobody. Tests that are about closing override the asking (see <c>ClosingTheChatWindowTests</c>).
     /// </remarks>
+    [Fact]
+    public void TheTranscriptIsWrittenOnWhiteLikeTheRestOfTheWindow()
+    {
+        // A read-only text area paints itself with SystemColors.Control - the window's grey - so leaving the
+        // background alone produced a grey chatting area between a white room list, a white member list and a
+        // white message box: four surfaces, three of them alike, and the odd one out is the one everybody looks
+        // at. Reported as "the chatting area background should be white", and it was right.
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new HostForm(service);
+            form.Show();
+
+            var transcript = (RichTextBox)Find(form, "rtbChat")!;
+
+            // By value, not by reference: SystemColors.Window and Color.White are the same colour wearing
+            // different names, and a test that tells them apart is testing the CLR's colour book rather than
+            // what a person sees.
+            Assert.Equal(Color.White.ToArgb(), transcript.BackColor.ToArgb());
+            Assert.Equal(Color.Black.ToArgb(), transcript.ForeColor.ToArgb());
+            Assert.Equal(TranscriptStyle.BackgroundColor.ToArgb(), transcript.BackColor.ToArgb());
+
+            // One surface, decided once: whatever the list beside it and the box below it are painted, that is
+            // what the conversation is painted too.
+            Assert.Equal(((ListBox)Find(form, "lstRooms")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
+            Assert.Equal(((ListBox)Find(form, "lstMembers")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
+            Assert.Equal(((TextBox)Find(form, "txtMessage")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
+
+            form.Dispose();
+        });
+    }
+
+    [Fact]
+    public void EveryColourInTheTranscriptCanBeReadOnIt()
+    {
+        // The inks and the paper are pinned together, which is what makes this measurable instead of a matter of
+        // taste. 4.5:1 is the ordinary bar for text a person has to read at arm's length - and the front of a lab
+        // has a projector in it.
+        var paper = TranscriptStyle.BackgroundColor;
+
+        Readable(TranscriptStyle.ContentColor, paper, "what somebody typed");
+        Readable(TranscriptStyle.HeadlineColor, paper, "who said it, and when");
+        Readable(TranscriptStyle.NoticeContentColor, paper, "a join or leave notice");
+        Readable(TranscriptStyle.NoticeHeadlineColor, paper, "the time of a notice");
+    }
+
+    private static void Readable(Color ink, Color paper, string what)
+    {
+        var ratio = Contrast(ink, paper);
+        Assert.True(
+            ratio >= 4.5,
+            $"{what} in #{ink.ToArgb() & 0xFFFFFF:X6} on #{paper.ToArgb() & 0xFFFFFF:X6} is {ratio:F1}:1; 4.5:1 is what reading costs");
+    }
+
+    /// <summary>The WCAG contrast ratio: (lighter + 0.05) over (darker + 0.05), each channel on a linear scale.</summary>
+    private static double Contrast(Color a, Color b)
+    {
+        static double Linear(double v) => v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+
+        static double Luminance(Color c)
+            => 0.2126 * Linear(c.R / 255.0) + 0.7152 * Linear(c.G / 255.0) + 0.0722 * Linear(c.B / 255.0);
+
+        var first = Luminance(a);
+        var second = Luminance(b);
+        var (lighter, darker) = first > second ? (first, second) : (second, first);
+
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
     private static string[] TranscriptOf(Message message)
     {
         var service = new FakeChatService("Haitao");

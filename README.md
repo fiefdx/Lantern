@@ -6,7 +6,7 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.1.1.** 497 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.1.2.** 504 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
@@ -87,7 +87,7 @@ client sees all three greyed out, so no way to ask ends in silence.
 twice. Only the room you are in sees it.
 
 **How a message reads.** Who and when are on a **headline** of their own — `[2026-03-07 14:05] User 2`, in dark
-blue — and what was said starts on the line below, in the window's own text colour:
+blue — and what was said starts on the line below, in black on a white chat area:
 
 ```
 [2026-03-07 14:05] User 2
@@ -118,8 +118,13 @@ progress, at the sender too. Progress is one bar for both directions. If a folde
 comes back and another folder can be chosen — the sender does not have to send it again. A file that is only
 half there is never quietly saved under its real name.
 
-**Sound.** Two short cues: one for a new message, a different one for a file that has arrived and is ready.
-Nothing plays for your own words. If a machine must be silent, mute it — there is no in-app switch.
+**Sound.** Two cues, tellable apart with your back turned: a rising two-note for a new message, and a longer
+three-note lower down for a file that has arrived and is ready. **Only the window that receives makes the noise** —
+nothing plays for your own words — so a sender that stays quiet is not a fault. If Lantern cannot be heard at all,
+the status bar says why, once: *no sound: message.wav is not next to Lantern*. The sounds are two files in `Media\`
+beside `Lantern.exe`; replacing a file changes the sound without changing the code, and they have to be plain
+16-bit PCM, which is all Windows will play. If a machine must be silent, mute it — there is no in-app switch
+(`docs/notes/hearing-it-and-seeing-it.md`).
 
 **Leave.** File → **Quit** asks first, then the server shuts down and every client reports **connection lost**.
 The room is told when someone enters or leaves (`Cara - join this chat`, `Cara - left this chat`), and the
@@ -182,7 +187,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 497 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 504 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

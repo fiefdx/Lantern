@@ -195,6 +195,132 @@ public sealed class SoundNotifierTests
             form.Dispose();
         });
 
+    // ---------------------------------------------------- hearing it, or saying why nobody can
+
+    [Fact]
+    public void ASoundThatIsNotThereIsSaidOutLoudOnce()
+    {
+        // The file did not come with the program - a folder copied without its Media subfolder, which is exactly
+        // what happens when someone takes "just the exe" to the lab. From the chair it is indistinguishable from
+        // a muted machine, and only one of those two is fixable, so the window says which it thinks it is.
+        var empty = Path.Combine(Path.GetTempPath(), "lantern-no-sounds-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(empty);
+
+        var previousDirectory = SoundNotifier.SoundDirectory;
+        var previousMute = SoundNotifier.Muted;
+        var said = new List<string>();
+
+        try
+        {
+            SoundNotifier.SoundDirectory = empty;
+            SoundNotifier.Muted = false;   // a test runner keeps the suite quiet; this one is about being heard
+
+            using var sounds = new SoundNotifier();
+            sounds.CouldNotPlay += said.Add;
+
+            sounds.MessageArrived(Text());
+            sounds.MessageArrived(Text());
+            sounds.FileDone(Transfer());
+
+            // Once, not per message: the reason does not change between one message and the next, and a bar that
+            // repeated itself would be worse than a bar that says nothing.
+            Assert.Single(said);
+            Assert.Contains("message.wav", said[0], StringComparison.Ordinal);
+            Assert.Contains("not next to Lantern", said[0], StringComparison.Ordinal);
+            Assert.Equal(said[0], sounds.WhySilent);
+        }
+        finally
+        {
+            SoundNotifier.SoundDirectory = previousDirectory;
+            SoundNotifier.Muted = previousMute;
+            Directory.Delete(empty, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ASoundTheMachineCannotMakeIsSaidOutLoudOnce()
+    {
+        // No sound card, a session with no window station, a wav truncated by a bad copy. The message still
+        // arrives - that part of the behaviour is tested below and has not changed - but the reason the room is
+        // silent stops being invisible.
+        var said = new List<string>();
+        using var sounds = new SoundNotifier(_ => throw new InvalidOperationException("no audio in this session"));
+        sounds.CouldNotPlay += said.Add;
+
+        sounds.MessageArrived(Text());
+        sounds.FileDone(Transfer());
+
+        Assert.Single(said);
+        Assert.Contains("no audio in this session", said[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ANotifierThatCanBeNullSaysNothingAboutIt()
+    {
+        // A bar that announced "sound working" every time a message arrived would be the same noise as a bar
+        // that never says anything, and twice as annoying.
+        using var sounds = new SoundNotifier(_ => { });
+        string? said = null;
+        sounds.CouldNotPlay += reason => said = reason;
+
+        sounds.MessageArrived(Text());
+
+        Assert.Null(said);
+        Assert.Null(sounds.WhySilent);
+    }
+
+    [Fact]
+    public void AWindowThatCannotBeHeardSaysSoInItsBar()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            form.Show();
+
+            using var sounds = new SoundNotifier(_ => throw new InvalidOperationException("no audio"));
+            form.AttachSounds(sounds);
+
+            service.SimulateIncoming(new TextMessage("User 2", "Room 1", "hello", DateTime.UtcNow));
+
+            Assert.Contains("no sound", Bar(form), StringComparison.Ordinal);
+            Assert.Contains("no audio", Bar(form), StringComparison.Ordinal);
+
+            form.Dispose();
+        });
+    }
+
+    // ------------------------------------------------------------------ the files themselves
+
+    [Fact]
+    public void TheTwoSoundsAreLoudEnoughAndLongEnoughToHear()
+    {
+        // Nothing in this suite has ears: every other test here counts cues, which is why the first pair of
+        // files passed every test while being a twelfth of a second at a fifth of full scale - inaudible across
+        // a lab, which is the only room this feature is for. So the files are measured, not trusted.
+        var message = Listen(SoundCue.Message);
+        var ready = Listen(SoundCue.FileReady);
+
+        // SoundPlayer plays uncompressed PCM and nothing else; anything else throws, which the notifier now
+        // reports - and which would have been silently unfunny before.
+        Assert.Equal("PCM", message.Format);
+        Assert.Equal("PCM", ready.Format);
+        Assert.Equal(16, message.Bits);
+
+        Assert.True(message.Seconds >= 0.2, $"{message.Seconds:F2}s is too short to notice: {message.Path}");
+        Assert.True(ready.Seconds >= 0.2, $"{ready.Seconds:F2}s is too short to notice: {ready.Path}");
+
+        // Half of full scale at the loudest point. Not for loudness for its own sake: the peak is what survives
+        // a laptop speaker in a room where four people are talking.
+        Assert.True(message.Loudest >= 0.5, $"peak {message.Loudest:F2} is inaudible: {message.Path}");
+        Assert.True(ready.Loudest >= 0.5, $"peak {ready.Loudest:F2} is inaudible: {ready.Path}");
+
+        // Two cues a person can tell apart with their back turned, because the whole point of the second one is
+        // that you do not have to look at the screen to know the file arrived.
+        Assert.True(ready.Seconds > message.Seconds * 1.2,
+            "the file cue is the longer one; two sounds of the same length are one sound twice");
+    }
+
     [Fact]
     public void AWindowDoesNotGetTwoNotifiers()
     {
@@ -215,5 +341,85 @@ public sealed class SoundNotifierTests
 
             form.Dispose();
         });
+    }
+
+    // ------------------------------------------------------------------------- reading the files
+
+    /// <summary>
+    /// What a file is actually worth as a signal: how long it sounds for, how loud its loudest moment is against
+    /// full scale, and whether it is in a format Windows will play at all.
+    /// </summary>
+    private static (string Path, double Seconds, double Loudest, string Format, int Bits) Listen(SoundCue cue)
+    {
+        var path = SoundNotifier.PathFor(cue);
+        var bytes = File.ReadAllBytes(path);
+
+        Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(bytes, 0, 4));
+        Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(bytes, 8, 4));
+
+        var format = "?";
+        var bits = 0;
+        var channels = 0;
+        var rate = 0;
+        var start = 0;
+        var length = 0;
+
+        var at = 12;
+        while (at + 8 <= bytes.Length)
+        {
+            var chunk = System.Text.Encoding.ASCII.GetString(bytes, at, 4);
+            var size = BitConverter.ToInt32(bytes, at + 4);
+
+            if (chunk == "fmt ")
+            {
+                format = BitConverter.ToInt16(bytes, at + 8) switch
+                {
+                    1 => "PCM",
+                    2 => "ADPCM",
+                    3 => "IEEE float",
+                    0xff => "extensible",
+                    _ => "unknown",
+                };
+                channels = BitConverter.ToInt16(bytes, at + 10);
+                rate = BitConverter.ToInt32(bytes, at + 12);
+                bits = BitConverter.ToInt16(bytes, at + 22);
+            }
+            else if (chunk == "data")
+            {
+                start = at + 8;
+                length = size;
+            }
+
+            at += 8 + size + (size % 2);
+        }
+
+        Assert.True(rate > 0 && start > 0, $"{path} is not a wav this program can look at");
+        Assert.InRange(channels, 1, 2);
+
+        var frames = length / (bits / 8);
+        var loudest = 0.0;
+        for (var frame = 0; frame < frames; frame++)
+        {
+            var sample = Math.Abs(BitConverter.ToInt16(bytes, start + frame * 2) / (double)short.MaxValue);
+            loudest = Math.Max(loudest, sample);
+        }
+
+        return (path, frames / (double)rate, loudest, format, bits);
+    }
+
+    /// <summary>The status strip's label is a tool strip item, not a control, so it is not in Controls.</summary>
+    private static string Bar(Control form)
+    {
+        var strip = (StatusStrip)form.Controls.Find("statusStrip", searchAllChildren: true)[0];
+        return strip.Items.Cast<ToolStripItem>().Single(item => item.Name == "lblStatus").Text ?? string.Empty;
+    }
+
+    private static TextMessage Text() => new("Nadia", "Room 1", "hello", DateTime.UtcNow);
+
+    private static FileTransferJob Transfer()
+    {
+        var job = new FileTransferJob("notes.zip", 4, senderNickname: "Nadia", roomName: "Room 1");
+        job.AddBytes(4);
+        return job;
     }
 }

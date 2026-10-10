@@ -207,6 +207,12 @@ public partial class ChatForm : Form
 
         noises = sounds;
         Service.MessageReceived += (_, message) => OnUi(() => noises.MessageArrived(message));
+
+        // The one time a window is allowed to complain about its own noise. Every failure inside the notifier is
+        // swallowed on purpose - a chat message must not fail because of a sound card - which is correct for the
+        // message and hopeless for the person sitting in front of "it does not make a sound". So the reason
+        // surfaces here, once, in the bar this window already uses for answering.
+        sounds.CouldNotPlay += reason => OnUi(() => SetStatus($"no sound: {reason}"));
     }
 
     /// <summary>A service call refuses something the user asked for (duplicate name, over-long message).</summary>

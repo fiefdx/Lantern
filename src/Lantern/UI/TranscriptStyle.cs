@@ -50,19 +50,31 @@ public static class TranscriptStyle
     }
 
     // -------------------------------------------------------------- colours
+    //
+    // Every colour here is chosen against the surface below, and the surface is decided here too. That is not
+    // fastidiousness: a read-only RichTextBox paints itself with SystemColors.Control - the window's grey - so
+    // "leave it to the system" produced a grey chat area in a window whose room list and message box were white,
+    // and a colour that follows the theme is only safe next to a background that follows the same theme. Pin one
+    // and you have to pin the other. TranscriptLayoutTests measures the pair rather than trusting the intent.
+
+    /// <summary>
+    /// The surface every entry is written on: white, like the room list, the member list and the box the message
+    /// is typed in. A read-only text area does <b>not</b> default to this - it defaults to the window's grey.
+    /// </summary>
+    public static Color BackgroundColor { get; } = Color.White;
 
     /// <summary>Who and when: dark blue. Deliberately not the colour of the message.</summary>
     public static Color HeadlineColor { get; } = Color.FromArgb(0x1F, 0x4E, 0x79);
 
-    /// <summary>What was said: whatever the window's text colour is, so a transcript stays readable on any background.</summary>
-    public static Color ContentColor { get; } = SystemColors.WindowText;
+    /// <summary>What was said: black, because the transcript is a fixed white (see <see cref="BackgroundColor"/>).</summary>
+    public static Color ContentColor { get; } = Color.Black;
 
     /// <summary>
     /// A join or leave notice is not a person talking, so it is quiet: mid-grey where a person's headline
     /// would be blue. Still a different colour from its own content, because the shape of an entry does not
     /// change from message to message - one rule, read at a glance.
     /// </summary>
-    public static Color NoticeHeadlineColor { get; } = Color.FromArgb(0x7A, 0x7A, 0x7A);
+    public static Color NoticeHeadlineColor { get; } = Color.FromArgb(0x6E, 0x6E, 0x6E);
 
     /// <summary>The notice's own words, in a grey dark enough to read easily and light enough to ignore.</summary>
     public static Color NoticeContentColor { get; } = Color.FromArgb(0x40, 0x40, 0x40);
