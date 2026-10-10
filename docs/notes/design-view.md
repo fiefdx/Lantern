@@ -107,7 +107,9 @@ One caveat, and it is the kind that gets forgotten: this was measured by *simula
 not by driving Visual Studio. The probe proves the guard, the stand-in chat, the loopback transport and the six
 constructors. Only a person opening `HostForm [Design]` proves that this version of the design host is content
 with chained-free constructors, private base fields and `#nullable disable` at the top of the designer file. If
-a form still refuses, the message it gives is the answer, and it is worth reporting rather than working around.
+a form still refuses, the message it gives is the answer, and it is worth reporting rather than working around. (And on the machine this was built on, the designer host itself was
+broken by a setup run — which is a different fault from the six constructors, and is written up in
+`CONTRIBUTING.md` under *If deleting it does not help, stop looking in the checkout*.)
 
 ## The shape of the thing, said once
 

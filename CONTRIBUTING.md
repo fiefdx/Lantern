@@ -94,19 +94,51 @@ The input does not contain any JSON tokens. Expected the input to start with a v
 when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 0.
 ```
 
-it is not the form's fault and it is not Lantern's. The WinForms designer runs out of process and reads
+it is not the form's fault. The message says one thing precisely: **a dependency file was parsed empty**. The
+WinForms designer runs out of process and reads
 `src\Lantern\obj\Debug\net10.0-windows\Lantern.designer.deps.json` to learn what the project references. That
 file is an *incremental* MSBuild output (`_GenerateDesignerDepsFile`), so once it exists — even at zero bytes,
-left behind by a build that was interrupted while writing it, or a disk that filled — nothing rewrites it and
-the designer keeps reading nothing. Close the designer tab, delete the file (or all of `obj\`), build once,
-and reopen; Visual Studio regenerates it and the form opens. Confirm with the file size: a healthy one is a
-few kilobytes, a broken one is 0.
+left behind by a build interrupted while writing it, or on a disk that filled — nothing rewrites it, and the
+designer keeps reading nothing. Close the designer tab, delete the file (or all of `obj\`), build once, reopen.
+Confirm with the file size: healthy is a couple of kilobytes, broken is 0.
 
-The way to leave one behind is to run the command-line build or tests in the same checkout while Visual Studio
-has it open, and kill the run partway through — which is why the command-line verification runs in this project
-use a separate output path (`dotnet test Lantern.sln -p:OutputPath=bin/agent/`) so they do not overwrite the
-`bin\Debug` assemblies Visual Studio is running. That separates the outputs but **not** the `obj\` intermediates,
-so finish a run rather than killing it, and if you do kill one, delete the empty file before blaming the form.
+How a zero-byte one gets made: running the command-line build or tests in a checkout while Visual Studio has
+it open, and killing the run partway through — which is why the command-line verification runs here use a
+separate output path (`dotnet test Lantern.sln -p:OutputPath=bin/agent/`) so they do not overwrite the
+`bin\Debug` assemblies Visual Studio is running. That separates the outputs but **not** the `obj\`
+intermediates, so finish a run rather than killing it; and if you do kill one, delete the empty file before
+blaming the form.
+
+### If deleting it does not help, stop looking in the checkout
+
+The reported stack ends in `NetCoreServerLayout.InjectFormattersDependencyAndCache`, which is the design host
+preparing **its own** dependency files — it has not loaded anything of ours yet, so no change to Lantern's
+code, csproj or designer files can move it. Two ways to be certain rather than to argue:
+
+* Point the designer's own dependency reader at our files and read what it says. Everything Lantern produces
+  parses; only an empty file throws this message. The class is `DependencyContextJsonReader`, in
+  `Microsoft.Extensions.DependencyModel.dll` — which ships in
+  `…\CommonExtensions\Microsoft\Windows.Forms\DesignToolsServer\Common\`, next to the frame named in the trace.
+* Look at what the host copied for itself. It shadow-copies its server into
+  `%LOCALAPPDATA%\Microsoft\VisualStudio\18.0_*\WinFormsDesigner\<something>\` and must generate that copy's
+  `.deps.json` and `.runtimeconfig.json` before it can launch it. A half-built cache holds the server's
+  assemblies and **no dependency files at all** — and every later attempt reuses it and fails identically,
+  which is why the error survives deleting, rebuilding and restarting.
+
+Clear the caches and let the host rebuild them:
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\Microsoft\VisualStudio\18.0_*\WinFormsDesigner" -Recurse -Force
+Remove-Item "$env:LOCALAPPDATA\Microsoft\VisualStudio\18.0_*\Designer" -Recurse -Force
+```
+
+If they come back half-built, the extension's registration is broken and only the installer can put it right:
+**Modify → Repair, run as Administrator**. On the working machine the setup run of 8 October 2026 failed with
+`0x80070005` creating `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Update\TargetingInfo\PersistentDynamicInstalled`
+(`dd_setup_20261008205309_errors.log`), and the shadow cache it left behind contained a zero-byte file called
+`%WinFormsShadowCacheFlagFile%` — an unexpanded feature-flag token, which is what a missing targeting-info
+entry looks like from outside. The key it could not write is under HKLM, so a repair that is not elevated will
+fail in exactly the same way; and a repair wants more free space than a nearly-full system drive has to give.
 
 ## Commit messages
 
