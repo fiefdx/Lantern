@@ -13,17 +13,52 @@ namespace Lantern.Tests;
 /// </summary>
 public class DesignViewTests
 {
-    /// <summary>Every window a person might open in design view, which is every window there is.</summary>
-    public static TheoryData<Type> EveryWindow() => new()
+    /// <summary>
+    /// Every window a person might open in design view, which is every window there is. A list rather than the
+    /// test data itself so that <see cref="ThereIsNoWindowNobodyHasAskedAbout"/> can hold it up against the
+    /// assembly: a window added to the program and not to this list has never been asked whether the design
+    /// surface can open it.
+    /// </summary>
+    public static readonly Type[] Windows =
+    [
+        typeof(StartupForm),
+        typeof(ChatForm),
+        typeof(HostForm),
+        typeof(ClientForm),
+        typeof(NewRoomDialog),
+        typeof(ConfirmDialog),
+        typeof(PictureViewerForm),
+    ];
+
+    public static TheoryData<Type> EveryWindow()
     {
-        { typeof(StartupForm) },
-        { typeof(ChatForm) },
-        { typeof(HostForm) },
-        { typeof(ClientForm) },
-        { typeof(NewRoomDialog) },
-        { typeof(ConfirmDialog) },
-        { typeof(PictureViewerForm) },
-    };
+        var windows = new TheoryData<Type>();
+        foreach (var window in Windows)
+        {
+            windows.Add(window);
+        }
+
+        return windows;
+    }
+
+    /// <summary>
+    /// The list above is a list, so it can go stale, and a window missing from it is a window nobody ever asked
+    /// whether the design view can open. So the assembly is asked instead: every window in the program has to be
+    /// on the list, which is what makes the list a claim rather than a habit.
+    /// </summary>
+    [Fact]
+    public void ThereIsNoWindowNobodyHasAskedAbout()
+    {
+        var designed = Windows.AsEnumerable();
+
+        var actual = typeof(ChatForm).Assembly.GetTypes()
+            .Where(t => t.IsSubclassOf(typeof(Form)))
+            .ToList();
+
+        Assert.Equal(Windows.Length, actual.Count);
+        Assert.Empty(actual.Except(designed));   // a window that was never asked: add it, and try design view on it
+        Assert.Empty(designed.Except(actual));   // a window that has gone away: the list is now a story
+    }
 
     [Theory]
     [MemberData(nameof(EveryWindow))]

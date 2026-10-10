@@ -18,6 +18,7 @@ package "Domain model" {
     + FileName : string
     + Data : byte[]
     + ToThumbnail() : Image
+    + ToImage() : Image
   }
   class FileMessage <<message>> {
     + FileName : string

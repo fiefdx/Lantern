@@ -6,8 +6,10 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.0.** 413 automated tests, and a written end-to-end checklist for the parts only hardware can prove
-([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)).
+**v1.1.** 492 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
+grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
+inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
 
 ---
 
@@ -71,15 +73,39 @@ from last time are already in the list (`%LOCALAPPDATA%\Lantern\rooms.json`).
 **Join a chat.** Type a nickname, press **Scan**, pick the machine, press **Join**. The host's rooms appear on
 the left; choose one to be in it.
 
-**Rooms.** Only the host can change them: **New**, **Delete**, and Edit → **Rename room**. Every change is saved
-to disk immediately — not on quit — and appears in every connected client's list without anyone pressing
-anything. A client's New/Delete/Rename are greyed out, and the Edit menu says who can.
+**Rooms.** Only the host can change them, and the host does it from inside the chat: Edit → **New room**
+(Ctrl+N), **Rename room**, **Delete room** (Ctrl+D) — the **New** and **Delete** buttons in the room list's header
+do exactly the same thing, because there is one implementation of each. Making a room walks you into it; deleting
+the room you are standing in leaves the window nowhere, and saying what to do next. Every change is saved to disk
+immediately — not on quit — and appears in every connected client's list without anyone pressing anything. A
+client sees all three greyed out, so no way to ask ends in silence.
 
 **Talk.** Type in the box, press **Send** or Enter. Everyone in the room sees it; you do not see your own words
 twice. Only the room you are in sees it.
 
-**Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail, and clicking the thumbnail
-opens the file that arrived (up to 5 MB). Anything Share is given that is not an image is sent as a file instead.
+**How a message reads.** Who and when are on a **headline** of their own — `[2026-03-07 14:05] User 2`, in dark
+blue — and what was said starts on the line below, in the window's own text colour:
+
+```
+[2026-03-07 14:05] User 2
+the part I typed
+```
+
+A group chat is read as a log, and a line that carries the name, the time and the text together is a wall where
+nothing lines up. Notices (`User 3 - join this chat`) keep the same shape in two greys, because a notice is not
+somebody speaking to the room. The date is in the headline because a chat stays open across an afternoon, and
+"14:05" cannot answer "was that today?".
+
+**Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail (up to 5 MB). Anything
+Share is given that is not an image is sent as a file instead.
+
+**Looking at a picture.** **Double-click** anywhere on a photo's entry — headline, caption or thumbnail — and it
+opens in a window of its own, most of the screen, fitted to it. Scale it with **−** / **+**, the mouse wheel, or
+by double-clicking the photo; **100%** is the photo's own pixels, **Fit** suits it to the window again, and what
+you are looking at is read out as a percentage. A photo larger than the window is shown whole and scrolls; a
+small one is not invented into bigger. **Save to…** (Ctrl+S) is the only thing that puts a file on your machine —
+looking at a picture writes nothing anywhere. The same photo twice is one window, two photos are two windows, and
+closing the chat closes the photos.
 
 **Files.** Press **Share** and pick a non-image file (up to 512 MB). Everyone else in the room gets an offer
 strip naming the file, its size and who sent it — and can keep typing while they decide. **Save to…** asks for a
@@ -106,7 +132,7 @@ takes seconds on the radio's clock, so a window hands the stopping over rather t
 
 | Module | What it is | How it behaves |
 |:--|:--|:--|
-| `UI/` | The three windows (`StartupForm`, `HostForm`, `ClientForm` over the shared `ChatForm`), the dialogs, the offer strip and the status bar | Talks to nothing but `IChatService`, so every window is testable against `FakeChatService` with no sockets. Layout lives in `*.Designer.cs` files, behaviour in the `.cs` files. All service events are marshalled back on to the window's thread, and a window that throws while listening does not end the connection. Every window opens in design view: a parameterless constructor exists for the design host, and it works only there (`docs/notes/design-view.md`) |
+| `UI/` | The three windows (`StartupForm`, `HostForm`, `ClientForm` over the shared `ChatForm`), `PictureViewerForm`, the dialogs, `TranscriptStyle`, the offer strip and the status bar | Talks to nothing but `IChatService`, so every window is testable against `FakeChatService` with no sockets. Layout lives in `*.Designer.cs` files, behaviour in the `.cs` files. All service events are marshalled back on to the window's thread, and a window that throws while listening does not end the connection. Every window opens in design view: a parameterless constructor exists for the design host, and it works only there (`docs/notes/design-view.md`) |
 | `Core/` | `ChatServer`, `ChatClient`, `ClientState`, `HostChatService`, `ServerBrowser`, `SoundNotifier`, `FileTransfer`, `IChatService`, `FakeChatService` | The engine: who is in which room, what gets relayed to whom, what is refused and why. Decisions are made synchronously and I/O is async; nothing on this side of the line knows whether the bytes are moving over Bluetooth or localhost |
 | `Domain/` | `Message` hierarchy (`TextMessage`, `PictureMessage`, `FileMessage`, `SystemMessage`), `Room`, `User`, `FileTransferJob`, `ValidationRules`, `FileSize`, `Attachments` | What the program talks *about*, with the rules in it — the 16-character nickname, 24-character room name, 500-character message, 5 MB picture — so the same words come out of the frames and out of the transcript |
 | `Storage/` | `IRoomStore` / `JsonRoomStore` (`rooms.json`, one `id` per room), `IKnownHosts` / `JsonKnownHostsStore` (`known-hosts.json`), `ReceivedPayloads` | Everything lands in `%LOCALAPPDATA%\Lantern\`. A save is written to `rooms.json.tmp` and then moved onto the file, so a power cut mid-write leaves the previous list intact. Incoming files are spooled to disk as they arrive, not held in memory |
@@ -153,7 +179,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 454 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 492 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no
@@ -167,6 +193,7 @@ radio, no pairing and no second machine. `docs/testing/` holds the sheets that o
 | [m5-manual-checklist.md](docs/testing/m5-manual-checklist.md) | pictures, files, sounds |
 | [m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md) | **the six use-case scenarios, signed off by a non-author** |
 | [v1-demo-script.md](docs/testing/v1-demo-script.md) | the eight-minute class demo: who drives what, and the fallback plan |
+| [v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md) | the v1.1 window work: reading the transcript, looking at a photo, rooms from the menu |
 
 Module notes — what each task was for, what was learned, and what was got wrong first — are in
 [docs/notes/](docs/notes/). The specification is [docs/PROJECT_PROPOSAL.md](docs/PROJECT_PROPOSAL.md), the task
@@ -184,3 +211,4 @@ working rules (branch policy, module owners, Definition of Done) are in [CONTRIB
 | M4 | Real Bluetooth transport | done in code; the two-laptop field test (m4, m6 📶 steps) needs the lab booked |
 | M5 | Pictures, file transfer, sounds | done |
 | M6 | Hardening, testing, release (`v1.0`) | done — the sign-off table in the end-to-end sheet is the last thing to fill |
+| M7 | The group window, after v1.0 (`v1.1`) | done over loopback; the two-laptop checks of the same window are on the v1.1 sheet |

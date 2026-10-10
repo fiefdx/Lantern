@@ -36,6 +36,11 @@ Then each window asks it, in the argument list, so nothing is built if the answe
 | `StartupForm` | `Transports.ForStartup(Loopback)` and **no** known-hosts file | unchanged — this is the production entry point |
 | `ConfirmDialog` | `"Confirm"` / `"Are you sure?"` | `InvalidOperationException`, naming `ConfirmQuit` and friends |
 | `NewRoomDialog` | `"New Room"`, empty | **works** — an empty room to name is a sensible thing to build |
+| `PictureViewerForm` | a `PictureMessage` made on the spot: a blue band with *Lantern* written on it | `InvalidOperationException`, saying the window has to be handed a picture |
+
+`PictureViewerForm` arrived in v1.1 and joined the rule without discussion, which is the point of writing this down: a
+new window that forgot the parameterless constructor would fail `ThereIsNoWindowNobodyHasAskedAbout`, which asks the
+assembly how many windows there are and compares that with the list above.
 
 **The designer's door is not a program's door.** Every constructor that used to be the only way in still is the
 only way in from the program's side; the invariant "a window that exists has a chat to talk to" is now kept by

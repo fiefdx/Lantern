@@ -27,12 +27,18 @@ package "UI layer  (WinForms)" {
     # btnShare : Button
     # lblStatus : ToolStripStatusLabel
     # service : IChatService
+    - pictures : List of PictureSpan
     + OnSendClick()
     + OnShareClick()
     + OnRoomChanged()
+    + TryOpenPictureAt(caret : int)
     + ConfirmQuit()
+    # Append(m : Message)
     # BindServiceEvents()
     # RunOnUiThread(a : Action)
+    # NewRoomMenuItem_Click()
+    # DeleteRoomMenuItem_Click()
+    # RenameRoomMenuItem_Click(name)
   }
 
   class HostForm <<form>> {
@@ -45,6 +51,23 @@ package "UI layer  (WinForms)" {
 
   class ClientForm <<form>> {
     - btnLeave : Button
+  }
+
+  ' v1.1: what a transcript entry looks like, and where a photo goes when it is opened
+  class TranscriptStyle <<static>> {
+    + {static} Headline(sentAt, sender) : string
+    + {static} Content(entry) : string
+    + {static} HeadlineColour, ContentColour : Color
+    + {static} NoticeTimeColour, NoticeColour : Color
+  }
+
+  class PictureViewerForm <<form>> {
+    - picture : PictureBox
+    - scale : double
+    + ShowZoom()
+    + ZoomIn() / ZoomOut()
+    + FitToWindow() / ActualSize()
+    + SaveToDisk()
   }
 
   class NewRoomDialog <<dialog>> {
@@ -63,6 +86,7 @@ package "UI layer  (WinForms)" {
     + {static} IsHosting() : bool
     + {static} ChatService(isHost : bool, window : string) : IChatService
     + {static} Confirmation(window : string) : (string, string)
+    + {static} Picture() : PictureMessage
     + {static} Transport() : ITransportFactory
     + {static} KnownHosts() : IKnownHosts?
   }
@@ -152,8 +176,10 @@ StartupForm ..> ChatForm : opens HostForm or ClientForm
 StartupForm ..> ChatServer : role = host
 StartupForm ..> ChatClient : role = client
 StartupForm ..> ServerBrowser : "Scan"
-HostForm ..> NewRoomDialog : "New"
+HostForm ..> NewRoomDialog : "New" and Edit > New room
 HostForm ..> ConfirmDialog : before deleting a room
+ChatForm ..> TranscriptStyle : lays out every entry with
+ChatForm --> PictureViewerForm : a double click on a photo's span
 ChatForm o--> IChatService : never touches Bluetooth
 StartupForm ..> DesignTime : loopback, no history, while drawn
 ChatForm ..> DesignTime : a stand-in chat, only while drawn
@@ -177,6 +203,11 @@ note top of ChatForm
   Events arrive from a background read loop, so every handler uses
   RunOnUiThread (Control.Invoke / IProgress~Double~). Send and Share
   are disabled while a Task is in flight to stop double sends.
+
+  Since v1.1 an entry is a headline over its content, so a picture
+  is recorded by the character span it was written into: the click
+  knows only the text at the caret, and two photos from one sender
+  in one minute have identical headlines.
 end note
 
 note bottom of DesignTime

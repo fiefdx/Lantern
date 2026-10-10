@@ -31,6 +31,7 @@ A task is done only when it:
 | **M4** | Real Bluetooth transport | Host + client chat over real Bluetooth | Week 4–5 |
 | **M5** | Pictures, file transfer, sounds | Picture inline + file with progress + sound | Week 5–6 |
 | **M6** | Hardening, testing, release | Full walkthrough of use cases 1–6, tag `v1.0` | Week 6–7 |
+| **M7** | The group window, after v1.0 | A transcript that reads as a log; a photo you can actually look at | Week 8 (after the class demo) |
 
 **Key strategy:** the transport sits behind `IBtServer` / `IBtClient` /
 `IClientLink`, and the UI only talks to `IChatService`. This lets us build and
@@ -163,6 +164,40 @@ core logic.
 
 ---
 
+## M7 — The Group Window, After v1.0
+
+Asked for once v1.0 was in people's hands, and all three are one window: the transcript, the picture and the
+room list. The wire is untouched, so a v1.1 host still needs a v1.1 client and nothing more.
+
+- [x] **T7.1 [UI]** Message layout (F13): every message gets a **headline** — date, time and sender — on a line
+  of its own, and the message itself starts on the line below, in a different colour. Decided once in
+  `TranscriptStyle` and painted by `ChatForm`, because the same code draws typed messages, pictures, files,
+  join/leave notices and the welcome line nobody sent, and rebuilds the lot from a room's history on every room
+  switch.
+- [x] **T7.2 [UI]** Picture viewer (F14): double-clicking a photo opens `PictureViewerForm` — most of the screen,
+  fitted to it, scalable by buttons, wheel, `+`/`-`/`0`/`F` or double-clicking the photo; the scale read out as a
+  percentage; a photo bigger than the window scrolls rather than cropping. One window per photo, owned by the
+  chat window. **Save to…** is the only thing that writes a file: looking at a picture used to drop a copy in app
+  data and hand it to the system photo viewer.
+- [x] **T7.3 [UI]** Room management in the group (F5): Edit gains **New room** (Ctrl+N) and **Delete room**
+  (Ctrl+D) beside **Rename room**, host-only on both windows, calling exactly what the header buttons call.
+  Creating a room walks the host into it.
+- [x] **T7.4 [QA]** Tests: `TranscriptLayoutTests` (the window keeps the layout; colours read back out of the
+  `RichTextBox`; a rebuilt transcript is laid out like a live one), `PictureViewerTests` (the scale reaches the
+  control that paints; both ends of the range; looking writes no file; one window per photo; closing the chat
+  closes the photos; saving writes what it was given), and the room-menu cases in `RoomManagementUiTests`.
+
+> Two things this milestone settled about itself. A double click can no longer be answered from the transcript's
+> **text** — an entry is two or three lines now, two photos from one sender in one minute have identical
+> headlines, and a file name is in the caption but not in the thumbnail — so each picture's character **span** is
+> recorded and a click asks which span it fell in (spans survive word wrap, line numbers do not). And
+> `Sta.Run` was reporting success for a UI body that never finished: thirty seconds on a stuck thread and then a
+> pass, which is how a test sitting in front of a modal nobody will click looked like a test that worked. It
+> throws now. Note: `docs/notes/T7.1-T7.3-the-group-window-grows-up.md`; sheet
+> `docs/testing/v1.1-group-window-checklist.md`.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |
@@ -171,8 +206,9 @@ core logic.
 | F2 Bluetooth networking | M4 | | F8 File transfer | M5 |
 | F3 Server discovery | M4 | | F9 Room persistence (rooms.json) | M3 |
 | F4 Nickname | M0/M2 | | F10 Sound notification | M5 |
-| F5 Room management (host) | M3 | | F11 Join/leave notices | M2 |
+| F5 Room management (host) | M3, M7 (menu) | | F11 Join/leave notices | M2 |
 | F6 Room list & switching | M2–M3 | | F12 Room member list | M2 |
+| F13 Message layout (headline over content) | M7 | | F14 Picture viewer with scaling | M7 |
 
 ---
 

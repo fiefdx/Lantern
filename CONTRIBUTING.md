@@ -135,10 +135,18 @@ Remove-Item "$env:LOCALAPPDATA\Microsoft\VisualStudio\18.0_*\Designer" -Recurse 
 If they come back half-built, the extension's registration is broken and only the installer can put it right:
 **Modify → Repair, run as Administrator**. On the working machine the setup run of 8 October 2026 failed with
 `0x80070005` creating `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Update\TargetingInfo\PersistentDynamicInstalled`
-(`dd_setup_20261008205309_errors.log`), and the shadow cache it left behind contained a zero-byte file called
-`%WinFormsShadowCacheFlagFile%` — an unexpanded feature-flag token, which is what a missing targeting-info
-entry looks like from outside. The key it could not write is under HKLM, so a repair that is not elevated will
-fail in exactly the same way; and a repair wants more free space than a nearly-full system drive has to give.
+(`dd_setup_20261008205309_errors.log`). The key it could not write is under HKLM, so a repair that is not
+elevated fails the same way; and a repair wants more free space than a nearly-full system drive has to give.
+
+Clearing the caches did in the end fix it: the rebuilt shadow cache has its `DesignToolsServer.deps.json` and
+`.runtimeconfig.json`, which the half-built one did not. So the order in this section is the order that worked.
+
+Something said while it was still being diagnosed, corrected here so the note stays trustworthy: the broken cache
+also held a zero-byte file called `%WinFormsShadowCacheFlagFile%`, which looked like an unexpanded feature-flag
+token and so looked like the cause. The **healthy** cache contains the same file, unchanged. It is Visual Studio
+being untidy — not the fault. The lesson belongs with the rules above: a symptom is evidence only once something
+else has ruled it out, and a cache that is *missing a file* is evidence in a way that a cache with an odd file in
+it is not.
 
 ## Commit messages
 
