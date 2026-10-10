@@ -64,6 +64,16 @@ A task is done only when it:
   `InvalidOperationException` anywhere else. `DesignTime` is the only place that
   question is asked; do not answer it a second time inside a window, and do not
   widen a constructor to dodge it — `DesignViewTests` keeps both halves.
+* **If a control answers what somebody types, the wiring is part of the design and the test types into it.**
+  A greyed button and a line of red are claims about the text in the box *now*, so they are only true as long as
+  something re-runs the rules on every keystroke — and `TextChanged` sitting unwired in `InitializeComponent()`
+  is invisible to a test that sets a property that happens to validate on the way in. Type one character at a
+  time through `SelectedText`; see `NewRoomDialogTests.TypeInto` and
+  `docs/notes/typing-in-the-room-name-dialog.md`, which is where that rule was paid for.
+* **No `DialogResult` on a button whose click handler can refuse.** A button that carries one has the framework
+  hand the form that answer once the handler has run, happy or not — so the dialog's own guard is bypassed by the
+  thing that closed it. The form's result belongs to the code that checked (`Accept()`), not to the control.
+  `DialogResult.Cancel` on a Cancel button is fine and normal: nobody has to vet "I take it back".
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.

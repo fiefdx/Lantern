@@ -6,7 +6,7 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.1.** 492 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.1.1.** 497 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
@@ -75,8 +75,11 @@ the left; choose one to be in it.
 
 **Rooms.** Only the host can change them, and the host does it from inside the chat: Edit → **New room**
 (Ctrl+N), **Rename room**, **Delete room** (Ctrl+D) — the **New** and **Delete** buttons in the room list's header
-do exactly the same thing, because there is one implementation of each. Making a room walks you into it; deleting
-the room you are standing in leaves the window nowhere, and saying what to do next. Every change is saved to disk
+do exactly the same thing, because there is one implementation of each. A name that will not do is refused **as
+you type it** — the reason appears under the box and **OK stays greyed until the name is usable**, then lights up
+(the dialog used to sit greyed however good the name was: `docs/notes/typing-in-the-room-name-dialog.md`). Making
+a room walks you into it; deleting the room you are standing in leaves the window nowhere, and saying what to do
+next. Every change is saved to disk
 immediately — not on quit — and appears in every connected client's list without anyone pressing anything. A
 client sees all three greyed out, so no way to ask ends in silence.
 
@@ -179,7 +182,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 492 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 497 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

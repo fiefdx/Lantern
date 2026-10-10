@@ -51,6 +51,7 @@ partial class NewRoomDialog
         txtRoomName.Name = "txtRoomName";
         txtRoomName.Size = new Size(274, 23);
         txtRoomName.TabIndex = 1;
+        txtRoomName.TextChanged += TxtRoomName_TextChanged;
         txtRoomName.KeyDown += TxtRoomName_KeyDown;
         //
         // lblError
@@ -66,7 +67,6 @@ partial class NewRoomDialog
         // btnOk
         //
         btnOk.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-        btnOk.DialogResult = DialogResult.OK;
         btnOk.Location = new Point(220, 66);
         btnOk.Name = "btnOk";
         btnOk.Size = new Size(75, 26);
