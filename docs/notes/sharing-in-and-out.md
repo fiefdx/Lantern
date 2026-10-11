@@ -69,6 +69,26 @@ bar — a real percentage beats a moving stripe — and the photo's line comes b
 
 That is the whole honest menu for a single frame. The alternative was to make the number up.
 
+## No test had ever opened the menu
+
+Reported after the commit: *right-click an image, no menu*. It could not be reproduced in a live window — a real
+`WM_CONTEXTMENU` sent to the transcript raised the menu over a received photo, over a photo this window sent,
+before and after a room switch — and yet the suite had eight tests over this feature and not one of them had ever
+shown the menu.
+
+That is the same hole v1.1.1 reported, in different clothes. `CanSaveSharedAt(caret)` answers the *rule*, and says
+nothing about whether a menu is attached to the control, wired to the handler, or cancelled on its way out.
+`DesignViewTests` builds every window and would not notice a transcript with no menu at all. Four tests now send
+the message a mouse sends and assert on the popup: it appears over a photo and says *Save picture to…*, it appears
+over a file that arrived and says *Save file to…*, it does not appear over a sentence, and a caret on the line
+break that ends an entry counts as that entry.
+
+Which is also why the hit test changed. A click a hair past the end of a caption line, or just under a thumbnail,
+lands on the line break that ends the entry — and a menu that refuses across a two pixel gap is read as an
+inability, not as precision. So the menu now takes any caret on a line that begins inside the entry, and still
+nothing below the last line. The double click keeps its stricter rule on purpose: a photo opened that nobody
+clicked is worse than nothing, while a menu that agrees a line belongs to its entry is not guessing.
+
 ## Two things the harness got wrong
 
 **A test that only `await`s does not pump the window's queue.** A save finishes on a worker thread and posts its

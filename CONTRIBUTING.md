@@ -97,6 +97,13 @@ A task is done only when it:
   refused partway through a run of five hundred windows. "Bigger than the window" is a property of the window, so
   the test makes the window 600 pixels wide and the photo 1400 — same claim, one thirteenth the memory, and no
   dependence on how big somebody's monitor is. A test that fails only in company gets deleted as flaky.
+* **The last metre of an affordance gets one test.** A rule answered by a method is not the same thing as a menu
+  being attached, a handler being wired, or a shortcut reaching the control. Something has to raise the real thing:
+  `PerformClick()` on a shown form for a button, `ProcessCmdKey`/`SendKeys` for a shortcut, and for a context menu
+  a `WM_CONTEXTMENU` posted to the control with the popup's `Visible` and its item text asserted
+  (`SharedThingsTests.RightClickOn`). Twice now a shipped defect sat in exactly this gap — a dialog's OK button no
+  test had ever clicked (v1.1.1), and a save menu no test had ever opened (v1.2) — while every test over the same
+  feature was green.
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.

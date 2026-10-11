@@ -1208,10 +1208,29 @@ public partial class ChatForm : Form
 
     private FileSpan? pointedFile;
 
-    /// <summary>Which shared entry a position in the transcript falls in, if any.</summary>
+    /// <summary>
+    /// Which shared entry a position in the transcript falls in, if any.
+    /// </summary>
+    /// <remarks>
+    /// The entry's own characters, and also a caret sitting on a line that begins inside the entry: somebody
+    /// aiming at the end of a short caption, or just under a thumbnail, lands on the line break that ends the
+    /// entry, and a menu that refuses across a two pixel gap is read as “this program cannot do it”. The double
+    /// click keeps the stricter rule (<see cref="TryOpenPictureAt"/>) on purpose - opening a photo nobody clicked
+    /// on is worse than doing nothing, whereas a menu that appears where the entry's line still is, is.
+    /// </remarks>
     private (PictureSpan? Picture, FileSpan? File) SharedAt(int caret)
-        => (pictures.LastOrDefault(s => caret >= s.Start && caret < s.End),
-            files.LastOrDefault(s => caret >= s.Start && caret < s.End));
+    {
+        var lineStart = caret >= 0 && caret < rtbChat.TextLength
+            ? rtbChat.GetFirstCharIndexFromLine(rtbChat.GetLineFromCharIndex(caret))
+            : -1;
+
+        bool Belongs(int start, int end) =>
+            caret >= start && caret < end
+            || (lineStart >= start && lineStart < end && caret < rtbChat.TextLength);
+
+        return (pictures.LastOrDefault(s => Belongs(s.Start, s.End)),
+            files.LastOrDefault(s => Belongs(s.Start, s.End)));
+    }
 
     /// <summary>
     /// True when this window could put the bytes behind an entry somewhere else - which needs the bytes, which
@@ -1225,8 +1244,14 @@ public partial class ChatForm : Form
 
     private void CtxTranscript_Opening(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        (pointedPicture, pointedFile) = SharedAt(rtbChat.GetCharIndexFromPosition(
-            rtbChat.PointToClient(Cursor.Position)));
+        // Where the mouse is, unless the menu was raised some other way (the keyboard's menu key, a touch and
+        // hold), in which case the caret is the only thing that knows what was pointed at.
+        var point = rtbChat.PointToClient(Cursor.Position);
+        var caret = rtbChat.ClientRectangle.Contains(point)
+            ? rtbChat.GetCharIndexFromPosition(point)
+            : rtbChat.SelectionStart;
+
+        (pointedPicture, pointedFile) = SharedAt(caret);
 
         savePayloadMenuItem.Text = pointedPicture is not null ? "Save picture to…" : "Save file to…";
         savePayloadMenuItem.Enabled = pointedPicture is not null || CameIn(pointedFile);

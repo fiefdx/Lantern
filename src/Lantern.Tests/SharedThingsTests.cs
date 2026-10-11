@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Lantern.Core;
 using Lantern.Domain;
 using Xunit;
@@ -270,6 +271,106 @@ public sealed class SharedThingsTests
             Assert.Single(Directory.GetFiles(folder));
         });
 
+    // ---------------------------------------------------------------- the mouse
+    //
+    // These four drive a right click the way a mouse does - WM_CONTEXTMENU to the window, which is what makes
+    // WinForms raise the menu attached to the control. Nothing else in the suite goes down that path, and that
+    // is the whole reason "the tests are green" and "no menu appears" were able to be true at the same time:
+    // CanSaveSharedAt answers the rule, and says nothing about whether a menu is attached to anything, wired up,
+    // or cancelled on the way out.
+
+    [Fact]
+    public void ARightClickOnASharedPictureShowsTheSaveMenu()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Sharing(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", OnePixelPng));
+
+            var menu = RightClickOn(form, "sunset.png");
+
+            Assert.True(menu.Visible, "right-clicking a photo in the transcript puts a menu up");
+            Assert.Equal("Save picture to…", menu.Items[0].Text);
+            Assert.True(menu.Items[0].Enabled);
+
+            menu.Close();
+        });
+    }
+
+    [Fact]
+    public void ARightClickOnAFileThatArrivedOffersToSaveIt()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao")
+            {
+                FilesCompleteImmediately = false,
+            };
+
+            using var form = new Sharing(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+
+            var job = service.SimulateIncomingFile("notes.txt", 4_096);
+            service.AdvanceFile(job, 4_096);
+
+            var menu = RightClickOn(form, "notes.txt");
+
+            Assert.True(menu.Visible, "a file that came in can be saved from where it is written");
+            Assert.Equal("Save file to…", menu.Items[0].Text);
+
+            menu.Close();
+        });
+    }
+
+    [Fact]
+    public void ARightClickOnAnOrdinarySentenceShowsNoMenuAtAll()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Sharing(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new TextMessage("User 2", "Room 1", "hello there"));
+
+            var menu = RightClickOn(form, "hello there");
+
+            // Not a greyed item: nothing. The window knows exactly what was right-clicked.
+            Assert.False(menu.Visible);
+        });
+    }
+
+    [Fact]
+    public void ARightClickBelowTheLastEntryBelongsToNobody()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Sharing(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", OnePixelPng));
+
+            var rtb = (RichTextBox)Find(form, "rtbChat")!;
+
+            // The line break that ends the photo's own entry still counts as the photo - a click a hair past a
+            // caption is a click on that line, and a menu that refuses across two pixels is read as an inability.
+            Assert.True(form.CanSaveSharedAt(rtb.TextLength - 1));
+
+            // Below everything, where the empty part of the window is, nothing is offered: no entry there, and a
+            // menu that guesses which photo was meant is a photo opened that nobody clicked.
+            Assert.False(form.CanSaveSharedAt(rtb.TextLength));
+        });
+    }
+
     // ------------------------------------------------------------------ harness
 
     private sealed class Sharing : Lantern.UI.HostForm
@@ -317,6 +418,37 @@ public sealed class SharedThingsTests
     /// before it looks.
     /// </para>
     /// </summary>
+    private const int WM_CONTEXTMENU = 0x007B;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>
+    /// Right-clicks the transcript where the given text is, and hands back the menu that belongs to it.
+    /// </summary>
+    private static ContextMenuStrip RightClickOn(Control form, string text)
+    {
+        var rtb = (RichTextBox)Find(form, "rtbChat")!;
+        var index = Transcript(form).IndexOf(text, StringComparison.Ordinal);
+        Assert.True(index >= 0, $"there is no {text} in the transcript to click on");
+
+        var onScreen = rtb.PointToScreen(rtb.GetPositionFromCharIndex(index));
+
+        // The menu asks where the mouse is, so the mouse has to be there - the same question the running program
+        // answers, answered with the same information.
+        Cursor.Position = onScreen;
+
+        PostMessage(rtb.Handle, WM_CONTEXTMENU, rtb.Handle, (onScreen.Y << 16) | (onScreen.X & 0xFFFF));
+
+        for (var i = 0; i < 12; i++)
+        {
+            Application.DoEvents();
+            Thread.Sleep(25);
+        }
+
+        return rtb.ContextMenuStrip ?? throw new InvalidOperationException("the transcript has no menu attached");
+    }
+
     private static async Task TheWindowCatchingUpAsync()
     {
         for (var i = 0; i < 10; i++)
