@@ -173,8 +173,14 @@ public class PictureViewerTests
     {
         Sta.Run(() =>
         {
-            using var viewer = new PictureViewerForm(new PictureMessage("User 2", "Room 1", "huge.png", Png(4000, 3000)));
+            // "Bigger than the window" is the property, and the window is the thing this test controls. It used
+            // to be written the other way round - a 4000 × 3000 photo, hoping no screen was that wide - which
+            // allocated 48 MB of GDI+ and was refused partway through a run of five hundred other tests that had
+            // each made a window. A test that passes alone and fails in a crowd gets deleted as flaky, so now the
+            // window is made small and the photo merely large.
+            using var viewer = new PictureViewerForm(new PictureMessage("User 2", "Room 1", "huge.png", Png(1400, 900)));
             viewer.Show();
+            viewer.Width = 600;
 
             var panel = (Panel)Find(viewer, "pnlImage")!;
             var picture = (PictureBox)Find(viewer, "picImage")!;
@@ -185,7 +191,7 @@ public class PictureViewerTests
 
             // One to one means the whole photo is there, the part outside the window included - not a crop of
             // the middle of it.
-            Assert.Equal(4000, picture.Width);
+            Assert.Equal(1400, picture.Width);
             Assert.True(picture.Width > panel.ClientSize.Width);
         });
     }

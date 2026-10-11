@@ -67,6 +67,31 @@ public partial class ChatForm : Form
     /// </summary>
     private readonly List<PictureSpan> pictures = new();
 
+    /// <summary>Where each file's entry was written, for the same reason pictures are tracked: a right click has to know what it landed on.</summary>
+    private readonly List<FileSpan> files = new();
+
+    private sealed record FileSpan(int Start, int End, FileMessage File);
+
+    /// <summary>
+    /// Every transfer this window has seen, either way, by id.
+    /// <para>
+    /// The progress bar belongs to whichever file is furthest ahead and forgets the others; a transcript entry
+    /// does not forget, and outlives the bar. So the entry keeps its own handle on the job - which is what makes
+    /// "save that file to my folder" work ten minutes after it arrived, or while a second file is using the bar.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<Guid, FileTransferJob> transfers = [];
+
+    /// <summary>
+    /// Where each file this window received has already been written, by transfer id.
+    /// <para>
+    /// Without it, saving the same entry twice writes the file twice and says “saved” twice, and asking for a
+    /// file that was declined writes nothing and says nothing. Both of those are the window being quiet about a
+    /// thing the person can only discover by looking in the folder.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<Guid, string> savedTo = [];
+
     /// <summary>One picture message, and the span of transcript it occupies: from its first character to just past its last.</summary>
     private sealed record PictureSpan(int Start, int End, PictureMessage Picture);
 
@@ -679,12 +704,24 @@ public partial class ChatForm : Form
 
         var picture = new PictureMessage(Service.Nickname, room.Name, file.Name, bytes);
 
-        await RunAsync(async () =>
+        // The bar goes up before the await, because the wait is the thing worth showing: over a radio these
+        // bytes are a minute of otherwise motionless window, and a window that sits still for a minute is
+        // asked about. It comes down whatever the send did, so a refusal cannot leave a bar running.
+        BeginPictureUpload(file.Name, bytes.LongLength);
+
+        try
         {
-            await Service.SendAsync(picture);
-            Append(picture);
-            SetStatus($"sent {file.Name}");
-        });
+            await RunAsync(async () =>
+            {
+                await Service.SendAsync(picture);
+                Append(picture);
+                SetStatus($"sent {file.Name}");
+            });
+        }
+        finally
+        {
+            EndPictureUpload();
+        }
     }
 
     /// <summary>
@@ -789,6 +826,7 @@ public partial class ChatForm : Form
     private void Track(FileTransferJob job)
     {
         inFlight.Add(job);
+        transfers[job.Id] = job;
 
         _ = job.Finished.ContinueWith(
             _ => OnUi(() => FileFinished(job)),
@@ -815,6 +853,14 @@ public partial class ChatForm : Form
             inFlight.RemoveAll(j => !Moving(j));
             accepted.RemoveAll(j => !Moving(j));
 
+            // A picture that is still going out owns the bar when no file does - a moving bar and a count of
+            // seconds, which is all a single frame can be. A file's real percentage takes the bar when both.
+            if (uploading is not null)
+            {
+                ShowUploadLabel();
+                return;
+            }
+
             progressFile.Visible = false;
             lblFileProgress.Visible = false;
             btnFileStop.Visible = false;
@@ -825,17 +871,83 @@ public partial class ChatForm : Form
 
         var others = inFlight.Count(j => Moving(j) && j != shown);
 
+        progressFile.Style = ProgressBarStyle.Continuous;
         progressFile.Value = (int)Math.Round(shown.Fraction * progressFile.Maximum);
         progressFile.Visible = true;
 
-        lblFileProgress.Text = $"{shown.FileName} {shown.Fraction:P0}"
-            + (accepted.Contains(shown) ? ", saving" : string.Empty)
+        // Which way it is going, how far it has got and how big it is - in that order, because the first
+        // question asked of a progress bar is "am I sending this or receiving it", and a bare percentage
+        // answers none of them. Over a radio the name alone can sit there for a minute.
+        lblFileProgress.Text = $"{Direction(shown)} {shown.FileName} {shown.Fraction:P0}"
+            + $" - {FileSize.Describe(shown.BytesDone)} of {FileSize.Describe(shown.SizeBytes)}"
             + (others > 0 ? $" (+{others})" : string.Empty);
         lblFileProgress.Visible = true;
 
         // Stopping is offered in both directions. Half of a file is worth stopping whether it was coming or
         // going, and the person who notices is the one holding the mouse.
         btnFileStop.Visible = true;
+    }
+
+    /// <summary>Which way a file is moving, from this window's point of view, in the two words a person wants.</summary>
+    private string Direction(FileTransferJob job) => accepted.Contains(job)
+        ? "saving"
+        : string.Equals(job.SenderNickname, Service.Nickname, StringComparison.Ordinal) ? "sending" : "receiving";
+
+    // ----------------------------------------------------------- a picture in flight
+    //
+    // A picture is not chunked: its bytes are the message, and they travel in one frame. So there is no fraction
+    // to report - not laziness, but a fact about the wire, and the honest thing to show is that something is
+    // happening and how long it has been happening. A 5 MB photo over Bluetooth is a minute of otherwise silent
+    // window, which reads as a crash to anyone who has not sent one before.
+
+    /// <summary>The picture this window is pushing out, or null when it is not pushing one.</summary>
+    private (string Name, long Bytes)? uploading;
+
+    private DateTime uploadStarted;
+
+    /// <summary>Starts the bar for a picture being sent. Nothing else knows it is happening; see <see cref="EndPictureUpload"/>.</summary>
+    private void BeginPictureUpload(string name, long bytes)
+    {
+        uploading = (name, bytes);
+        uploadStarted = DateTime.Now;
+        timerProgress.Start();
+        ShowUploadLabel();
+    }
+
+    /// <summary>Takes the picture's bar down - unless a file has taken the bar over in the meantime, which is its own news.</summary>
+    private void EndPictureUpload()
+    {
+        uploading = null;
+
+        if (!inFlight.Any(Moving))
+        {
+            progressFile.Visible = false;
+            lblFileProgress.Visible = false;
+            timerProgress.Stop();
+        }
+    }
+
+    /// <summary>
+    /// The line beside the moving bar while a picture is going out: its name, its size and the seconds so far.
+    /// The seconds are the useful part - they are the difference between a working machine and a stopped one.
+    /// </summary>
+    private void ShowUploadLabel()
+    {
+        if (uploading is not { } shot)
+        {
+            return;
+        }
+
+        lblFileProgress.Text = $"sending {shot.Name} - {FileSize.Describe(shot.Bytes)}"
+            + $" - {(int)Math.Round((DateTime.Now - uploadStarted).TotalSeconds)} s";
+        lblFileProgress.Visible = true;
+
+        progressFile.Style = ProgressBarStyle.Marquee;
+        progressFile.Visible = true;
+
+        // Stopping one frame halfway is not a thing the wire can do, so no Stop button is offered: a button
+        // that cannot stop anything is worse than no button.
+        btnFileStop.Visible = inFlight.Any(Moving);
     }
 
     private void FileFinished(FileTransferJob job)
@@ -952,7 +1064,14 @@ public partial class ChatForm : Form
         try
         {
             await Service.SaveReceivedFileAsync(job, path).ConfigureAwait(false);
-            OnUi(() => SetStatus($"saved {job.FileName} to {Path.GetDirectoryName(path)}"));
+
+            // Written on the window's thread with the line about it, not out here on the task's thread: this
+            // dictionary is the transcript's own memory, and two writers to it is a bug nobody can see.
+            OnUi(() =>
+            {
+                savedTo[job.Id] = path;
+                SetStatus($"saved {job.FileName} to {Path.GetDirectoryName(path)}");
+            });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
@@ -1050,6 +1169,13 @@ public partial class ChatForm : Form
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public string FileProgressText => lblFileProgress.Visible ? lblFileProgress.Text ?? string.Empty : string.Empty;
 
+    /// <summary>
+    /// True while the bar is running without a number. A picture's bytes travel in one frame, so there is no
+    /// fraction to report - but there is something happening, and that is worth showing on its own.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool IsProgressRunningBlind => progressFile.Visible && progressFile.Style == ProgressBarStyle.Marquee;
+
     /// <summary>True while the Stop button is offering to stop something.</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool CanStopFile => btnFileStop.Visible;
@@ -1067,6 +1193,147 @@ public partial class ChatForm : Form
     /// </summary>
     private void RtbChat_MouseDoubleClick(object? sender, MouseEventArgs e)
         => TryOpenPictureAt(rtbChat.GetCharIndexFromPosition(e.Location));
+
+    // ------------------------------------------------------ saving a shared thing
+    //
+    // F7/F8 asked how a picture or a file gets INTO a room; this is the other direction. A file being received
+    // already asks where it should go, but only once, in the moment it arrives - and a person who wanted it in
+    // their own folder, noticed some days later, or who wanted the photo they had already looked at, had no way
+    // to say so. The transcript is where the thing lives, so that is where the asking happens: right click an
+    // entry, choose Save, name the folder. The bytes are handed over by the same code the offer strip uses, so
+    // there is not a second set of rules about where received files may be written.
+
+    /// <summary>The entry the Save menu is pointed at, worked out as the menu opens.</summary>
+    private PictureSpan? pointedPicture;
+
+    private FileSpan? pointedFile;
+
+    /// <summary>Which shared entry a position in the transcript falls in, if any.</summary>
+    private (PictureSpan? Picture, FileSpan? File) SharedAt(int caret)
+        => (pictures.LastOrDefault(s => caret >= s.Start && caret < s.End),
+            files.LastOrDefault(s => caret >= s.Start && caret < s.End));
+
+    /// <summary>
+    /// True when this window could put the bytes behind an entry somewhere else - which needs the bytes, which
+    /// means they came IN. A file this window sent is already on this machine, and offering to save it back onto
+    /// itself would be a button that does nothing.
+    /// </summary>
+    private bool CameIn(FileSpan? span) =>
+        span is not null
+        && transfers.TryGetValue(span.File.TransferId, out var job)
+        && !string.Equals(job.SenderNickname, Service.Nickname, StringComparison.Ordinal);
+
+    private void CtxTranscript_Opening(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        (pointedPicture, pointedFile) = SharedAt(rtbChat.GetCharIndexFromPosition(
+            rtbChat.PointToClient(Cursor.Position)));
+
+        savePayloadMenuItem.Text = pointedPicture is not null ? "Save picture to…" : "Save file to…";
+        savePayloadMenuItem.Enabled = pointedPicture is not null || CameIn(pointedFile);
+
+        // Nothing saveable here: no menu at all. A one-item menu with the item greyed out is the window
+        // claiming it does not know what was right-clicked, when it knows exactly - it is a sentence.
+        e.Cancel = !savePayloadMenuItem.Enabled;
+    }
+
+    private void SavePayloadMenuItem_Click(object? sender, EventArgs e) => _ = SaveSharedAtAsync(
+        pointedPicture?.Start ?? pointedFile?.Start ?? rtbChat.SelectionStart);
+
+    /// <summary>True when right-clicking this position in the transcript has something to offer.</summary>
+    public bool CanSaveSharedAt(int caret)
+    {
+        var (picture, file) = SharedAt(caret);
+        return picture is not null || CameIn(file);
+    }
+
+    /// <summary>
+    /// Puts the shared picture or file at this position into a folder the person chooses.
+    /// </summary>
+    /// <returns>The path written, or null when nothing there can be saved or they changed their mind about the
+    /// folder. Which of those it was is said in the status bar.</returns>
+    public async Task<string?> SaveSharedAtAsync(int caret)
+    {
+        var (picture, file) = SharedAt(caret);
+
+        if (picture is not null)
+        {
+            // The bytes are already in memory - that is what makes the thumbnail - so this needs no asking of
+            // the service, and it writes what was sent rather than what the thumbnail was shrunk to.
+            var to = AskForFolder(picture.Picture.FileName) is { } folder ? FreePath(folder, picture.Picture.FileName) : null;
+
+            if (to is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                File.WriteAllBytes(to, picture.Picture.Data);
+                SetStatus($"saved {Path.GetFileName(to)}");
+                return to;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The folder is read-only, the disk is full, another program holds the file open. All of them
+                // worth one line, and none of them a reason to lose the window.
+                SetStatus($"{Path.GetFileName(to)} could not be saved: {ex.Message}");
+                return null;
+            }
+        }
+
+        if (CameIn(file) && transfers.TryGetValue(file!.File.TransferId, out var job))
+        {
+            var to = AskForFolder(job.FileName) is { } chosen ? Path.Combine(chosen, job.FileName) : null;
+
+            if (to is null)
+            {
+                return null;
+            }
+
+            if (savedTo.TryGetValue(job.Id, out var already)
+                && string.Equals(Path.GetDirectoryName(already), Path.GetDirectoryName(to), StringComparison.OrdinalIgnoreCase))
+            {
+                // Not a refusal - a fact about where the bytes went. Saying it in the bar is cheaper than
+                // writing a second copy somewhere the person will have to compare later.
+                SetStatus($"{job.FileName} is already saved at {already}");
+                return already;
+            }
+
+            // The offer strip's own way of writing a received file out, reasons included: a file that is still
+            // in Lantern's area is written, one that was thrown away says so rather than writing nothing and
+            // keeping quiet about it.
+            await SaveReceivedAsync(job, to);
+
+            if (!File.Exists(to))
+            {
+                return null;
+            }
+
+            savedTo[job.Id] = to;
+            return to;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A place in this folder for a thing being saved: its own name, and if that name is taken then the name
+    /// with a number on the end. Saving a photo over something already in the folder would destroy a file the
+    /// person never mentioned, and a chat window has no right to do that quietly.
+    /// </summary>
+    private static string FreePath(string folder, string name)
+    {
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var extension = Path.GetExtension(name);
+        var candidate = Path.Combine(folder, name);
+
+        for (var n = 2; File.Exists(candidate) && n < 1000; n++)
+        {
+            candidate = Path.Combine(folder, $"{stem} ({n}){extension}");
+        }
+
+        return candidate;
+    }
 
     /// <summary>Opens the picture the caret is standing on, if the caret is standing on one.</summary>
     public void OpenPictureAtCaret() => TryOpenPictureAt(rtbChat.SelectionStart);
@@ -1178,10 +1445,6 @@ public partial class ChatForm : Form
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        var line = message.SenderNickname.Length == 0
-            ? $"[{message.SentAt:HH:mm}] {message.Preview}"
-            : $"[{message.SentAt:HH:mm}] {message.SenderNickname}: {message.Preview}";
-
         var start = TranscriptEnd;
         var content = TranscriptStyle.ContentColorFor(message);
 
@@ -1204,6 +1467,12 @@ public partial class ChatForm : Form
             }
 
             pictures.Add(new PictureSpan(start, TranscriptEnd, picture));
+        }
+        else if (message is FileMessage file)
+        {
+            // A file's entry is a thing a person may want to act on later - "put that in my folder" - and the
+            // transcript is where they saw it, so the entry is recorded the same way a picture's is.
+            files.Add(new FileSpan(start, TranscriptEnd, file));
         }
 
         WriteRun(Environment.NewLine, content);
@@ -1237,6 +1506,9 @@ public partial class ChatForm : Form
     {
         rtbChat.Clear();
         pictures.Clear();
+        files.Clear();
+        transfers.Clear();
+        savedTo.Clear();
     }
 
     /// <summary>

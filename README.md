@@ -6,10 +6,13 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.1.2.** 504 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.2.** 512 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
+v1.2 is the other direction: anything shared in a room can be saved to a folder of yours, and a transfer says
+which way it is going and how much of it has gone
+([docs/testing/v1.2-sharing-checklist.md](docs/testing/v1.2-sharing-checklist.md)).
 
 ---
 
@@ -110,6 +113,21 @@ small one is not invented into bigger. **Save to…** (Ctrl+S) is the only thing
 looking at a picture writes nothing anywhere. The same photo twice is one window, two photos are two windows, and
 closing the chat closes the photos.
 
+**Getting a shared thing onto your own machine.** **Right-click** a photo's or a file's entry in the transcript
+and choose **Save picture to…** / **Save file to…**, then pick a *folder* — the same rule as an incoming
+file: you say where, the thing keeps its own name. This is the way back for a photo you looked at an hour ago,
+and for a file whose offer strip was answered, dismissed, or never appeared because you were standing in another
+room when it arrived. A folder that already has that name gets a second file with a number on the end rather
+than a photo replaced, and asking twice for the same file is answered with where it already is rather than with a
+second copy. Right-clicking an ordinary sentence shows no menu, and a file **you** sent is not offered back to
+you — it is already on your machine.
+
+**What progress says.** One bar, both directions, and the line beside it answers the two questions a bar is
+asked: `receiving notes.txt 34% - 1.7 MB of 5.0 MB`. A **picture** is carried in a single frame, so there is no
+half-way point to measure; what can honestly be said is that it is going and for how long, so a photo in flight
+shows a moving bar and a count of seconds (`sending sunset.png - 3.2 MB - 12 s`) and no Stop button, because half
+of one frame is not a thing the wire can do.
+
 **Files.** Press **Share** and pick a non-image file (up to 512 MB). Everyone else in the room gets an offer
 strip naming the file, its size and who sent it — and can keep typing while they decide. **Save to…** asks for a
 *folder*, not a file name: the file keeps its own name inside the folder, which is the only thing that works when
@@ -187,7 +205,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 504 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 512 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no
@@ -220,3 +238,4 @@ working rules (branch policy, module owners, Definition of Done) are in [CONTRIB
 | M5 | Pictures, file transfer, sounds | done |
 | M6 | Hardening, testing, release (`v1.0`) | done — the sign-off table in the end-to-end sheet is the last thing to fill |
 | M7 | The group window, after v1.0 (`v1.1`) | done over loopback; the two-laptop checks of the same window are on the v1.1 sheet |
+| M8 | Sharing in both directions (`v1.2`) | done over loopback; saving a shared thing to a folder and watching a transfer go are on the v1.2 sheet |

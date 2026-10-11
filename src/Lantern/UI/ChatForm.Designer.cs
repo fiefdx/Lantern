@@ -56,6 +56,8 @@ partial class ChatForm
         lblFileProgress = new ToolStripStatusLabel();
         progressFile = new ToolStripProgressBar();
         btnFileStop = new ToolStripButton();
+        ctxTranscript = new ContextMenuStrip();
+        savePayloadMenuItem = new ToolStripMenuItem();
         pnlFileNotice = new Panel();
         lblFileNotice = new Label();
         pnlFileActions = new FlowLayoutPanel();
@@ -67,6 +69,7 @@ partial class ChatForm
         tableLayout.SuspendLayout();
         pnlRoomHeader.SuspendLayout();
         statusStrip.SuspendLayout();
+        ctxTranscript.SuspendLayout();
         pnlFileNotice.SuspendLayout();
         pnlFileActions.SuspendLayout();
         SuspendLayout();
@@ -228,6 +231,7 @@ partial class ChatForm
         rtbChat.TabIndex = 2;
         rtbChat.TabStop = false;
         rtbChat.MouseDoubleClick += RtbChat_MouseDoubleClick;
+        rtbChat.ContextMenuStrip = ctxTranscript;
         rtbChat.Text = "";
         //
         // pnlMembersHeader
@@ -334,6 +338,25 @@ partial class ChatForm
         btnFileStop.ToolTipText = "Stop this file";
         btnFileStop.Click += BtnFileStop_Click;
         //
+        //
+        // ctxTranscript
+        //
+        // The one thing worth doing to a shared picture or file in the transcript is putting it in a folder of
+        // the person's own, so that is the whole menu. Right-clicking anywhere else in the transcript is
+        // refused in code, because a menu of one greyed item that does not apply here is noise.
+        //
+        ctxTranscript.Name = "ctxTranscript";
+        ctxTranscript.Size = new Size(190, 26);
+        ctxTranscript.Items.AddRange(new ToolStripItem[] { savePayloadMenuItem });
+        ctxTranscript.Opening += CtxTranscript_Opening;
+        //
+        // savePayloadMenuItem
+        //
+        savePayloadMenuItem.Name = "savePayloadMenuItem";
+        savePayloadMenuItem.Size = new Size(189, 22);
+        savePayloadMenuItem.Text = "Save to…";
+        savePayloadMenuItem.Click += SavePayloadMenuItem_Click;
+        //
         // pnlFileNotice
         //
         // The offer lives in the window rather than in a dialog. A modal dialog would stop the person
@@ -420,6 +443,7 @@ partial class ChatForm
         tableLayout.ResumeLayout(false);
         pnlRoomHeader.ResumeLayout(false);
         pnlRoomHeader.PerformLayout();
+        ctxTranscript.ResumeLayout(false);
         pnlFileNotice.ResumeLayout(false);
         pnlFileActions.ResumeLayout(false);
         statusStrip.ResumeLayout(false);
@@ -455,6 +479,8 @@ partial class ChatForm
     protected Button btnSend;
     private StatusStrip statusStrip;
     protected ToolStripStatusLabel lblStatus;
+    private ContextMenuStrip ctxTranscript;
+    private ToolStripMenuItem savePayloadMenuItem;
     private ToolStripStatusLabel lblFileProgress;
     private ToolStripProgressBar progressFile;
     private ToolStripButton btnFileStop;

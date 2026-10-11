@@ -86,6 +86,17 @@ A task is done only when it:
   grey chat area was found: about a minute of work, and it settles an argument that screenshots in a report
   cannot. (Close the form at the end of such a test or hand the teardown over: `HostForm` asks before a host
   quits, and `Sta.Run` now throws rather than reporting a stuck test as passing.)
+* **A test that reads what a finished operation *said* has to pump the window's queue first.** A save finishes on
+  a worker thread and posts its status line back with `OnUi`; a test that only `await`s has no message loop to
+  dispatch it, so the line sits in the queue unread and the assertion fails against a program that said the right
+  thing. Pump (`Application.DoEvents()` in a short loop with a `Task.Delay`) before reading the bar; a file on
+  disk or a fake's log needs no pump, which is why this is invisible half the time and baffling the other half.
+  See `SharedThingsTests.TheWindowCatchingUpAsync`.
+* **Size a test's fixture by the property, not by hope.** `APhotoBiggerThanTheWindowIsShownWholeAndScrollable`
+  used a 4000 × 3000 photo (48 MB of GDI+) on the theory that no window is that wide: it passed alone and was
+  refused partway through a run of five hundred windows. "Bigger than the window" is a property of the window, so
+  the test makes the window 600 pixels wide and the photo 1400 — same claim, one thirteenth the memory, and no
+  dependence on how big somebody's monitor is. A test that fails only in company gets deleted as flaky.
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.

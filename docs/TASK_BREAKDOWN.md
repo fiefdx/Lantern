@@ -32,6 +32,7 @@ A task is done only when it:
 | **M5** | Pictures, file transfer, sounds | Picture inline + file with progress + sound | Week 5–6 |
 | **M6** | Hardening, testing, release | Full walkthrough of use cases 1–6, tag `v1.0` | Week 6–7 |
 | **M7** | The group window, after v1.0 | A transcript that reads as a log; a photo you can actually look at | Week 8 (after the class demo) |
+| **M8** | Sharing in both directions | Anything shared can be saved to a folder; a transfer says how far it has got | Week 8 (after the class demo) |
 
 **Key strategy:** the transport sits behind `IBtServer` / `IBtClient` /
 `IClientLink`, and the UI only talks to `IChatService`. This lets us build and
@@ -198,6 +199,36 @@ room list. The wire is untouched, so a v1.1 host still needs a v1.1 client and n
 
 ---
 
+## M8 — Sharing in Both Directions
+
+M5 answered how a picture or a file gets into a room. These two are what people found missing once they had used
+it: the way back out to their own folder, and any sign that a transfer is still alive.
+
+- [x] **T8.1 [UI]** Saving a shared thing to a local folder (F7, F8): right-clicking a picture's or a file's entry
+  in the transcript offers **Save picture to…** / **Save file to…**, asks for a **folder** (the same seam the
+  offer strip uses), and hands the bytes over through the same code the offer strip uses. A name already in that
+  folder gets a numbered copy rather than being overwritten; asking twice for one file is answered with where it
+  already is; a file this window sent is not offered back; an ordinary sentence offers no menu at all.
+- [x] **T8.2 [UI]** Progress that answers the question (F8): the line beside the bar names the direction, the
+  file, the percentage and the bytes (`receiving notes.txt 34% - 1.7 MB of 5.0 MB`). A **picture** travels in one
+  frame, so it has no fraction — it shows a moving bar, its size and the seconds so far, and no Stop button,
+  because half a frame is not a state the wire can stop in. Before this, a five megabyte photo over RFCOMM was a
+  minute and a half of motionless window.
+- [x] **T8.3 [QA]** `SharedThingsTests`: both directions worded and measured, the picture's blind bar and its
+  absence of Stop, saving a photo out of the transcript writing what was sent, a second copy taking a second
+  name, an answered file still saveable from the transcript later, a sent file and an ordinary sentence offering
+  nothing, and one save rather than two for a file asked for twice.
+
+> Two harness facts, both written into CONTRIBUTING. A test that only `await`s does **not** pump the window's
+> message queue, so anything a finished operation posts back — its line in the status bar — sits unread, and the
+> assertion has to pump the queue first or it fails for a reason that is not the program's. And a fixture sized
+> by hope rather than by the property under test (`Png(4000, 3000)`, 48 MB of GDI+, hoping no screen was that
+> wide) passed alone and failed in a crowd of five hundred windows; the window is made small now, which is what
+> "bigger than the window" actually needs.
+> Note: `docs/notes/sharing-in-and-out.md`; sheet `docs/testing/v1.2-sharing-checklist.md`.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |
@@ -209,6 +240,7 @@ room list. The wire is untouched, so a v1.1 host still needs a v1.1 client and n
 | F5 Room management (host) | M3, M7 (menu) | | F11 Join/leave notices | M2 |
 | F6 Room list & switching | M2–M3 | | F12 Room member list | M2 |
 | F13 Message layout (headline over content) | M7 | | F14 Picture viewer with scaling | M7 |
+| F7 Pictures — saved out to a folder | M5, M8 | | F8 File transfer — progress, saved afterwards | M5, M8 |
 
 ---
 
