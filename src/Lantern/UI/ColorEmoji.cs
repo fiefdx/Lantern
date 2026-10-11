@@ -145,6 +145,24 @@ public static class ColorEmoji
         return rtf?.ToString();
     }
 
+    /// <summary>
+    /// A face as an image a control can hold - a button's icon, a tile in the picker - or null when this machine
+    /// cannot draw one. Detached from its stream on purpose: an <see cref="Image"/> made straight from a
+    /// <see cref="MemoryStream"/> is only on loan from it, and the stream has to outlive the control that shows it.
+    /// </summary>
+    public static Bitmap? Glyph(string element, int pixels)
+    {
+        if (Png(element, pixels) is not { } png)
+        {
+            return null;
+        }
+
+        using var stream = new MemoryStream(png);
+        using var loaded = Image.FromStream(stream);
+
+        return new Bitmap(loaded);
+    }
+
     /// <summary>A PNG of one emoji, cached: a room full of the same face is one raster, not two hundred.</summary>
     public static byte[]? Png(string element, int pixels)
     {

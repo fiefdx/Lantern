@@ -160,6 +160,10 @@ public partial class ChatForm : Form
     {
         txtMessage.MaxLength = ValidationRules.MessageMaxLength;
 
+        // The button wears one of the faces it offers, drawn by the same code that colours them in the transcript:
+        // the affordance and the result are the same picture, so there is nothing to be surprised by later.
+        btnEmoji.Image = ColorEmoji.Glyph("🙂", 18);
+
         // The state this window opens in, said out loud rather than left to be inferred from a room list that
         // happens to be filled in. Scenario 1 asks for these words in the host's bar; the startup scenario
         // asks the bar to report the connection state. Said here, after the service has been started and its
@@ -306,6 +310,7 @@ public partial class ChatForm : Form
         busy = value;
         btnSend.Enabled = !value && CurrentRoom is not null;
         btnShare.Enabled = !value && CurrentRoom is not null;
+        btnEmoji.Enabled = !value && CurrentRoom is not null;
         UseWaitCursor = value;
     }
 
@@ -556,6 +561,7 @@ public partial class ChatForm : Form
         {
             btnSend.Enabled = editable;
             btnShare.Enabled = editable;
+            btnEmoji.Enabled = editable;
         }
 
         if (CurrentRoom is null)
@@ -642,6 +648,77 @@ public partial class ChatForm : Form
     }
 
     private void BtnShare_Click(object? sender, EventArgs e) => _ = ShareAsync();
+
+    /// <summary>
+    /// Opens the table of faces under the button.
+    /// </summary>
+    /// <remarks>
+    /// This exists because the operating system's own picker could not be relied on - Win + . was reported not to
+    /// pop up, and nothing in Lantern has the keystroke to lose (the shell takes Win combinations before an
+    /// application hears of them), while over a remote desktop it is not reachable at all. A feature that needs
+    /// somebody else's shell to be configured correctly is not a feature.
+    /// </remarks>
+    private void BtnEmoji_Click(object? sender, EventArgs e)
+    {
+        var picker = new EmojiPickerForm(this);
+
+        // Where the person had put the caret, and where it belongs when the table goes away: back to that, or just
+        // past whatever they chose. Said to the window rather than left to focus, because bringing a text box back
+        // from another window can highlight what it holds - and the next face clicked would then be typed over the
+        // one before it. Clicking faces one after another has to work, because that is what people do with them.
+        var left = txtMessage.SelectionStart;
+        var until = left;
+
+        picker.Picked += element => until = AddEmojiToMessage(element);
+        picker.FormClosed += (_, _) => RestoreCaret(until);
+
+        picker.PlaceUnder(btnEmoji);
+        picker.Show();
+    }
+
+    /// <summary>
+    /// Puts a chosen emoji into the message at the caret, or says in the status bar why it did not.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TextBox.MaxLength"/> guards what is typed - it refuses the key before the control changes - and
+    /// goes straight out of its way for anything assigned to the selection, which is exactly how a picker puts
+    /// something in. So the counting is done here instead, and in the characters a person counts (v1.4): what is
+    /// before the caret, what is being added, what is after it. A picker that silently truncated a sentence would
+    /// be a worse bug than one that says no in words.
+    /// </remarks>
+    private int AddEmojiToMessage(string element)
+    {
+        var caret = Math.Min(txtMessage.SelectionStart, txtMessage.TextLength);
+
+        var wouldBe = ValidationRules.Length(txtMessage.Text[..caret])
+            + ValidationRules.Length(element)
+            + ValidationRules.Length(txtMessage.Text[caret..]);
+
+        if (wouldBe > ValidationRules.MessageMaxLength)
+        {
+            SetStatus($"a message is {ValidationRules.MessageMaxLength} characters, and this one would be {wouldBe}");
+            return caret;
+        }
+
+        // Assigning to the selection is what an insertion is: it replaces anything highlighted, and leaves the caret
+        // after the face so the next one can be clicked straight after it.
+        txtMessage.SelectedText = element;
+        return caret + element.Length;
+    }
+
+    /// <summary>
+    /// Hands the message box back its focus and the caret it had, rather than a highlighted sentence.
+    /// </summary>
+    private void RestoreCaret(int at)
+    {
+        txtMessage.Focus();
+
+        if (txtMessage.SelectionLength != 0 || txtMessage.SelectionStart != Math.Min(at, txtMessage.TextLength))
+        {
+            txtMessage.SelectionStart = Math.Min(at, txtMessage.TextLength);
+            txtMessage.SelectionLength = 0;
+        }
+    }
 
     /// <summary>
     /// F7 and F8: one Share button for pictures and files alike, because the person clicking has a thing

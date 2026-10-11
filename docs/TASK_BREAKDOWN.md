@@ -299,6 +299,26 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 
 ---
 
+## M11 — Choosing an Emoji Without the Operating System (v1.6)
+
+- [x] **T11.1 [UI]** **Emoji** in the chat window opens a table of faces of Lantern's own. The report was "Win + .
+  does not pop up"; Lantern cannot be the reason - the shell takes Win combinations before an application is told
+  anything - and the machine was checked anyway (text-input service running, both panel processes running, no policy
+  on the hotkey, app not elevated, Windows 10 22H2). Which left the feature dependent on somebody else's program, and
+  unreachable at all over a remote desktop. `EmojiPickerForm` is a `TableLayoutPanel` of 48 tiles, each drawn by
+  v1.5's `ColorEmoji`, one tile per text element; modeless and owned, so the room stays usable while it is down.
+- [x] **T11.2 [QA]** `EmojiPickerTests` (10): the button and its shut-when-there-is-no-room rule; the table is owned
+  and visible; it is a table (columns), and everything it offers is one character by the ruler and an emoji by the
+  renderer, so it can neither offer half a family nor offer a letter as a picture; a tile is a coloured face; a pick
+  lands at the caret and the caret is left after it; a pick sends like anything else and arrives in colour; **the
+  table refuses to overflow the message and says so**, because assigning to `SelectedText` walks straight past
+  `MaxLength` (which only ever guards keystrokes); closing changes nothing.
+  One real bug was found by the last of those: a second pick replaced the first, because bringing the message box
+  back from the closing picker highlights what it holds. The caret is now said to the window, not left to focus.
+  `DesignViewTests` grew a window, as it is written to do.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |

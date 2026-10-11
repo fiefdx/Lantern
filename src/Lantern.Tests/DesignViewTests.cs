@@ -28,6 +28,7 @@ public class DesignViewTests
         typeof(NewRoomDialog),
         typeof(ConfirmDialog),
         typeof(PictureViewerForm),
+        typeof(EmojiPickerForm),   // v1.6: added to the program and to this list on the same day
     ];
 
     public static TheoryData<Type> EveryWindow()

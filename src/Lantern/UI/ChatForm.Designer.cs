@@ -49,6 +49,7 @@ partial class ChatForm
         lblMembersHeader = new Label();
         lstMembers = new ListBox();
         btnShare = new Button();
+        btnEmoji = new Button();
         txtMessage = new TextBox();
         btnSend = new Button();
         statusStrip = new StatusStrip();
@@ -151,18 +152,20 @@ partial class ChatForm
         //
         // tableLayout
         //
-        tableLayout.ColumnCount = 3;
+        tableLayout.ColumnCount = 4;
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190F));
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88F));
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170F));
         tableLayout.Controls.Add(pnlRoomHeader, 0, 0);
         tableLayout.Controls.Add(lstRooms, 0, 1);
         tableLayout.Controls.Add(btnShare, 0, 2);
         tableLayout.Controls.Add(rtbChat, 1, 1);
         tableLayout.Controls.Add(txtMessage, 1, 2);
-        tableLayout.Controls.Add(pnlMembersHeader, 2, 0);
-        tableLayout.Controls.Add(lstMembers, 2, 1);
-        tableLayout.Controls.Add(btnSend, 2, 2);
+        tableLayout.Controls.Add(pnlMembersHeader, 3, 0);
+        tableLayout.Controls.Add(lstMembers, 3, 1);
+        tableLayout.Controls.Add(btnEmoji, 2, 2);
+        tableLayout.Controls.Add(btnSend, 3, 2);
         tableLayout.Dock = DockStyle.Fill;
         tableLayout.Location = new Point(0, 24);
         tableLayout.Name = "tableLayout";
@@ -276,6 +279,19 @@ partial class ChatForm
         btnShare.UseVisualStyleBackColor = true;
         btnShare.Click += BtnShare_Click;
         //
+        // btnEmoji
+        //
+        btnEmoji.Dock = DockStyle.Fill;
+        btnEmoji.Location = new Point(814, 457);
+        btnEmoji.Name = "btnEmoji";
+        btnEmoji.Size = new Size(82, 28);
+        btnEmoji.TabIndex = 7;
+        btnEmoji.Text = "Emoji";
+        btnEmoji.TextImageRelation = TextImageRelation.ImageBeforeText;
+        toolTip.SetToolTip(btnEmoji, "Choose an emoji from a table and put it in the message");
+        btnEmoji.UseVisualStyleBackColor = true;
+        btnEmoji.Click += BtnEmoji_Click;
+        //
         // txtMessage
         //
         txtMessage.Dock = DockStyle.Fill;
@@ -293,7 +309,7 @@ partial class ChatForm
         btnSend.Location = new Point(814, 457);
         btnSend.Name = "btnSend";
         btnSend.Size = new Size(164, 28);
-        btnSend.TabIndex = 7;
+        btnSend.TabIndex = 8;
         btnSend.Text = "Send";
         toolTip.SetToolTip(btnSend, "Send the message to the current room (Enter)");
         btnSend.UseVisualStyleBackColor = true;
@@ -475,6 +491,7 @@ partial class ChatForm
     protected Label lblMembersHeader;
     protected ListBox lstMembers;
     protected Button btnShare;
+    protected Button btnEmoji;
     protected TextBox txtMessage;
     protected Button btnSend;
     private StatusStrip statusStrip;
