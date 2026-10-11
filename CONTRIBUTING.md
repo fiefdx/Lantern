@@ -101,9 +101,15 @@ A task is done only when it:
   being attached, a handler being wired, or a shortcut reaching the control. Something has to raise the real thing:
   `PerformClick()` on a shown form for a button, `ProcessCmdKey`/`SendKeys` for a shortcut, and for a context menu
   a `WM_CONTEXTMENU` posted to the control with the popup's `Visible` and its item text asserted
-  (`SharedThingsTests.RightClickOn`). Twice now a shipped defect sat in exactly this gap — a dialog's OK button no
-  test had ever clicked (v1.1.1), and a save menu no test had ever opened (v1.2) — while every test over the same
-  feature was green.
+  (`SharedThingsTests.RightClickOn`). Three shipped defects have sat in this gap: a dialog's OK button no test had
+  ever clicked (v1.1.1), a save menu no test had ever opened (v1.2), and a picture viewer that had never displayed
+  a picture (v1.2.2).
+* **A test that overrides the thing under test and records the call is not evidence that it happened.**
+  `protected override void OpenPicture(PictureMessage p) => Opened.Add(p);` is the right seam for asking *which*
+  picture a click meant, and it also opens no window — so eighteen green tests about opening pictures had never
+  produced one to look at. That is fine as long as something else does the real thing once, in a real window, with
+  the pixels checked: `PictureOnScreenTests` samples the middle of the drawn viewer, and when the picture is not
+  handed to the control that paints it, it fails with `it was #2D2D30` — the colour of the empty panel.
 * One class per file, file name = type name, `partial` only for forms/dialogs.
 * Nullable reference types are on; no `#pragma warning disable` without a
   one-line reason.

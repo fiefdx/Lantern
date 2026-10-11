@@ -225,7 +225,15 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 > by hope rather than by the property under test (`Png(4000, 3000)`, 48 MB of GDI+, hoping no screen was that
 > wide) passed alone and failed in a crowd of five hundred windows; the window is made small now, which is what
 > "bigger than the window" actually needs.
-> Note: `docs/notes/sharing-in-and-out.md`; sheet `docs/testing/v1.2-sharing-checklist.md`.
+- [x] **T8.4 [QA]** Two defects found by using it, both invisible to a green suite. **v1.2.1**: no test had ever
+  opened the save menu, so the hit test now forgives a click on the line that ends an entry and falls back to the
+  caret when the mouse is not over the text. **v1.2.2**: `PictureViewerForm` had **never displayed a photo** — it
+  fitted, scaled, centred and reported a percentage over an empty panel, because `picImage.Image` was never
+  assigned in any commit (`git log -S` proves it). Two lines fix it; four tests keep it fixed, one of them
+  sampling a pixel of the drawn window.
+
+> Note: `docs/notes/sharing-in-and-out.md` and `docs/notes/the-photo-nobody-could-see.md`; sheet
+> `docs/testing/v1.2-sharing-checklist.md`.
 
 ---
 

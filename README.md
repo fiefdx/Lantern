@@ -6,7 +6,7 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.2.** 512 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.2.2.** 520 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
@@ -109,7 +109,9 @@ Share is given that is not an image is sent as a file instead.
 opens in a window of its own, most of the screen, fitted to it. Scale it with **−** / **+**, the mouse wheel, or
 by double-clicking the photo; **100%** is the photo's own pixels, **Fit** suits it to the window again, and what
 you are looking at is read out as a percentage. A photo larger than the window is shown whole and scrolls; a
-small one is not invented into bigger. **Save to…** (Ctrl+S) is the only thing that puts a file on your machine —
+small one is not invented into bigger. **And there is a photo in it**: the first two releases of this window
+scaled, zoomed and reported a percentage over an empty grey panel, because the control that paints was never given
+the picture ([docs/notes/the-photo-nobody-could-see.md](docs/notes/the-photo-nobody-could-see.md)). **Save to…** (Ctrl+S) is the only thing that puts a file on your machine —
 looking at a picture writes nothing anywhere. The same photo twice is one window, two photos are two windows, and
 closing the chat closes the photos.
 
@@ -205,7 +207,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 512 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 520 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

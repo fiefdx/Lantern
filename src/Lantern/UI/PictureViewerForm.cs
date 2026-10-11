@@ -207,6 +207,13 @@ public partial class PictureViewerForm : Form
 
         image = picture.ToImage();
 
+        // And here is the picture. Everything else in this window - the fit, the zoom, the percentage, the
+        // dimensions in the bar - reads from `image` and would have gone on working perfectly with nothing on
+        // the screen, which is exactly what it did: the control that paints was never given the picture, so the
+        // window scaled, sized itself and reported a zoom over an empty grey panel. A test that looks at the
+        // pixels, below, is the reason that cannot happen again quietly.
+        picImage.Image = image;
+
         var zoomable = image is not null;
         btnZoomIn.Enabled = zoomable;
         btnZoomOut.Enabled = zoomable;
@@ -362,6 +369,9 @@ public partial class PictureViewerForm : Form
     {
         // The photo is this window's to look after: it was decoded here, and there is no other copy of the
         // pixels anywhere - only the bytes, which the message owns.
+        // The control is told first: a PictureBox holding a disposed image is an exception on the next paint,
+        // and a window that is closing could easily paint once more on the way out.
+        picImage.Image = null;
         image?.Dispose();
         image = null;
 
