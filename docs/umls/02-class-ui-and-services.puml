@@ -28,10 +28,18 @@ package "UI layer  (WinForms)" {
     # lblStatus : ToolStripStatusLabel
     # service : IChatService
     - pictures : List of PictureSpan
+    - files : List of FileSpan
+    - transfers : Dictionary of Guid, FileTransferJob
+    - savedTo : Dictionary of Guid, string
     + OnSendClick()
     + OnShareClick()
     + OnRoomChanged()
     + TryOpenPictureAt(caret : int)
+    + CanSaveSharedAt(caret : int) : bool
+    + SaveSharedAtAsync(caret : int) : Task
+    # AskForFolder(suggested : string) : string
+    + BeginPictureUpload()
+    + EndPictureUpload()
     + ConfirmQuit()
     # Append(m : Message)
     # BindServiceEvents()
@@ -54,6 +62,15 @@ package "UI layer  (WinForms)" {
   }
 
   ' v1.1: what a transcript entry looks like, and where a photo goes when it is opened
+  ' v1.3: the small page a shared file gets in the transcript (docs/notes/sharing-in-and-out.md)
+  class FilePlaceholder <<static>> {
+    + {static} Width, Height : int
+    + {static} InkColor, RuleColor : Color
+    + {static} Bitmap(fileName) : Bitmap
+    + {static} Label(fileName) : string
+    + {static} InlineFor(fileName) : string
+  }
+
   class TranscriptStyle <<static>> {
     + {static} Headline(sentAt, sender) : string
     + {static} Content(entry) : string

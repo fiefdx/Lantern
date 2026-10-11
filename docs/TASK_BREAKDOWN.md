@@ -225,6 +225,13 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 > by hope rather than by the property under test (`Png(4000, 3000)`, 48 MB of GDI+, hoping no screen was that
 > wide) passed alone and failed in a crowd of five hundred windows; the window is made small now, which is what
 > "bigger than the window" actually needs.
+- [x] **T8.5 [UI]** A shared file has a picture of its own (F8): a small page (40 × 46) with the file's extension
+  written on it, drawn by `FilePlaceholder` rather than shipped as an asset, so a file looks like a file and gives
+  the right click something to land on. It sits inside the entry's span, so **right-click the page → Save file to…**
+  works from the icon; **double-clicking it opens nothing**, because the picture viewer is for pictures and a file's
+  bytes may not exist yet. `FilePlaceholderTests`: the label rules, the drawn pixels, both colours against the
+  transcript's white, an embedded page counted in the control's RTF, a right click on the page, a double click that
+  opens no viewer, and a picture entry that gets its thumbnail and no page.
 - [x] **T8.4 [QA]** Two defects found by using it, both invisible to a green suite. **v1.2.1**: no test had ever
   opened the save menu, so the hit test now forgives a click on the line that ends an entry and falls back to the
   caret when the mouse is not over the text. **v1.2.2**: `PictureViewerForm` had **never displayed a photo** — it

@@ -68,10 +68,18 @@ public sealed class ShareButtonUiTests
                 Assert.Equal("lecture-slides.pdf", sent.FileName);
                 Assert.Equal(new FileInfo(file).Length, sent.SizeBytes);
 
-                // A file announcement says what it is; the bytes are chunks, not an inline image, so the
-                // transcript must not sprout a thumbnail for a PDF.
+                // A file is not a picture: no PictureMessage is made, and the one image in the transcript is the
+                // page drawn from the file's NAME - an icon - and not a rendering of bytes that were never an
+                // image. This used to be asserted as "no \pict at all", which was true only until a file was given
+                // a placeholder to look at; the claim worth keeping is that nothing in the window pretends to show
+                // what is inside the file, so the embedded pixels are now compared with the page itself.
                 Assert.Empty(RoomTranscript(service).OfType<PictureMessage>());
-                Assert.DoesNotContain(@"\pict", ((RichTextBox)Find(form, "rtbChat")!).Rtf ?? string.Empty, StringComparison.Ordinal);
+
+                var pictures = EmbeddedPictures((RichTextBox)Find(form, "rtbChat")!);
+
+                var picture = Assert.Single(pictures);
+                Assert.Equal(Lantern.UI.FilePlaceholder.Width, picture.Width);
+                Assert.Equal(Lantern.UI.FilePlaceholder.Height, picture.Height);
             }
             finally
             {
@@ -276,6 +284,32 @@ public sealed class ShareButtonUiTests
         public override Task SendAsync(Message message, CancellationToken cancel = default) => released.Task;
 
         public void Release() => released.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// The pictures embedded in the transcript, decoded from the RTF the control writes back out, as sizes.
+    /// </summary>
+    /// <remarks>
+    /// Sizes rather than bytes on purpose: a RichTextBox re-encodes a picture when it is asked for its RTF, so
+    /// the bytes that went in do not come back out unchanged. What survives, and what says whether the window is
+    /// showing an icon or pretending to show the file's contents, is the size it was inserted at - 40 × 46 is a
+    /// page drawn in code; nothing else in Lantern is that size, and a 13 byte PDF could not be a picture at all.
+    /// </remarks>
+    private static List<(int Width, int Height)> EmbeddedPictures(RichTextBox rtb)
+    {
+        var found = new List<(int, int)>();
+
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+            rtb.Rtf ?? string.Empty, @"89504e47[0-9a-fA-F\s]{200,}"))
+        {
+            var hex = new string(match.Value.Where(Uri.IsHexDigit).ToArray());
+
+            using var png = new MemoryStream(Convert.FromHexString(hex));
+            using var image = Image.FromStream(png);
+            found.Add((image.Width, image.Height));
+        }
+
+        return found;
     }
 
     private static void ClickShare(Control form)

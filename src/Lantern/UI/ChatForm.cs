@@ -1495,8 +1495,17 @@ public partial class ChatForm : Form
         }
         else if (message is FileMessage file)
         {
-            // A file's entry is a thing a person may want to act on later - "put that in my folder" - and the
-            // transcript is where they saw it, so the entry is recorded the same way a picture's is.
+            // A small page, for the same reason a photo gets a thumbnail: an entry should look like the thing it
+            // is, and a person who wants to save it has something to point at rather than a sentence. The page is
+            // written before the span is closed, so the right click that lands on the placeholder belongs to this
+            // file - which is what makes "Save file to…" reachable from the icon, not only from the words.
+            WriteRun(Environment.NewLine, content);
+
+            if (FilePlaceholder.InlineFor(file.FileName) is { } rtf)
+            {
+                AppendRtf(rtf);
+            }
+
             files.Add(new FileSpan(start, TranscriptEnd, file));
         }
 

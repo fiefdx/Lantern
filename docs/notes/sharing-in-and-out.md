@@ -89,6 +89,41 @@ inability, not as precision. So the menu now takes any caret on a line that begi
 nothing below the last line. The double click keeps its stricter rule on purpose: a photo opened that nobody
 clicked is worse than nothing, while a menu that agrees a line belongs to its entry is not guessing.
 
+## A file has a face now
+
+A photo looks like a photo and a file looked like a sentence. So a file's entry gained a small page (40 × 46) with
+its own extension written on it, drawn by `FilePlaceholder`.
+
+**Drawn, not shipped.** There is no icon file in the repository to forget to copy next to `Lantern.exe` — the way the
+sounds had to be thought about — and `deck.pdf` and `deck.zip` are visibly two things, which one generic icon is
+not. The cost of drawing it in code is that its colours are decisions, so they are named (`InkColor`, `RuleColor`)
+and measured against the transcript's white like every other colour in the window.
+
+**Right-click the page, get the file.** The page is written *inside* the entry's span, before the span is closed,
+so the caret the menu asks about lands on the file. That is the whole of what makes the icon more than decoration:
+`Save file to…` is now reachable from the thing that looks like the thing.
+
+**And double-clicking it opens nothing.** `TryOpenPictureAt` looks only at `pictures`. A file's bytes may still be
+arriving, or may have been declined, so a viewer on a file is an empty window — and empty windows are what this
+note's neighbour is about.
+
+## Two things a RichTextBox does that a test has to know
+
+**Embedded pictures are not in `Text`.** A thumbnail or a page contributes nothing at all to the string the control
+reports — the line it sits on reads as a single space. `Text.IndexOf('\u0001')` finds nothing, and a test written on
+that assumption fails with "there is no picture in the transcript" against a transcript that has two. Count them in
+`rtb.Rtf`, or find them by line: the picture is on the line *below* the entry's words.
+
+**`rtb.Rtf` does not give back the bytes you put in.** The control re-encodes every picture when it is asked for its
+RTF — different PNG, different hex. So the test that checks a file's entry shows an icon and not a rendering of
+the file's contents cannot compare bytes; it decodes the PNG out of the control's own RTF and checks its **size**:
+40 × 46 is a page `FilePlaceholder` drew, and 13 bytes of PDF is not a picture of anything.
+
+That is also why a v1.1 assertion had to be re-expressed rather than deleted. `Assert.DoesNotContain("\pict", rtf)`
+was guarding "a PDF must not sprout a thumbnail" — true only until a file was allowed to have an icon. What was worth
+keeping was the distinction between *a rendering of what is inside* and *an icon*, and the old measurement could not
+make it.
+
 ## Two things the harness got wrong
 
 **A test that only `await`s does not pump the window's queue.** A save finishes on a worker thread and posts its
