@@ -120,6 +120,57 @@ public sealed class PictureOnScreenTests
         });
     }
 
+    /// <summary>
+    /// The middle of a thumbnail, aimed at in pixels rather than at a character.
+    /// </summary>
+    /// <remarks>
+    /// Every other double-click test here aims at an entry's WORDS, which is a line of text any hit rule can find.
+    /// A thumbnail is a picture, and a click below or to the right of its top-left pixel lands on the character
+    /// AFTER it. Aiming at the picture's own character tests the corner of the photo and nothing else, which is how
+    /// the right-click menu came to be tested against a page nobody could hit in the middle (v1.3.1).
+    /// </remarks>
+    [Fact]
+    public void ADoubleClickInTheMiddleOfAThumbnailOpensTheViewer()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new HostForm(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", Red(140, 90)));
+
+            var rtb = (RichTextBox)Find(form, "rtbChat")!;
+            var words = rtb.Text.IndexOf("sunset.png", StringComparison.Ordinal);
+
+            // The photo's own line begins below its caption, and it is shown at 140 × 90: fitting never enlarges.
+            var corner = rtb.GetPositionFromCharIndex(rtb.GetFirstCharIndexFromLine(rtb.GetLineFromCharIndex(words) + 1));
+
+            var raise = typeof(Control).GetMethod(
+                "OnMouseDoubleClick", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(raise);
+
+            raise!.Invoke(rtb, new object?[]
+            {
+                new MouseEventArgs(MouseButtons.Left, 2, corner.X + 70, corner.Y + 45, 0),
+            });
+
+            for (var i = 0; i < 8; i++)
+            {
+                Application.DoEvents();
+                Thread.Sleep(20);
+            }
+
+            var opened = form.OwnedForms.OfType<PictureViewerForm>().ToList();
+
+            Assert.Single(opened);
+
+            opened[0].Close();
+        });
+    }
+
     // ------------------------------------------------------------------ harness
 
     /// <summary>

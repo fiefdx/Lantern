@@ -92,6 +92,16 @@ public partial class ChatForm : Form
     /// </summary>
     private readonly Dictionary<Guid, string> savedTo = [];
 
+    /// <summary>
+    /// Where each file this window sent came from, by transfer id.
+    /// </summary>
+    /// <remarks>
+    /// Sending reads a file in chunks and keeps no copy of its own, so this path is the only place on this machine
+    /// where those bytes still are - which is what makes saving a copy of one's own entry something the window can
+    /// actually do rather than an offer it has to keep quiet about (v1.3.1).
+    /// </remarks>
+    private readonly Dictionary<Guid, string> sentFrom = [];
+
     /// <summary>One picture message, and the span of transcript it occupies: from its first character to just past its last.</summary>
     private sealed record PictureSpan(int Start, int End, PictureMessage Picture);
 
@@ -745,6 +755,11 @@ public partial class ChatForm : Form
             return;
         }
 
+        // Lantern keeps no copy of what it sends - the wire saw chunks - so the only place these bytes exist on
+        // this machine is the path they were read from. Remembering it is what makes "save a copy" on this
+        // window's own entry an answer instead of a shrug (v1.3.1).
+        sentFrom[job.Id] = file.FullName;
+
         // Built from the job rather than from what this window knows, so the id in this transcript is the
         // id every other window's transcript has for the same file (F8: one event, seen four times).
         Append(new FileMessage(job.SenderNickname, job.RoomName, job.FileName, job.SizeBytes, job.Id, id: job.MessageId));
@@ -1237,6 +1252,19 @@ public partial class ChatForm : Form
     /// means they came IN. A file this window sent is already on this machine, and offering to save it back onto
     /// itself would be a button that does nothing.
     /// </summary>
+    /// <summary>
+    /// True when this window could put the bytes behind an entry somewhere.
+    /// </summary>
+    /// <remarks>
+    /// A file that came IN is held in Lantern's own area, which is what the offer strip writes into. A file this
+    /// window SENT is on this machine too, and v1.2 deliberately did not offer it back - "it is already here" -
+    /// which turned out to be invisible: a right click that produces nothing at all cannot be told apart from a
+    /// broken program, and was reported as one. Silence is not an answer, so the copy is offered now, from the
+    /// path it was sent from, and a file that has moved since is said out loud instead of refused quietly.
+    /// </remarks>
+    private bool CanSave(FileSpan? span) =>
+        span is not null && (CameIn(span) || sentFrom.ContainsKey(span.File.TransferId));
+
     private bool CameIn(FileSpan? span) =>
         span is not null
         && transfers.TryGetValue(span.File.TransferId, out var job)
@@ -1251,13 +1279,39 @@ public partial class ChatForm : Form
             ? rtbChat.GetCharIndexFromPosition(point)
             : rtbChat.SelectionStart;
 
-        (pointedPicture, pointedFile) = SharedAt(caret);
+        var (picture, file) = SharedAt(caret);
 
-        savePayloadMenuItem.Text = pointedPicture is not null ? "Save picture to…" : "Save file to…";
-        savePayloadMenuItem.Enabled = pointedPicture is not null || CameIn(pointedFile);
+        if (picture is null && file is null)
+        {
+            // A menu can be raised without the mouse being where this control thinks it is - the keyboard's menu
+            // key, a touch and hold, a touchpad that sends the click a beat late. Wherever the menu came from, the
+            // control has a caret, and a right click puts that caret where the click happened. Ask it too before
+            // deciding nothing was pointed at.
+            (picture, file) = SharedAt(rtbChat.SelectionStart);
+        }
+
+        pointedPicture = picture;
+        pointedFile = file;
+
+        var arriving = pointedPicture is not null || CameIn(pointedFile);
+
+        savePayloadMenuItem.Text = pointedPicture is not null
+            ? "Save picture to…"
+            : arriving ? "Save file to…" : "Save a copy to…";
+
+        savePayloadMenuItem.Enabled = pointedPicture is not null || CanSave(pointedFile);
 
         // Nothing saveable here: no menu at all. A one-item menu with the item greyed out is the window
         // claiming it does not know what was right-clicked, when it knows exactly - it is a sentence.
+        //
+        // What it does say, in the bar, is where to click instead. "Right-click the file" producing nothing is
+        // what this window used to do to a click a few pixels off, and the report came back as "right click not
+        // working": the target of the gesture is not something anybody can be expected to guess.
+        if (!savePayloadMenuItem.Enabled)
+        {
+            SetStatus("right-click the page, or the line, of a shared file to save it");
+        }
+
         e.Cancel = !savePayloadMenuItem.Enabled;
     }
 
@@ -1268,7 +1322,7 @@ public partial class ChatForm : Form
     public bool CanSaveSharedAt(int caret)
     {
         var (picture, file) = SharedAt(caret);
-        return picture is not null || CameIn(file);
+        return picture is not null || CanSave(file);
     }
 
     /// <summary>
@@ -1338,7 +1392,51 @@ public partial class ChatForm : Form
             return to;
         }
 
+        // One of this window's own files: the copy comes off the disk it was sent from.
+        if (file is not null && sentFrom.TryGetValue(file.File.TransferId, out var from))
+        {
+            return SaveACopyFrom(file, from);
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Copies a file this window sent into a folder the person chooses.
+    /// </summary>
+    /// <remarks>
+    /// Read from where it was sent from, because that is the only place Lantern has these bytes: the sender never
+    /// buffered what it streamed. If the original has been moved or deleted in the meantime the bar says which
+    /// file and where it was last - a menu item that fails quietly is the exact thing this branch exists to stop.
+    /// </remarks>
+    private string? SaveACopyFrom(FileSpan span, string from)
+    {
+        if (!File.Exists(from))
+        {
+            SetStatus($"cannot copy {span.File.FileName}: it is not at {from} any more");
+            return null;
+        }
+
+        var to = AskForFolder(span.File.FileName) is { } folder ? FreePath(folder, span.File.FileName) : null;
+
+        if (to is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            File.Copy(from, to);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetStatus($"{span.File.FileName} could not be saved: {ex.Message}");
+            return null;
+        }
+
+        savedTo[span.File.TransferId] = to;
+        SetStatus($"saved a copy of {Path.GetFileName(to)}");
+        return to;
     }
 
     /// <summary>
@@ -1532,17 +1630,21 @@ public partial class ChatForm : Form
     }
 
     /// <summary>
-    /// Empties the transcript and forgets where the pictures in it were. Both halves are needed: an entry that
-    /// is no longer on screen but is still in <see cref="pictures"/> would be opened by the click that lands on
-    /// whatever replaced it at that position.
+    /// Empties the transcript and forgets where the entries in it were. Both halves are needed: an entry that is no
+    /// longer on screen but is still in <see cref="pictures"/> would be opened by the click that lands on whatever
+    /// replaced it at that position.
     /// </summary>
+    /// <remarks>
+    /// What is NOT cleared is what this window knows about the files themselves - which transfers it has, which one
+    /// it sent, and where it already wrote one out. Those are facts about files, not about the text on screen, and a
+    /// transcript is redrawn every time a room is entered. Forgetting them there was the window quietly taking the
+    /// save offer away from a file it still had, and forgetting where it had already put it (v1.3.1).
+    /// </remarks>
     private void ClearTranscript()
     {
         rtbChat.Clear();
         pictures.Clear();
         files.Clear();
-        transfers.Clear();
-        savedTo.Clear();
     }
 
     /// <summary>

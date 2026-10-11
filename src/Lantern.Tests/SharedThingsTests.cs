@@ -201,14 +201,24 @@ public sealed class SharedThingsTests
         });
     }
 
+    /// <summary>
+    /// A file this window sent, saved again somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// v1.2 refused this deliberately - the bytes are already on this machine, so offering them back looked like a
+    /// menu item that does nothing. The refusal was the bug: a right click that produces nothing at all cannot be
+    /// told apart from a program that is broken, and it arrived as "right click file placeholder not working".
+    /// What a person pointing at their own file wants is a copy in another folder - to email it, to put it on a
+    /// stick - and Lantern can do that, because it remembers where it read the file from.
+    /// </remarks>
     [Fact]
-    public void AFileThisWindowSentIsNotOfferedBackToIt()
-    {
-        Sta.Run(() =>
+    public Task AFileThisWindowSentOffersACopyOfItself()
+        => Sta.RunAsync(async () =>
         {
             var service = new FakeChatService("Haitao");
             using var form = new Sharing(service);
             var file = Write("deck.pdf", 2_000);
+            var folder = NewFolder();
 
             try
             {
@@ -220,22 +230,70 @@ public sealed class SharedThingsTests
 
                 var caret = Transcript(form).IndexOf("deck.pdf", StringComparison.Ordinal);
                 Assert.True(caret >= 0);
+                Assert.True(form.CanSaveSharedAt(caret));
 
-                // It is already on this machine - offering to save a file back onto itself is a menu item that
-                // does nothing, and the person has to find that out by clicking it.
-                Assert.False(form.CanSaveSharedAt(caret));
+                // It says "a copy", because that is what it is: the file that was sent stays where it is.
+                var menu = RightClickOn(form, "deck.pdf");
 
-                // And an ordinary sentence offers nothing either: right-clicking words shows no menu at all.
-                service.SimulateIncoming(new TextMessage("User 2", "Room 1", "hello there"));
-                Assert.False(form.CanSaveSharedAt(
-                    Transcript(form).IndexOf("hello there", StringComparison.Ordinal)));
+                Assert.True(menu.Visible, "a file this window sent can be copied somewhere else");
+                Assert.Equal("Save a copy to…", menu.Items[0].Text);
+
+                menu.Close();
+
+                form.Folder = folder;
+                var saved = await form.SaveSharedAtAsync(caret);
+                await TheWindowCatchingUpAsync();
+
+                Assert.NotNull(saved);
+                Assert.Equal(2_000, new FileInfo(saved!).Length);
+                Assert.Contains("saved a copy of deck.pdf", form.StatusText, StringComparison.Ordinal);
             }
             finally
             {
                 Delete(file);
             }
         });
-    }
+
+    /// <summary>
+    /// The same, when the file that was sent is no longer where it was.
+    /// </summary>
+    [Fact]
+    public Task ACopyOfAFileThatHasGoneOneIsRefusedOutLoud()
+        => Sta.RunAsync(async () =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Sharing(service);
+            var file = Write("deck.pdf", 2_000);
+            var folder = NewFolder();
+
+            try
+            {
+                form.Show();
+                Rooms(form).SelectedIndex = 0;
+                form.Answer = file;
+
+                Click(form, "btnShare");
+
+                var caret = Transcript(form).IndexOf("deck.pdf", StringComparison.Ordinal);
+
+                // The stick is out, the file is on the desktop no more. Lantern kept no copy of what it sent, so
+                // this is the honest answer - and it names the file and the place, rather than doing nothing.
+                Delete(file);
+
+                form.Folder = folder;
+                var saved = await form.SaveSharedAtAsync(caret);
+                await TheWindowCatchingUpAsync();
+
+                Assert.Null(saved);
+                Assert.Contains("deck.pdf", form.StatusText, StringComparison.Ordinal);
+                Assert.Contains("any more", form.StatusText, StringComparison.Ordinal);
+                Assert.Empty(Directory.GetFiles(folder));
+            }
+            finally
+            {
+                Delete(file);
+            }
+        });
 
     [Fact]
     public Task AFileAlreadySavedSaysWhereItWentRatherThanSavingAgain()
@@ -270,6 +328,52 @@ public sealed class SharedThingsTests
             Assert.Single(service.SaveRequests);
             Assert.Single(Directory.GetFiles(folder));
         });
+
+    /// <summary>
+    /// A menu raised without the mouse follows the caret.
+    /// </summary>
+    /// <remarks>
+    /// The offer used to hang entirely on where <see cref="Cursor"/> was at the moment the menu opened, which is a
+    /// question a keyboard menu key, a touch and hold, and some touchpads do not answer. The control has a caret,
+    /// and a right click puts it where the click happened, so the caret is asked as well - and this test asks it
+    /// with the cursor parked off the screen, where no amount of pointing could have helped.
+    /// </remarks>
+    [Fact]
+    public void AMenuRaisedWithoutTheMouseFollowsTheCaret()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Sharing(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+
+            var job = service.SimulateIncomingFile("notes.txt", 4_096);
+            service.AdvanceFile(job, 4_096);
+
+            var rtb = (RichTextBox)Find(form, "rtbChat")!;
+
+            rtb.SelectionStart = Transcript(form).IndexOf("notes.txt", StringComparison.Ordinal);
+            rtb.SelectionLength = 0;
+
+            Cursor.Position = new Point(-32000, -32000);
+
+            var menu = rtb.ContextMenuStrip!;
+            menu.Show(rtb, new Point(8, 8));
+
+            for (var i = 0; i < 12; i++)
+            {
+                Application.DoEvents();
+                Thread.Sleep(25);
+            }
+
+            Assert.True(menu.Visible, "the caret is on a file that arrived, and that is enough");
+            Assert.Equal("Save file to…", menu.Items[0].Text);
+
+            menu.Close();
+        });
+    }
 
     // ---------------------------------------------------------------- the mouse
     //
@@ -344,6 +448,11 @@ public sealed class SharedThingsTests
 
             // Not a greyed item: nothing. The window knows exactly what was right-clicked.
             Assert.False(menu.Visible);
+
+            // But the bar says what the click was missing, because "right-click the file" doing nothing is
+            // indistinguishable from a program that cannot save files - and was reported as one. Where to point is
+            // not something anybody can be expected to guess.
+            Assert.Contains("right-click the page", form.StatusText, StringComparison.Ordinal);
         });
     }
 

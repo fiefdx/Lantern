@@ -6,7 +6,7 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.3.** 536 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.3.1.** 540 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
@@ -134,7 +134,9 @@ of one frame is not a thing the wire can do.
 its own in the transcript, with the extension written on it, so a file looks like a file instead of a sentence —
 and there is something to point at. **Right-click the page** for **Save file to…**, exactly as the words offer it.
 **Double-clicking it opens nothing**: the picture viewer is for pictures, and a file's bytes may still be arriving
-or may have been declined, so a viewer on a file would be an empty window again. Everyone else in the room gets an offer
+or may have been declined, so a viewer on a file would be an empty window again.
+A file **you** shared offers **Save a copy to…**, taken from the file it was sent from; if that file has moved
+since, the bar names it and says where it was last. Everyone else in the room gets an offer
 strip naming the file, its size and who sent it — and can keep typing while they decide. **Save to…** asks for a
 *folder*, not a file name: the file keeps its own name inside the folder, which is the only thing that works when
 three files arrive in the same minute. **Decline** throws away what has arrived. **Stop** ends a transfer in
@@ -211,7 +213,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 536 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 540 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

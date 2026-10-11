@@ -140,3 +140,57 @@ of GDI+ — on the theory that no window is that wide. Alone, it passed. In a ru
 refused it, and it became the suite's first order-dependent failure. "Bigger than the window" is a property of the
 window, so the window is now 600 pixels wide and the photo a modest 1400. Nothing was lost from the claim, and a
 test that fails only in company gets deleted as flaky.
+
+## The right click that did nothing
+
+Reported against v1.3: *right click file placeholder not working, not shows save to menu*.
+
+**The first suspect was measured and cleared.** Everybody's instinct - and mine - is that the hit test is a
+character-counting house of cards, and that a click in the middle of an inline picture lands somewhere else
+entirely. A scratch window was built to find out what the transcript actually answers, and the answer was that a
+click in the middle of the 40 x 46 page finds the file, and a click in the middle of a thumbnail opens the viewer.
+The rule is forgiving enough. It was not the bug.
+
+What *was* wrong with the tests is still worth having: they aimed at the **character** the picture is, which is the
+**top-left pixel** of an icon. Everything else about the thing on screen was untested. `ARightClickInTheMiddleOfThePageOffersToSaveThatFile`
+and `ADoubleClickInTheMiddleOfAThumbnailOpensTheViewer` aim in pixels now, at the part a person actually points at.
+
+**Three things could really do it, and all three are fixed.**
+
+1. **The file was one this window sent.** v1.2 refused that deliberately - the bytes are already on this machine, so
+   offering them back looked like a menu item that does nothing - and the refusal was invisible. A right click that
+   produces nothing at all cannot be told apart from a broken program, and it was reported as one. There is now
+   **Save a copy to...**, which is the thing a person pointing at their own file actually wants (to email it, to put
+   it on a stick), and it works because the window remembers the path it read the file from - Lantern keeps no copy
+   of what it streams. If that file has moved or been deleted, the bar says which file and where it was last.
+2. **The menu was raised where the mouse was not.** The offer hung entirely on `Cursor.Position` at the moment the
+   menu opened - a question the keyboard's menu key, a touch and hold, and some touchpads do not answer. The control
+   has a caret, and a right click puts it where the click happened, so the caret is asked too
+   (`AMenuRaisedWithoutTheMouseFollowsTheCaret`, with the cursor parked at -32000,-32000).
+3. **The window had been redrawn.** `ClearTranscript` forgot the spans, which it must, and also which transfers this
+   window has, which ones it sent, and where it already wrote one out. A transcript is redrawn every time a room is
+   entered; those are facts about files, not about the text on screen.
+
+**And what a refused right click now does is say so.** The bar reads *right-click the page, or the line, of a shared
+file to save it*. The menu stays away from an ordinary sentence on purpose - a one-item menu with a greyed item is a
+window claiming it does not know what was right-clicked - but silence about a gesture nobody can be expected to have
+guessed is not a design, it is a bug report.
+
+## The question v1.3.1 could not answer
+
+A file's entry is drawn by `Append(new FileMessage(...))` in `ShareFile` and `OfferFile`. Text and pictures also
+make their way into the room's **own** transcript, which is what `ShowTranscript` replays when a room is entered;
+nothing does that for a file. With the fake, that shows up plainly: send a file, click into another room, click
+back, and the page is not there.
+
+Two tests were written for that - *a file is still saveable after looking at another room*, and the same for the
+promise that a file already saved is not written twice - and **both failed for a reason one level down**: the entry
+was not in the transcript at all, so there was nothing to be saveable. They were removed rather than left green.
+Making the fake record file entries would have turned them green while saying nothing whatever about the real
+engine, and a passing test the real program contradicts is worse than an open question.
+
+So the clearing of `transfers` was still fixed - a window must not forget files it has, whether or not it can
+currently be shown one - and the open question is on the checklist as step 19, where two machines can settle it in
+ten seconds: *enter the room with a file in it, go away, come back. Is the page still there?* If it is not, that is
+a v1.3.x bug of the same family as the empty photo viewer: the entry exists in the moment and nowhere else.
+

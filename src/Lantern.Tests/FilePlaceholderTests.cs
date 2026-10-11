@@ -146,6 +146,47 @@ public sealed class FilePlaceholderTests
         });
     }
 
+    /// <summary>
+    /// The same offer, asked of the middle of the page rather than of its first character.
+    /// </summary>
+    /// <remarks>
+    /// The first version of this test aimed at the character the picture is, which is the top-left pixel of a
+    /// 40 × 46 icon: everything else about the icon went untested, and a hit rule that stopped short of the
+    /// picture's own height - a click low on an inline picture lands on the character AFTER it - would have read
+    /// as green. A person clicks the middle of the thing they can see.
+    /// </remarks>
+    [Fact]
+    public void ARightClickInTheMiddleOfThePageOffersToSaveThatFile()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new HostForm(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+
+            var job = service.SimulateIncomingFile("deck.pdf", 4_096);
+            service.AdvanceFile(job, 4_096);
+
+            var rtb = Rt(form);
+            var corner = rtb.GetPositionFromCharIndex(EntryPictureAt(rtb, "[file] deck.pdf"));
+            var middle = new Point(corner.X + (FilePlaceholder.Width / 2), corner.Y + (FilePlaceholder.Height / 2));
+
+            var menu = RightClickAtPoint(form, middle);
+
+            Assert.True(menu.Visible, "the middle of the page is the part a person aims at");
+            Assert.Equal("Save file to…", menu.Items[0].Text);
+
+            // And the bottom edge of it, which is where the character after the picture starts.
+            var lowRight = new Point(corner.X + FilePlaceholder.Width - 2, corner.Y + FilePlaceholder.Height - 2);
+
+            Assert.True(form.CanSaveSharedAt(rtb.GetCharIndexFromPosition(lowRight)));
+
+            menu.Close();
+        });
+    }
+
     [Fact]
     public void ADoubleClickOnThePageOpensNoViewer()
     {
@@ -230,9 +271,13 @@ public sealed class FilePlaceholderTests
     }
 
     private static ContextMenuStrip RightClickAt(Control form, int caret)
+        => RightClickAtPoint(form, Rt(form).GetPositionFromCharIndex(caret));
+
+    /// <summary>Right-clicks a point in the transcript given in the control's own client coordinates.</summary>
+    private static ContextMenuStrip RightClickAtPoint(Control form, Point client)
     {
         var rtb = Rt(form);
-        var onScreen = rtb.PointToScreen(rtb.GetPositionFromCharIndex(caret));
+        var onScreen = rtb.PointToScreen(client);
 
         Cursor.Position = onScreen;
         PostMessage(rtb.Handle, WM_CONTEXTMENU, rtb.Handle, (onScreen.Y << 16) | (onScreen.X & 0xFFFF));
