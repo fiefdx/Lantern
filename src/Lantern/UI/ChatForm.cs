@@ -1576,7 +1576,7 @@ public partial class ChatForm : Form
         // transcript carries the message in one colour rather than a stray blue newline.
         WriteRun(TranscriptStyle.Headline(message), TranscriptStyle.HeadlineColorFor(message));
         WriteRun(Environment.NewLine, content);
-        WriteRun(TranscriptStyle.Content(message), content);
+        WriteContentRun(TranscriptStyle.Content(message), content);
 
         if (message is PictureMessage picture)
         {
@@ -1621,6 +1621,36 @@ public partial class ChatForm : Form
     /// through here, which is what makes “every message has a headline in one colour and its content in
     /// another” a property of the window rather than of the messages that happened to be sent.
     /// </summary>
+    /// <summary>
+    /// Writes the words of an entry, with any emoji put in as small colour pictures.
+    /// </summary>
+    /// <remarks>
+    /// Only the content of an entry goes through this, not the headline: a coloured face in the middle of a
+    /// sentence is what was asked for, and redrawing every line in the room as a string of images would make the
+    /// transcript a mosaic for the sake of a nickname. When there is no colour renderer on the machine - no emoji
+    /// font, or Skia could not open it - this is simply <see cref="WriteRun"/> again, and the message reads the way
+    /// it did in v1.4: an outline face rather than no face.
+    /// </remarks>
+    private void WriteContentRun(string text, Color color)
+    {
+        var pixels = GlyphPixels;
+
+        foreach (var (piece, emoji) in ColorEmoji.Split(text))
+        {
+            if (emoji && ColorEmoji.InlineRtf(piece, pixels) is { } rtf)
+            {
+                AppendRtf(rtf);
+            }
+            else
+            {
+                WriteRun(piece, color);
+            }
+        }
+    }
+
+    /// <summary>How tall a colour emoji is drawn: the line it has to sit on, never smaller than it reads well.</summary>
+    private int GlyphPixels => Math.Max(18, rtbChat.Font.Height);
+
     private void WriteRun(string text, Color color)
     {
         rtbChat.SelectionStart = rtbChat.TextLength;

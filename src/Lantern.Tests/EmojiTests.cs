@@ -30,8 +30,12 @@ namespace Lantern.Tests;
 /// drawn" is also true of an empty box.
 /// </para>
 /// <para>
-/// What they cannot decide is whether this machine paints the faces in colour or in outline. That is a person with
-/// eyes and a screen: <c>docs/testing/v1.4-emoji-checklist.md</c>.
+/// What they cannot decide is whether this machine paints the faces in colour or in outline. That question was
+/// settled afterwards, by a person with eyes and a screen, and the answer was "outline, everywhere" - which is what
+/// led to <see cref="ColorEmojiTests"/> and to the faces in a message being drawn as pictures rather than as text.
+/// What is left here is the text half of the promise: an emoji is still counted as one character, still travels
+/// whole, and is still drawn as something rather than nothing wherever it is written as text - in the box, and in a
+/// headline.
 /// </para>
 /// </remarks>
 public sealed class EmojiTests
@@ -108,13 +112,21 @@ public sealed class EmojiTests
             var sent = Assert.Single(service.Transcript.OfType<TextMessage>(), m => m.Body.Contains(Smiley, StringComparison.Ordinal));
             Assert.Equal(typed, sent.Body);
 
-            Assert.Contains(typed, Transcript(form), StringComparison.Ordinal);
+            // The words are the control's text; the two faces in that sentence are not, because since v1.5 they are
+            // drawn as pictures - see ColorEmojiTests for the trade and for the picture's own assertions.
+            Assert.Contains("cà phê ", Transcript(form), StringComparison.Ordinal);
             Assert.Equal(string.Empty, Box(form).Text);
         });
     }
 
+    /// <remarks>
+    /// Since v1.5 a face in the body of a message is a picture, so it is not in the control's text and has no cell
+    /// of its own to look at. A face where this one looks is the one in a headline, and in the box, and on any
+    /// machine with no colour renderer - which is to say: this pair now measures the path where an emoji really is
+    /// drawn as a glyph, and it is the path that must not quietly go blank.
+    /// </remarks>
     [Fact]
-    public void TheWindowDrawsSomethingWhereTheEmojiIs()
+    public void TheWindowDrawsSomethingWhereAnEmojiIsWrittenAsText()
     {
         Sta.Run(() =>
         {
@@ -123,7 +135,7 @@ public sealed class EmojiTests
 
             form.Show();
             Rooms(form).SelectedIndex = 0;
-            service.SimulateIncoming(new TextMessage("User 2", "Room 1", Smiley));
+            service.SimulateIncoming(new TextMessage("User 2" + Smiley, "Room 1", "hello"));
 
             using var ink = CellOf(Rt(form), Smiley);
 
@@ -134,7 +146,7 @@ public sealed class EmojiTests
     }
 
     [Fact]
-    public void TheEmojiIsNotDrawnAsTheBoxWindowsUsesForWhatItCannotDraw()
+    public void AnEmojiWrittenAsTextIsNotTheBoxWindowsUsesForWhatItCannotDraw()
     {
         Sta.Run(() =>
         {
@@ -143,7 +155,7 @@ public sealed class EmojiTests
 
             withEmoji.Show();
             Rooms(withEmoji).SelectedIndex = 0;
-            service.SimulateIncoming(new TextMessage("User 2", "Room 1", Smiley));
+            service.SimulateIncoming(new TextMessage("User 2" + Smiley, "Room 1", "hello"));
 
             using var emoji = CellOf(Rt(withEmoji), Smiley);
 
@@ -155,7 +167,7 @@ public sealed class EmojiTests
 
             withBox.Show();
             Rooms(withBox).SelectedIndex = 0;
-            other.SimulateIncoming(new TextMessage("User 2", "Room 1", NoGlyph));
+            other.SimulateIncoming(new TextMessage("User 2" + NoGlyph, "Room 1", "hello"));
 
             using var box = CellOf(Rt(withBox), NoGlyph);
 

@@ -105,9 +105,12 @@ somebody speaking to the room. The date is in the headline because a chat stays 
 **Emoji.** In the message box press **Win + .** (or **Win + ;**) and Windows puts its picker down at the caret;
 pasting works too. An emoji counts as **one** character, so 500 of them are a full message and a nickname of
 sixteen faces is a legal nickname - the count is what you see, not what UTF-16 stores. They travel over the
-Bluetooth link as themselves. Whether your Windows paints them in colour or in outline is Windows' business:
-the transcript asks for the glyph and gets whatever the machine has
-(`docs/testing/v1.4-emoji-checklist.md`).
+Bluetooth link as themselves, and in the transcript they come out **in colour**: a face is drawn from
+`C:\Windows\Fonts\seguiemj.ttf` - the same font the picker itself reads - and put in the line as a small picture.
+WinForms draws text with GDI, and GDI cannot resolve a colour font's layers at all (asked for a face it returns an
+empty glyph), which is why the faces are pictures rather than text and why Lantern carries SkiaSharp for that one
+job. In the message box they are still text, because an edit control cannot contain a picture
+(`docs/notes/the-face-that-came-out-in-colour.md`, `docs/testing/v1.5-colour-emoji-checklist.md`).
 
 **Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail (up to 5 MB). Anything
 Share is given that is not an image is sent as a file instead.
@@ -187,10 +190,13 @@ and the Bluetooth build are the same program.
 
 Said plainly, because a limitation found by a marker is worse than one admitted in the report.
 
-* **Emoji are drawn by Windows, not by Lantern.** The transcript is a RichTextBox, which is a GDI control: it asks
-  the operating system for a glyph and paints what it is given, so the faces may come out in outline rather than in
-  colour. What is guaranteed is that they are drawn at all, that they are the emoji and not the box Windows uses for
-  what it cannot draw, and that one of them counts as one character (`docs/notes/counting-what-somebody-counts.md`).
+* **A colourful face in the transcript is a picture, not a character.** Selecting the transcript and copying it out
+  therefore carries the words but not the faces, and searching the control's text cannot find a face either. What was
+  typed is stored and sent whole, so the other machines still receive the emoji itself. Colour in the **box** would
+  mean replacing the edit control, and the box is where the picker puts a face; that was not done, so a face is
+  colourful where it is read and outline where it is written. On a machine without Segoe UI Emoji, or without the
+  colour rasteriser working, everything falls back to the outline glyph rather than losing the message
+  (`docs/notes/the-face-that-came-out-in-colour.md`, `docs/notes/counting-what-somebody-counts.md`).
 
 * **No automatic reconnection.** If the link goes, the window says so and stops. Lantern does not dial anybody
   back: a program that quietly keeps retrying a machine that walked out of range is a program whose user cannot

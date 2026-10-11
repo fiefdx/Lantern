@@ -273,6 +273,32 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 
 ---
 
+## M10 — Colour Where the Faces Are Read (v1.5)
+
+- [x] **T10.1 [UI]** The transcript stops asking GDI for something GDI cannot give. Measured first:
+  `GetGlyphOutline` on Segoe UI Emoji for `U+1F600` returns 0 bytes for GRAY8, COMPOSITABLE and INCREMENTAL alike —
+  WinForms draws text with GDI, and GDI has no colour-glyph path, so v1.4's outline faces were the ceiling of the
+  control rather than a setting. `ColorEmoji` rasterises one text element at a time from
+  `C:\Windows\Fonts\seguiemj.ttf` (the font the Win + . picker itself reads, so the artwork is the artwork that was
+  chosen) and inserts it as one of the inline pictures the transcript already carried since v1.1. One picture per
+  element — two faces in one square cell puts the second outside the bitmap — and all-or-nothing per run, because
+  half a sentence in colour reads as a fault. SkiaSharp is the project's first graphics dependency: the alternatives
+  were hand-written D2D/DWrite vtables (crash-shaped) or a shipped PNG set (different artwork, several megabytes).
+- [x] **T10.2 [QA]** `ColorEmojiTests` (18): the font read is Windows' own; a face comes out with hue in it and more
+  than eight shades (`ink` alone is true of an outline, `many colours` alone of a grey photograph); `ê` and `ế` are
+  not emoji, so a Vietnamese sentence stays words; a family and a flag are one picture; two faces are two pictures;
+  the same face twice is one raster; a body emoji reaches the transcript as one embedded picture at line height; a
+  headline emoji is still text; a file's page and a face are two different sizes of picture, so v1.3.1 hit-testing
+  survives a text stream that now contains images. The two v1.4 tests that looked at an emoji's cell were
+  **re-expressed rather than deleted** — a body emoji has no cell in the control's text any more — and now measure
+  the path where an emoji really is a glyph: a headline, the box, and any machine with no colour renderer.
+- [x] **T10.3 [Docs]** The cost is stated where it can be read, not discovered: a colourful face is a picture, so
+  copying the transcript out carries the words and not the faces, and **the box stays outline** because an edit
+  control cannot contain an image and replacing it is a decision rather than a tweak. Sheet
+  `docs/testing/v1.5-colour-emoji-checklist.md`; note `docs/notes/the-face-that-came-out-in-colour.md`.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |

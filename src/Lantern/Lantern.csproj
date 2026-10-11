@@ -36,6 +36,10 @@
 
   <ItemGroup>
     <PackageReference Include="InTheHand.Net.Bluetooth" Version="4.2.5" />
+    <!-- Colour emoji: Windows' own Segoe UI Emoji is a COLR/CPAL colour font, and only a DirectWrite-class
+         rasteriser resolves its palette. GDI - which is what every WinForms control draws with - cannot;
+         Skia is that rasteriser without hand-written COM interop. See docs/notes/the-face-that-came-out-in-colour.md -->
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
   </ItemGroup>
 
 </Project>

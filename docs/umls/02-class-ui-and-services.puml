@@ -71,6 +71,17 @@ package "UI layer  (WinForms)" {
     + {static} InlineFor(fileName) : string
   }
 
+  ' v1.5: a colourful emoji, rasterised from Windows' own emoji font - GDI cannot do it at all
+  ' (docs/notes/the-face-that-came-out-in-colour.md)
+  class ColorEmoji <<static>> {
+    + {static} FontPath : string
+    + {static} Available : bool
+    + {static} IsEmoji(element) : bool
+    + {static} Split(text) : IEnumerable~(string, bool)~
+    + {static} Png(element, pixels) : byte[]
+    + {static} InlineRtf(text, pixels) : string
+  }
+
   class TranscriptStyle <<static>> {
     + {static} Headline(sentAt, sender) : string
     + {static} Content(entry) : string
