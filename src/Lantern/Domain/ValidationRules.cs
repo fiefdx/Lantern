@@ -18,6 +18,18 @@ public static class ValidationRules
     /// <summary>Pictures travel in one frame body, so keep them modest.</summary>
     public const long MaxPictureBytes = 5L * 1024 * 1024;
 
+    /// <summary>
+    /// How long some text is, in the characters a person counts rather than the ones UTF-16 stores.
+    /// </summary>
+    /// <remarks>
+    /// An emoji is two UTF-16 units - a surrogate pair - so measuring with <c>string.Length</c> told somebody that
+    /// their 250 faces were a 500 character message, and the refusal said "500 characters or fewer" to a person
+    /// counting half as many as they had typed. This counts text elements, which also means a family joined with
+    /// zero-width joiners and a flag made of two regional indicators count once each, as they look.
+    /// </remarks>
+    public static int Length(string? text)
+        => string.IsNullOrEmpty(text) ? 0 : new System.Globalization.StringInfo(text).LengthInTextElements;
+
     /// <summary>Trim + collapse inner whitespace; never returns null.</summary>
     public static string Normalize(string? raw)
         => string.Join(' ', (raw ?? string.Empty).Split(default(string[]?),
@@ -37,7 +49,7 @@ public static class ValidationRules
             return $"Nickname must be at least {NicknameMinLength} character(s).";
         }
 
-        if (nickname.Length > NicknameMaxLength)
+        if (Length(nickname) > NicknameMaxLength)
         {
             return $"Nickname must be {NicknameMaxLength} characters or fewer.";
         }
@@ -56,7 +68,7 @@ public static class ValidationRules
             return "Room name is required.";
         }
 
-        if (name.Length > RoomNameMaxLength)
+        if (Length(name) > RoomNameMaxLength)
         {
             return $"Room name must be {RoomNameMaxLength} characters or fewer.";
         }
@@ -79,7 +91,7 @@ public static class ValidationRules
             return "Message is empty.";
         }
 
-        if (body.Length > MessageMaxLength)
+        if (Length(body) > MessageMaxLength)
         {
             return $"Message must be {MessageMaxLength} characters or fewer.";
         }

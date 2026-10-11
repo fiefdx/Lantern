@@ -250,6 +250,29 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 
 ---
 
+## M9 — Emoji in What People Type (v1.4)
+
+- [x] **T9.1 [Core]** A message is measured in the characters somebody counts. `ValidationRules.Length` counts text
+  elements, and `NicknameError`, `RoomNameError` and `MessageError` use it. A face is two UTF-16 units, four UTF-8
+  bytes and twelve JSON-escaped characters; a person counts one, and a refusal whose number cannot be checked by the
+  person reading it teaches them the program is arbitrary. 251 faces used to be refused as a 502-character message;
+  a nickname of nine faces used to be 18 characters. A joined family and a flag count once each, as they look.
+  **The wire did not change**: a frame has always counted bytes of UTF-8, which is what a radio carries.
+- [x] **T9.2 [UI]** Emoji are shown, and that was measured rather than assumed. A RichTextBox is a GDI control with
+  no colour-font machinery, so whether it put a glyph there at all was found out by drawing the window and sampling
+  it: it does, through Windows' font fallback, and naming `Segoe UI Emoji` on the run changes not one pixel — no
+  rendering change was needed, only the ruler. `WhatWasTypedWithEmojiIsSentAndShownAsItWasTyped` sends `cà phê 😀🎉` the
+  way the picker (Win + .) and a paste deliver it. `AnEmojiNicknameIsShownInTheMemberList` covers the other place a
+  person may choose to be an emoji.
+- [x] **T9.3 [QA]** `EmojiTests` (16), one framing test and two over real loopback sockets. The drawing test has a
+  partner on purpose: ink in an emoji's cell is also true of a row of empty boxes, so
+  `TheEmojiIsNotDrawnAsTheBoxWindowsUsesForWhatItCannotDraw` compares the cell with a private-use code point nothing
+  has a glyph for. `FiveHundredEmojiArriveWhole` sends 500 characters / 1000 UTF-16 units / 2000 bytes across
+  sockets. Sheet `docs/testing/v1.4-emoji-checklist.md`; note `docs/notes/counting-what-somebody-counts.md`. Colour
+  or outline is step 2, and is not claimed by any test.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |

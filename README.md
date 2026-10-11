@@ -6,7 +6,7 @@ One machine **hosts** a chat, the others **scan** for it and join as clients. Th
 named **rooms**; everyone in a room talks, sends pictures and shares files with each other. No accounts, no
 Wi‑Fi, no internet, no server in the cloud — just the laptops in the room and the radios in them.
 
-**v1.3.1.** 540 automated tests, and a written end-to-end checklist for the parts only hardware can prove
+**v1.4.** 559 automated tests, and a written end-to-end checklist for the parts only hardware can prove
 ([docs/testing/m6-end-to-end-checklist.md](docs/testing/m6-end-to-end-checklist.md)). v1.1 is the group window
 grown up: a transcript that reads as a log, a photo you can look at and scale, and rooms made and unmade from
 inside the chat ([docs/testing/v1.1-group-window-checklist.md](docs/testing/v1.1-group-window-checklist.md)).
@@ -23,7 +23,7 @@ which way it is going and how much of it has gone
 ```powershell
 git clone <this repo> ; cd Lantern
 dotnet build Lantern.sln                # 0 warnings is a group rule, so read this line
-dotnet test  Lantern.sln                # 413 tests
+dotnet test  Lantern.sln                # 559 tests
 dotnet run --project src/Lantern/Lantern.csproj
 ```
 
@@ -101,6 +101,13 @@ A group chat is read as a log, and a line that carries the name, the time and th
 nothing lines up. Notices (`User 3 - join this chat`) keep the same shape in two greys, because a notice is not
 somebody speaking to the room. The date is in the headline because a chat stays open across an afternoon, and
 "14:05" cannot answer "was that today?".
+
+**Emoji.** In the message box press **Win + .** (or **Win + ;**) and Windows puts its picker down at the caret;
+pasting works too. An emoji counts as **one** character, so 500 of them are a full message and a nickname of
+sixteen faces is a legal nickname - the count is what you see, not what UTF-16 stores. They travel over the
+Bluetooth link as themselves. Whether your Windows paints them in colour or in outline is Windows' business:
+the transcript asks for the glyph and gets whatever the machine has
+(`docs/testing/v1.4-emoji-checklist.md`).
 
 **Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail (up to 5 MB). Anything
 Share is given that is not an image is sent as a file instead.
@@ -180,6 +187,11 @@ and the Bluetooth build are the same program.
 
 Said plainly, because a limitation found by a marker is worse than one admitted in the report.
 
+* **Emoji are drawn by Windows, not by Lantern.** The transcript is a RichTextBox, which is a GDI control: it asks
+  the operating system for a glyph and paints what it is given, so the faces may come out in outline rather than in
+  colour. What is guaranteed is that they are drawn at all, that they are the emoji and not the box Windows uses for
+  what it cannot draw, and that one of them counts as one character (`docs/notes/counting-what-somebody-counts.md`).
+
 * **No automatic reconnection.** If the link goes, the window says so and stops. Lantern does not dial anybody
   back: a program that quietly keeps retrying a machine that walked out of range is a program whose user cannot
   tell whether they are in the chat. Joining again is a person's decision.
@@ -213,7 +225,7 @@ Said plainly, because a limitation found by a marker is worse than one admitted 
 ## 6. Tests and checklists
 
 ```powershell
-dotnet test Lantern.sln                       # 540 tests: unit, integration, and WinForms UI smoke tests
+dotnet test Lantern.sln                       # 559 tests: unit, integration, and WinForms UI smoke tests
 ```
 
 The UI tests create real windows on an STA thread and drive them with a fake service, so the suite needs no

@@ -316,6 +316,70 @@ public sealed class EndToEndScenarioTests
     // -------------------------------------------------------------- plumbing
 
     /// <summary>One message as a window would build it.</summary>
+    // ---------------------------------------------------------------- emoji on the radio
+
+    /// <summary>
+    /// What was typed with emoji and accents is what arrives.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in Lantern forbids an emoji, which is exactly why this was worth testing over real sockets: the
+    /// failure mode of a chat that carries Unicode is not a refusal, it is a message that arrives cut in half or
+    /// with a face turned into three nonsense letters. It happens wherever one part of the path counts characters
+    /// and another counts bytes.
+    /// </remarks>
+    [Fact]
+    public async Task EmojiAndAccentsArriveAsTheCharactersThatWereTyped()
+    {
+        await using var host = await HostAChatAsync();
+        await host.Host.JoinByNameAsync("Room 1");
+
+        await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
+        await cara.JoinByNameWhenShownAsync("Room 1");
+        await EveryoneSeesEveryone(host.Host, cara);
+
+        var fromHost = WatchMessages(host.Host);
+
+        const string Typed = "cà phê \U0001F600\U0001F389";
+
+        await cara.SendAsync(Line(cara, "Room 1", Typed));
+
+        await Watch.UntilAsync(() => fromHost.Items.OfType<TextMessage>().Any(), "the host to hear it");
+
+        var heard = Assert.Single(fromHost.Items.OfType<TextMessage>());
+
+        Assert.Equal(Typed, heard.Body);
+    }
+
+    /// <summary>The longest legal message, made entirely of the longest kind of character.</summary>
+    [Fact]
+    public async Task FiveHundredEmojiArriveWhole()
+    {
+        await using var host = await HostAChatAsync();
+        await host.Host.JoinByNameAsync("Room 1");
+
+        await using var cara = await JoinAsync("Cara", host.Server.Endpoint);
+        await cara.JoinByNameWhenShownAsync("Room 1");
+        await EveryoneSeesEveryone(host.Host, cara);
+
+        var fromHost = WatchMessages(host.Host);
+
+        // The worst case the framing has to get right: five hundred characters, which are a thousand UTF-16 units,
+        // which are two thousand bytes of UTF-8. One number on each end of that and the message is shorter than
+        // whoever sent it thinks.
+        var faces = string.Concat(Enumerable.Repeat("\U0001F600", ValidationRules.MessageMaxLength));
+
+        Assert.Equal(4 * ValidationRules.MessageMaxLength, System.Text.Encoding.UTF8.GetByteCount(faces));
+
+        await cara.SendAsync(Line(cara, "Room 1", faces));
+
+        await Watch.UntilAsync(() => fromHost.Items.OfType<TextMessage>().Any(), "the host to hear it");
+
+        var heard = Assert.Single(fromHost.Items.OfType<TextMessage>());
+
+        Assert.Equal(faces, heard.Body);
+        Assert.Equal(ValidationRules.MessageMaxLength, ValidationRules.Length(heard.Body));
+    }
+
     private static TextMessage Line(IChatService sender, string roomName, string body)
         => new(sender.Nickname, roomName, body);
 

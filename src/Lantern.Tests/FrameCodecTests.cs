@@ -67,6 +67,37 @@ public class FrameCodecTests
         Assert.Empty(decoded.Body);
     }
 
+    /// <summary>
+    /// The one arithmetic that can quietly break a chat: bytes against characters.
+    /// </summary>
+    [Fact]
+    public void AnEmojiTravelsAsFourBytesNotTwoCharacters()
+    {
+        const string Body = "cà phê \U0001F600\U0001F389";
+
+        // The words of a message ride in the JSON header, and the length in front of a frame counts BYTES of that
+        // UTF-8, because a byte count is the only thing a radio understands. One face is three different numbers:
+        // two UTF-16 units, four bytes of UTF-8, and twelve characters once JSON has escaped it to 
+        // "\ud83d\ude00". The framing has to use the middle one, and the arithmetic below is what says it did.
+        Assert.Equal(4, System.Text.Encoding.UTF8.GetByteCount("\U0001F600"));
+        Assert.Equal(17, System.Text.Encoding.UTF8.GetByteCount(Body));
+
+        var frame = Frame.Text(Guid.NewGuid(), WireRoom(), "Xanh", Body, new DateTime(2026, 1, 2, 3, 4, 5));
+        var onTheWire = FrameCodec.Encode(frame);
+
+        // More bytes on the wire than characters in the sentence. Had anything counted characters, the frame would
+        // be undersized: the far end would read part of a message and call whatever was left the beginning of the
+        // next one.
+        Assert.True(onTheWire.Length > System.Text.Encoding.UTF8.GetByteCount(Body),
+            $"the frame is {onTheWire.Length} bytes for a 17 byte sentence");
+
+        var heard = DecodeSingle(onTheWire).ToMessage();
+
+        var text = Assert.IsType<TextMessage>(heard);
+        Assert.Equal(Body, text.Body);
+        Assert.Equal(9, ValidationRules.Length(text.Body));
+    }
+
     [Fact]
     public void ABinaryBodyIsSentRawNotBase64()
     {
