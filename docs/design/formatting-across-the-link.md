@@ -47,13 +47,17 @@ Style fields, all optional and additive:
 | key | meaning | receiver with no idea what it is |
 | --- | --- | --- |
 | `b` | bold | ignored, run shown plain |
+| `i` | italic | ignored |
 | `u` | underline | ignored |
 | `c` | colour, `#RRGGBB` from a fixed small palette | ignored |
 | `s` | size, one of `0` / `1` / `2` (small, normal, large) | ignored |
 
-Deliberately **not** italic: RichTextBox can do it, but every field costs a test on both sides and italic in a chat
-window answers a question nobody asked. Every field added later is additive by the rule above, so leaving it out is
-free; putting it in badly is not.
+Bold, italic and underline are **independent flags on a run**, not a font-style enum: the wire carries three bits and
+the receiver composes whatever font it has. That matters on the way out too - see the toggles below.
+
+Italic was left out of the first draft on the grounds that nobody asked for it. It was asked for, so it is in, and the
+design notes the cost honestly: a third style flag doubles the combinations the run tests have to cover (bold, italic,
+underline, and all three together on one run) and adds the RichTextBox toggle trap below.
 
 `Body` is unchanged on the wire with or without styles, byte for byte — which is the assertion that proves a v1.6
 peer is not being subtly broken.
@@ -97,6 +101,13 @@ runs. It becomes a `RichTextBox`, and that swap is where the work and the risk a
 * **Toggles apply to the selection** (`SelectionFont`, `SelectionColor`, `SelectionCharOffset`), and to what is typed
   next. They reset when the message is sent. Style state that outlives the send is how a chat turns into a
   ransom note.
+* **The RichTextBox style mask is a trap, and it is exactly the trap italic walks into.** Assigning
+  `SelectionFont = new Font(family, size, FontStyle.Bold)` replaces the *whole* style mask, so a naive Bold button
+  silently removes italic from the selection - and an Italic button silently removes bold. Each toggle has to read
+  the selection's current style, set or clear its own bit, and write the composition back; and a toggle pressed on a
+  partly-styled selection applies to the whole selection, with the button shown pressed only when **every** run in it
+  already has the style. Two tests live here: *bold then italic leaves both on*, and *italic then the same italic
+  button leaves bold alone*.
 * **The toolbar goes above the box**, which is also the two-line box that was asked for: Bold, Underline, Size,
   Colour, Emoji, Share — Send stays where it is, because muscle memory around Send is worth more than symmetry.
 * **Roughly 30 tests read `Box(form)` as a `TextBox`** and several wireframe-parity tests assert the geometry of the
@@ -113,7 +124,8 @@ it is the only decision here that was made for convenience rather than for the p
 
 * **T12.1 [Core/Transport]** the style runs: DTO fields, encode/decode, the sum-must-match rule, the 64-run cap, the
   unchanged-`Body` rule, and a test that a header carrying an unknown field still decodes into the message it
-  arrived as.
+  arrived as. Combinations get named tests rather than a theory with a boolean triple: `bold+italic+underline` on one
+  run of one character, sent once and compared against what came out.
 * **T12.2 [UI]** the transcript renders runs, and a formatted message round-trips through two real loopback sockets
   with the style intact.
 * **T12.3 [UI]** toolbar above the input, two-line box, RichTextBox swap, counting in `TextChanged`, Enter and
@@ -129,3 +141,4 @@ it is the only decision here that was made for convenience rather than for the p
 1. Runs keyed by counted characters rather than by offsets — if you would rather have offsets, say why.
 2. Older peers silently showing plain text instead of being warned.
 3. Faces staying outline in the box for this round.
+4. ~~Italic~~ — asked for, now in (see the style-mask trap above).
