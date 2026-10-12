@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Lantern.Domain;
 
 /// <summary>
@@ -137,4 +139,77 @@ public sealed record StyledRun(
 
         return true;
     }
+
+    /// <summary>
+    /// Cuts the sentence into the stretches the styling talks about, in the order they occur.
+    /// <para>
+    /// Runs are counts of <em>characters as anybody counting them would count them</em>, so this walks
+    /// <see cref="System.Globalization.StringInfo"/> elements and never a UTF-16 unit. A cut that landed inside a
+    /// family emoji would hand the drawing code half a surrogate pair, which is not a character: half a face in one
+    /// style and the rest of it in another.
+    /// </para>
+    /// <remarks>
+    /// Nothing here assumes the runs are well formed, because a message can be handed over in process as easily as
+    /// parsed off a socket, and a malformed annotation must still leave the sentence intact: runs describing more
+    /// characters than exist stop at the end, runs describing none are skipped, and whatever is left over is plain.
+    /// Cutting a sentence up must never be able to lose part of it.
+    /// </remarks>
+    /// </summary>
+    public static IReadOnlyList<StyledPiece> Split(string body, IReadOnlyList<StyledRun>? runs)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        if (body.Length == 0)
+        {
+            return [];
+        }
+
+        // Where each character begins, so that a count of characters can be cut at a character boundary.
+        var starts = new List<int>();
+
+        for (var e = StringInfo.GetTextElementEnumerator(body); e.MoveNext();)
+        {
+            starts.Add(e.ElementIndex);
+        }
+
+        // One past the last character, so that a run reaching the end of the sentence has a boundary to be cut at
+        // just like any other.
+        starts.Add(body.Length);
+
+        var pieces = new List<StyledPiece>();
+        var total = starts.Count - 1;
+        var element = 0;
+
+        foreach (var run in runs ?? [])
+        {
+            if (element >= total)
+            {
+                break;
+            }
+
+            var take = Math.Min(Math.Max(run.Length, 0), total - element);
+
+            if (take == 0)
+            {
+                // A run describing no characters would make an empty piece, which the drawing code would
+                // dutifully apply and re-apply for nothing.
+                continue;
+            }
+
+            pieces.Add(new StyledPiece(body[starts[element]..starts[element + take]], run));
+            element += take;
+        }
+
+        if (element < total)
+        {
+            // Whatever the list did not talk about is plain - and its length is the truth about that stretch, so a
+            // caller that re-reads the pieces gets a list that adds up even when the one it was given did not.
+            pieces.Add(new StyledPiece(body[starts[element]..], new StyledRun(total - element)));
+        }
+
+        return pieces;
+    }
 }
+
+/// <summary>One stretch of the sentence, and what the wire said about it.</summary>
+public readonly record struct StyledPiece(string Text, StyledRun Run);

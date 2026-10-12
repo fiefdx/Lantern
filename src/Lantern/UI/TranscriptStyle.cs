@@ -94,4 +94,118 @@ public static class TranscriptStyle
 
         return message.Kind == MessageKind.JOIN_LEAVE_NOTICE ? NoticeContentColor : ContentColor;
     }
+
+    // -------------------------------------------------------------- runs
+    //
+    // A run off the wire says bold, italic, underline, one of three sizes, maybe a colour. That is a description of
+    // ink rather than ink: somebody still has to say what "large" is in points, next to this font, on this machine.
+    // Decided here, so that the window drawing it and the test measuring it agree on one answer, and so that the
+    // answer can change without anything on the link changing with it - the wire says "large", and only this file
+    // knows what large looks like.
+
+    /// <summary>How much smaller than the room's own font a small run is, in points.</summary>
+    public const float SmallDelta = -2f;
+
+    /// <summary>
+    /// How much larger than the room's own font a large run is. Not the mirror of <see cref="SmallDelta"/>: text
+    /// that is merely small reads as a footnote, and emphasis that is merely big reads as emphasis.
+    /// </summary>
+    public const float LargeDelta = 4f;
+
+    /// <summary>
+    /// The font one run is written in, or null when the run asks for nothing and the control's own font should be
+    /// used. Null rather than a copy of the base font because the caller then knows not to allocate or dispose
+    /// anything for the overwhelmingly common case of an unstyled line.
+    /// </summary>
+    public static Font? RunFont(Font baseFont, StyledRun run)
+    {
+        ArgumentNullException.ThrowIfNull(baseFont);
+
+        var style = FontStyle.Regular;
+
+        if (run.Bold)
+        {
+            style |= FontStyle.Bold;
+        }
+
+        if (run.Italic)
+        {
+            style |= FontStyle.Italic;
+        }
+
+        if (run.Underline)
+        {
+            style |= FontStyle.Underline;
+        }
+
+        var size = run.Size switch
+        {
+            StyledRun.Small => baseFont.Size + SmallDelta,
+            StyledRun.Large => baseFont.Size + LargeDelta,
+            _ => baseFont.Size,
+        };
+
+        // Never smaller than the smallest thing worth drawing: a peer from another machine could claim a size this
+        // font has no room for, and invisible text is worse than text the wrong size.
+        if (size < 4f)
+        {
+            size = baseFont.Size;
+        }
+
+        if (style == FontStyle.Regular && size == baseFont.Size)
+        {
+            return null;
+        }
+
+        if (size == baseFont.Size)
+        {
+            // The common case, and the only reason a run that is merely bold does not go looking for a font family:
+            // Font(Font, FontStyle) copies the family and size it is given.
+            return new Font(baseFont, style);
+        }
+
+        // Rescaling has to name a family, which is the one place this could fail on a machine without the
+        // transcript's font - so the size is applied first and the style copied off the result, and the intermediate
+        // font is handed back before anything is drawn with it.
+        using var rescaled = new Font(baseFont.Name, size, baseFont.Style, baseFont.Unit, baseFont.GdiCharSet, baseFont.GdiVerticalFont);
+
+        return new Font(rescaled, style);
+    }
+
+    /// <summary>
+    /// The colour a run asked for, or null when it asked for none. Anything unparseable reads as "none" rather than
+    /// throwing: a colour this machine cannot make must not be allowed to take the sentence down with it.
+    /// </summary>
+    public static Color? RunColour(StyledRun run)
+    {
+        if (run.Color is not { Length: 7 } colour || colour[0] != '#')
+        {
+            return null;
+        }
+
+        var rgb = new int[3];
+
+        for (var part = 0; part < 3; part++)
+        {
+            var high = Digit(colour[1 + (part * 2)]);
+            var low = Digit(colour[2 + (part * 2)]);
+
+            if (high < 0 || low < 0)
+            {
+                return null;
+            }
+
+            rgb[part] = (high * 16) + low;
+        }
+
+        return Color.FromArgb(rgb[0], rgb[1], rgb[2]);
+    }
+
+    private static int Digit(char c) => c switch
+    {
+        >= '0' and <= '9' => c - '0',
+        >= 'a' and <= 'f' => c - 'a' + 10,
+        >= 'A' and <= 'F' => c - 'A' + 10,
+        _ => -1,
+    };
 }

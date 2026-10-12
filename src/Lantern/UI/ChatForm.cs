@@ -1651,9 +1651,11 @@ public partial class ChatForm : Form
         // F13: the headline on its line, the message on the next, in another colour. The line break belongs to
         // the content's colour rather than the headline's, so that selecting an entry and copying it out of the
         // transcript carries the message in one colour rather than a stray blue newline.
+        // The headline is scaffolding and stays unformatted whatever the message inside it asked for: a join notice
+        // cannot be styled, and a nickname that came out bold would look like the person shouting their own name.
         WriteRun(TranscriptStyle.Headline(message), TranscriptStyle.HeadlineColorFor(message));
         WriteRun(Environment.NewLine, content);
-        WriteContentRun(TranscriptStyle.Content(message), content);
+        WriteContentRun(TranscriptStyle.Content(message), content, (message as TextMessage)?.Styles);
 
         if (message is PictureMessage picture)
         {
@@ -1708,19 +1710,27 @@ public partial class ChatForm : Form
     /// font, or Skia could not open it - this is simply <see cref="WriteRun"/> again, and the message reads the way
     /// it did in v1.4: an outline face rather than no face.
     /// </remarks>
-    private void WriteContentRun(string text, Color color)
+    private void WriteContentRun(string text, Color color, IReadOnlyList<StyledRun>? styles = null)
     {
         var pixels = GlyphPixels;
 
-        foreach (var (piece, emoji) in ColorEmoji.Split(text))
+        // Styling first, then faces, so that a face inside a bold run is still one face and not a run that gave up
+        // halfway. The styling owns the character counts; the faces are drawn inside whichever stretch they fall in.
+        foreach (var (stretch, run) in StyledRun.Split(text, styles))
         {
-            if (emoji && ColorEmoji.InlineRtf(piece, pixels) is { } rtf)
+            var runColor = TranscriptStyle.RunColour(run) ?? color;
+            using var runFont = TranscriptStyle.RunFont(rtbChat.Font, run);
+
+            foreach (var (piece, emoji) in ColorEmoji.Split(stretch))
             {
-                AppendRtf(rtf);
-            }
-            else
-            {
-                WriteRun(piece, color);
+                if (emoji && ColorEmoji.InlineRtf(piece, pixels) is { } rtf)
+                {
+                    AppendRtf(rtf);
+                }
+                else
+                {
+                    WriteRun(piece, runColor, runFont);
+                }
             }
         }
     }
@@ -1728,11 +1738,17 @@ public partial class ChatForm : Form
     /// <summary>How tall a colour emoji is drawn: the line it has to sit on, never smaller than it reads well.</summary>
     private int GlyphPixels => Math.Max(18, rtbChat.Font.Height);
 
-    private void WriteRun(string text, Color color)
+    /// <remarks>
+    /// The font is set on every run rather than only on the styled ones, for the same reason the colour is: a RichTextBox
+    /// carries the last thing you set into whatever comes next, so a bold line that did not put the plain font back would
+    /// write the rest of the room in bold.
+    /// </remarks>
+    private void WriteRun(string text, Color color, Font? font = null)
     {
         rtbChat.SelectionStart = rtbChat.TextLength;
         rtbChat.SelectionLength = 0;
         rtbChat.SelectionColor = color;
+        rtbChat.SelectionFont = font ?? rtbChat.Font;
         rtbChat.AppendText(text);
     }
 

@@ -352,6 +352,35 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       On a live link: the host speaks formatted and the client hears it formatted, a styled line crosses the host
       still styled, a line whose runs do not add up reaches the room as words, and the host's own window files the
       plain copy too. **617 tests** total.
+- [x] **T12.2 [UI]** **What was typed bold arrives bold.** T12.1 put the formatting on the link; on its own it was a
+      secret the two machines told each other, because both windows drew every line in the room's one font and one
+      colour. A run is now drawn as the ink it asks for: bold, italic and underline composed into one font mask,
+      size taken from the transcript's own size rather than an absolute point count, colour parsed off `#RRGGBB`.
+      `StyledRun.Split` cuts the sentence at the run boundaries using the same ruler the length limit uses, so the
+      boundary of a run never falls inside `👨‍👩‍👧` and hands the drawing code half a face, and it makes no assumption
+      that the list it was handed is well formed — a run describing more characters than exist stops at the end, a
+      run describing none is skipped, and whatever is left over is plain, because cutting a sentence up must never
+      be able to lose part of it. `TranscriptStyle` decides what small and large *are* in points (the wire says
+      "large"; only this file knows what large looks like, which is what lets it change), and an unstyled run asks
+      for no font at all rather than a copy of the one already in use.
+      **The scaffolding is never styled.** The headline keeps its colour and its size whatever the message under it
+      asked for: a join notice has no business being bold, and a nickname that came out big reads as somebody
+      shouting their own name. Faces stay faces inside a styled run — the run goes round the picture, it does not
+      stop at it — and `SelectionFont` is set on every run rather than only the styled ones, because a RichTextBox
+      carries the last thing set into whatever comes next, so a bold line that did not put the plain font back
+      would write the rest of the room in bold.
+- [x] **T12.2 [QA]** `StyledTranscriptTests` (14): a styled word arrives bold, and the plain word after it does
+      not; italic and underline arrive together; `#C00000` arrives and the rest of the line keeps the colour it had;
+      large is measurably taller than the line round it and small shorter; a plain line is drawn plain, which is
+      the guard against this feature adding formatting nobody asked for; the headline is not styled; a face inside
+      a styled run is still one face; a room replayed from its history replays the formatting too; host window and
+      client window put the same ink on the screen for one message; and at the domain level the runs are cut where
+      the ruler counts them, no piece ever ends between the two halves of a face, and cutting always gives back the
+      sentence — including for a run list that describes 100 characters of a 4-character message.
+      Every styled fixture goes through one helper that asserts `StyledRun.Fits` before the message is sent, because
+      a fixture whose runs did not add up would not fail as "the runs were wrong", it would quietly arrive plain and
+      then fail as "the transcript is broken" — which is a long way to go to diagnose an addition, and three
+      fixtures did exactly that while this was being written. **631 tests** total.
 
 ---
 
