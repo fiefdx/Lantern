@@ -142,3 +142,49 @@ it is the only decision here that was made for convenience rather than for the p
 2. Older peers silently showing plain text instead of being warned.
 3. Faces staying outline in the box for this round.
 4. ~~Italic~~ — asked for, now in (see the style-mask trap above).
+
+## T12.1 work order (for the session that writes the code, not for reading)
+
+Written so the whole session can be spent on the change instead of on finding it. Red first, then green, one commit.
+Nothing in this list touches a control; if a `.Designer.cs` file is in the diff, the session has drifted.
+
+`grep -rn "class ChatHeader" src/Lantern` finds the DTO the frame header serialises - it is the shape that gains the
+`styles` field, and `grep -rn "TextMessage(" src/Lantern/Core` finds the two places that map between DTO and domain
+(one per direction). Files, in the order to touch them:
+
+1. **`src/Lantern/Domain/StyledRun.cs`** (new) - `public sealed record StyledRun(int Length, bool Bold, bool Italic,
+   bool Underline, int Size, string? Color)`, plus `static IReadOnlyList<StyledRun> Plain(int length)`, plus
+   `static bool Fits(IReadOnlyList<StyledRun> runs, string body)`: the sum of `Length` equals
+   `ValidationRules.Length(body)`, no run has `Length <= 0`, and `Count <= 64`. `Size` is 0/1/2 and `Color` is
+   `#RRGGBB` or null - both validated here, not trusted from the wire.
+2. **`src/Lantern/Domain/TextMessage.cs`** - add `public IReadOnlyList<StyledRun> Styles { get; init; } =
+   Array.Empty<StyledRun>();`. Not a constructor parameter: ~200 test call sites build `TextMessage(sender, room,
+   body)` and they must keep compiling untouched. `Room.Append`/transcript code reads `Styles` and never writes it.
+3. **The header DTO** - `List<StyleDto>? styles`, with `[JsonPropertyName("styles")]` and the run key named `n`, so
+   the JSON on the wire is exactly the shape at the top of this document. Null means "no styles", which is what every
+   pre-v1.7 message is.
+4. **The two mapping sites** - domain to DTO: emit runs only when `Styles` is non-empty, and never emit an empty
+   array (an empty array would fail the sum rule on the receiver and be discarded, which is correct but wasteful).
+   DTO to domain: `Fits(runs, body)` or **discard the whole list**, never part of it; a discarded list must leave
+   `Body` exactly as it arrived.
+5. **`FakeChatService`** - it is the only ChatService the UI tests use, so a message sent through it must carry
+   `Styles` from sender to transcript, or every UI test written later will be testing a service the wire does not
+   have.
+
+Tests, written before 1-5 exist so they are red for the right reason:
+
+* `AStyledMessageStillCarriesTheSentenceByteForByte` - encode the same text with and without styles, assert the
+  decoded `Body` is identical, and assert the unstyled header contains no `styles` token at all.
+* `ARunThatDoesNotAddUpToTheMessageIsThrownAwayWhole` - runs summing to one short of the body: `Styles` empty, `Body`
+  intact, and the sentence still readable. Same for one long, and for a run of length zero.
+* `AFamilyEmojiIsOneCharacterOfStyleOrNone` - one run over `👨‍👩‍👧`: length 1 by the ruler, and it round-trips styled.
+  This is the test that exists because runs are counted in characters rather than offsets.
+* `SixtyFiveRunsOfStyleDoNotArrive` - cap at 64, message still delivered.
+* `AHeaderNobodyRecognisesStillArrivesAsTheMessageItArrivedAs` - hand-written JSON header with an unknown field
+  (`"hats": 3`) decodes into the right sender, room and body. This is the v1.6 peer's defence, and it is the one test
+  here that protects users rather than code.
+* `BoldItalicAndUnderlineOnOneCharacterComeBackAsAllThree` - named, not a theory over three booleans.
+
+Run: `dotnet test Lantern.sln --nologo -p:OutputPath=bin/agent/ -m:1 -nodeReuse:false` - 0 warnings, and the count
+goes up by the new tests only. Then commit as `T12.1 [core,transport] formatting rides beside the sentence, never
+inside it`. T12.2 renders runs in the transcript; the box does not move until T12.3.
