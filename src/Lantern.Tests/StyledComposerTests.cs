@@ -37,7 +37,11 @@ public class StyledComposerTests
 
             Assert.True(strip.Bottom <= box.Top + 1, "the strip is not above the box");
             Assert.True(strip.Bottom <= SendButton(form).Top + 1, "the send button is not below the strip");
-            Assert.NotSame(strip, SendButton(form).Parent);
+
+            // Send is beside the box on the box's own row rather than up on the strip with the tools: it is what
+            // ends a message, not one of the ways of making one up.
+            Assert.Same(box.Parent, SendButton(form).Parent);
+            Assert.True(box.Right <= SendButton(form).Left + 1, "the send button is not beside the box");
         });
     }
 

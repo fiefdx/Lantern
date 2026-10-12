@@ -421,6 +421,40 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       when there is nowhere to send, and are drawn in the size and colour they are about to give. Ten existing
       `(TextBox)` casts on `txtMessage` and one wireframe-parity test of the input row moved with the control.
       **659 tests** total.
+- [x] **T12.4 [UI]** **Three columns, and each one owns what is inside it.** The window was a flat grid of four
+      columns and four rows, which meant the tool strip was told to span the whole of it: half of a row of buttons
+      lay over the rooms list and part of it over the members column, with an unexplained empty column between the
+      message box and Send. A row of tools with nothing under it reads as a row of tools that does not work. The
+      window is now Rooms | chatting area | Members, one row, and the middle column splits into the transcript over
+      the input area, which splits into the tools over the box and Send.
+      **A pane belongs to exactly one column** — that is the whole change, and it is not cosmetic: the tools are
+      *inside* the middle column, so they cannot be over the rooms list even by accident, and the box and Send are
+      inside it too, which is what makes them the tools of that box rather than a row of buttons that happen to be
+      nearby. Each side column carries its own header now, so the headers belong to what they head and the middle is
+      free not to have one. Send stays on the box's row and not on the strip: everything that puts something *into*
+      a message is on the strip, and Send is what *ends* one. The transcript is the row that gives — `pnlInput` is
+      `AutoSize` over two fixed rows, so a taller window hands the extra room to the conversation rather than
+      padding out the input area.
+      **What the ruler found, twice.** At the window's minimum width the Emoji button was sitting on top of the
+      Underline button: the strip is fixed-width buttons at the left plus right-anchored buttons, and narrowing the
+      window walks one group into the other — the failure being that clicking Underline opened the emoji table. The
+      widths are now measured to fit at `MinimumSize` with 10px between the groups (Share was 170 wide only because
+      it used to fill a 170-wide column; it is the word "Share"). And on a machine whose text metrics came out at 17
+      where these numbers were chosen at 15, every tool button was 27 tall inside a 28 strip and the room buttons
+      hung 1px out of their header: absolute row heights chosen on one machine's font. The tool row is 34 and the
+      headers 30.
+- [x] **T12.4 [QA]** `WireframeParityTests` gained four: the three columns by index *and* by edge, with each list
+      inside its own column under its own header; the chatting area being the transcript over the input area, and a
+      taller window giving its extra height to the transcript; the input area being its toolbar over the box with
+      Send beside the box on the box's row, all seven tools on the strip and Send not, and none of it reaching
+      outside the middle column; and **`TheToolsDoNotFallOnOneAnotherWhenTheWindowIsAtItsNarrowest`** — no tool off
+      either end of the strip and no two tools intersecting, at `MinimumSize`, in screen coordinates. Geometry is
+      asserted in one coordinate system because these panels are not siblings, and a comparison of two panels'
+      `Left` values means nothing when they have different parents. One older assertion had to be turned the other
+      way: Send used to be asserted *not* a sibling of the box, and is now asserted to share the box's row.
+      **664 tests** total. Note `docs/notes/the-window-in-three-columns.md`; sheet
+      `docs/testing/v1.7-formatting-and-layout-checklist.md` (which also covers T12.2 and T12.3, the v1.7 features
+      having had no sheet of their own until now).
 
 ---
 

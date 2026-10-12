@@ -40,6 +40,10 @@ partial class ChatForm
         helpMenu = new ToolStripMenuItem();
         aboutMenuItem = new ToolStripMenuItem();
         tableLayout = new TableLayoutPanel();
+        pnlRooms = new Panel();
+        pnlChat = new TableLayoutPanel();
+        pnlInput = new TableLayoutPanel();
+        pnlMembers = new Panel();
         pnlRoomHeader = new Panel();
         lblRoomsHeader = new Label();
         pnlRoomActions = new FlowLayoutPanel();
@@ -74,6 +78,10 @@ partial class ChatForm
         toolTip = new ToolTip(components);
         menuStrip.SuspendLayout();
         tableLayout.SuspendLayout();
+        pnlRooms.SuspendLayout();
+        pnlChat.SuspendLayout();
+        pnlInput.SuspendLayout();
+        pnlMembers.SuspendLayout();
         pnlRoomHeader.SuspendLayout();
         statusStrip.SuspendLayout();
         ctxTranscript.SuspendLayout();
@@ -157,46 +165,99 @@ partial class ChatForm
         aboutMenuItem.Text = "&About";
         aboutMenuItem.Click += AboutMenuItem_Click;
         //
-        // tableLayout
+        // tableLayout - three columns, and each of them owns everything inside it.
         //
-        tableLayout.ColumnCount = 4;
+        // The rooms on the left, the members on the right, and the chatting area down the middle with the transcript
+        // over the input area. This used to be one flat grid of four columns and four rows, which laid the tool strip
+        // across the whole window - so its left half sat over the rooms list and its right half over the members
+        // list, and a row of tools with nothing under them is a row of tools that looks like it does not work. It
+        // also put an empty column between the message box and Send for no reason anybody could give. A pane belongs
+        // to exactly one column now, and the splits go the way a person describes the window out loud.
+        //
+        tableLayout.ColumnCount = 3;
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190F));
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88F));
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170F));
-        tableLayout.Controls.Add(pnlRoomHeader, 0, 0);
-        tableLayout.Controls.Add(lstRooms, 0, 1);
-        tableLayout.Controls.Add(pnlFormat, 0, 2);
-        tableLayout.SetColumnSpan(pnlFormat, 4);
-        tableLayout.Controls.Add(rtbChat, 1, 1);
-        tableLayout.Controls.Add(txtMessage, 1, 3);
-        tableLayout.SetColumnSpan(txtMessage, 2);
-        tableLayout.Controls.Add(pnlMembersHeader, 3, 0);
-        tableLayout.Controls.Add(lstMembers, 3, 1);
-        tableLayout.Controls.Add(btnSend, 3, 3);
+        tableLayout.Controls.Add(pnlRooms, 0, 0);
+        tableLayout.Controls.Add(pnlChat, 1, 0);
+        tableLayout.Controls.Add(pnlMembers, 2, 0);
         tableLayout.Dock = DockStyle.Fill;
         tableLayout.Location = new Point(0, 24);
         tableLayout.Name = "tableLayout";
         tableLayout.Padding = new Padding(6, 4, 6, 4);
-        // Four rows now: the headers, the room, the strip of tools, and the box they apply to. The strip is its own
-        // row rather than a corner of the input row because a tool belongs above the thing it formats - beside it,
-        // it is an unrelated button that happens to be nearby.
-        tableLayout.RowCount = 4;
-        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F));
+        tableLayout.RowCount = 1;
         tableLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
-        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
         tableLayout.Size = new Size(984, 521);
         tableLayout.TabIndex = 1;
+        //
+        // pnlRooms - the left column: the header with the room management buttons in it, over the list of rooms.
+        //
+        pnlRooms.Controls.Add(lstRooms);
+        pnlRooms.Controls.Add(pnlRoomHeader);
+        pnlRooms.Dock = DockStyle.Fill;
+        pnlRooms.Location = new Point(9, 7);
+        pnlRooms.Name = "pnlRooms";
+        pnlRooms.Size = new Size(184, 507);
+        pnlRooms.TabIndex = 0;
+        //
+        // pnlChat - the middle column: what was said, over the means of saying more. The transcript takes whatever
+        // room is left over, because it is the only part of this window that grows when the window grows.
+        //
+        pnlChat.ColumnCount = 1;
+        pnlChat.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        pnlChat.Controls.Add(rtbChat, 0, 0);
+        pnlChat.Controls.Add(pnlInput, 0, 1);
+        pnlChat.Dock = DockStyle.Fill;
+        pnlChat.Location = new Point(196, 7);
+        pnlChat.Name = "pnlChat";
+        pnlChat.RowCount = 2;
+        pnlChat.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        pnlChat.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        pnlChat.Size = new Size(606, 507);
+        pnlChat.TabIndex = 1;
+        //
+        // pnlInput - the bottom row of the middle column: the tools, and under them the box with Send beside it. It
+        // is a panel of its own rather than more rows of the outer grid precisely so that all of it stays inside the
+        // chatting area. It takes the height it needs instead of being told one: both rows in it are fixed, and a
+        // fixed total would clip them the moment the display scaling disagreed with the number chosen here.
+        //
+        pnlInput.AutoSize = true;
+        pnlInput.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        pnlInput.ColumnCount = 2;
+        pnlInput.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        pnlInput.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88F));
+        pnlInput.Controls.Add(pnlFormat, 0, 0);
+        pnlInput.SetColumnSpan(pnlFormat, 2);
+        pnlInput.Controls.Add(txtMessage, 0, 1);
+        pnlInput.Controls.Add(btnSend, 1, 1);
+        pnlInput.Dock = DockStyle.Fill;
+        pnlInput.Location = new Point(3, 453);
+        pnlInput.Name = "pnlInput";
+        pnlInput.RowCount = 2;
+        pnlInput.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+        pnlInput.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
+        pnlInput.Size = new Size(600, 90);
+        pnlInput.TabIndex = 1;
+        //
+        // pnlMembers - the right column: the header that counts them, over the list of them.
+        //
+        pnlMembers.Controls.Add(lstMembers);
+        pnlMembers.Controls.Add(pnlMembersHeader);
+        pnlMembers.Dock = DockStyle.Fill;
+        pnlMembers.Location = new Point(811, 7);
+        pnlMembers.Name = "pnlMembers";
+        pnlMembers.Size = new Size(164, 507);
+        pnlMembers.TabIndex = 2;
         //
         // pnlRoomHeader
         //
         pnlRoomHeader.Controls.Add(lblRoomsHeader);
         pnlRoomHeader.Controls.Add(pnlRoomActions);
-        pnlRoomHeader.Dock = DockStyle.Fill;
+        pnlRoomHeader.Dock = DockStyle.Top;
+        pnlRoomHeader.Margin = new Padding(0, 0, 0, 3);
         pnlRoomHeader.Location = new Point(6, 4);
         pnlRoomHeader.Name = "pnlRoomHeader";
-        pnlRoomHeader.Size = new Size(178, 28);
+        pnlRoomHeader.Size = new Size(178, 30);
         pnlRoomHeader.TabIndex = 0;
         //
         // lblRoomsHeader
@@ -204,7 +265,7 @@ partial class ChatForm
         lblRoomsHeader.Dock = DockStyle.Fill;
         lblRoomsHeader.Location = new Point(0, 0);
         lblRoomsHeader.Name = "lblRoomsHeader";
-        lblRoomsHeader.Size = new Size(178, 28);
+        lblRoomsHeader.Size = new Size(178, 30);
         lblRoomsHeader.TabIndex = 0;
         lblRoomsHeader.Text = "Rooms";
         lblRoomsHeader.TextAlign = ContentAlignment.MiddleLeft;
@@ -252,10 +313,11 @@ partial class ChatForm
         // pnlMembersHeader
         //
         pnlMembersHeader.Controls.Add(lblMembersHeader);
-        pnlMembersHeader.Dock = DockStyle.Fill;
+        pnlMembersHeader.Dock = DockStyle.Top;
+        pnlMembersHeader.Margin = new Padding(0, 0, 0, 3);
         pnlMembersHeader.Location = new Point(814, 4);
         pnlMembersHeader.Name = "pnlMembersHeader";
-        pnlMembersHeader.Size = new Size(164, 28);
+        pnlMembersHeader.Size = new Size(164, 30);
         pnlMembersHeader.TabIndex = 3;
         //
         // lblMembersHeader
@@ -263,7 +325,7 @@ partial class ChatForm
         lblMembersHeader.Dock = DockStyle.Fill;
         lblMembersHeader.Location = new Point(0, 0);
         lblMembersHeader.Name = "lblMembersHeader";
-        lblMembersHeader.Size = new Size(164, 28);
+        lblMembersHeader.Size = new Size(164, 30);
         lblMembersHeader.TabIndex = 0;
         lblMembersHeader.Text = "Members";
         lblMembersHeader.TextAlign = ContentAlignment.MiddleLeft;
@@ -282,7 +344,10 @@ partial class ChatForm
         //
         // pnlFormat - the tools of the message box: the five that change what the words look like, and the two
         // that put something into them. The style tools are at the left, in the order somebody works through them
-        // (shape, then size, then colour); the two that insert something are at the right, over the box they insert into.
+        // (shape, then size, then colour); the two that insert something are at the right, over the box they insert
+        // into. The widths are not decoration: the strip is a row of fixed-width buttons in a space a person can
+        // drag smaller, and the two groups used to run into one another at the window's minimum width - which is
+        // how a click on Underline opened the emoji table. The parity test measures it at that width.
         //
         pnlFormat.Controls.Add(btnBold);
         pnlFormat.Controls.Add(btnItalic);
@@ -292,17 +357,17 @@ partial class ChatForm
         pnlFormat.Controls.Add(btnEmoji);
         pnlFormat.Controls.Add(btnShare);
         pnlFormat.Dock = DockStyle.Fill;
-        pnlFormat.Location = new Point(6, 427);
+        pnlFormat.Location = new Point(3, 3);
         pnlFormat.Name = "pnlFormat";
-        pnlFormat.Size = new Size(972, 30);
-        pnlFormat.TabIndex = 4;
+        pnlFormat.Size = new Size(594, 30);
+        pnlFormat.TabIndex = 0;
         //
         // btnBold
         //
         btnBold.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
-        btnBold.Location = new Point(0, 3);
+        btnBold.Location = new Point(0, 2);
         btnBold.Name = "btnBold";
-        btnBold.Size = new Size(34, 24);
+        btnBold.Size = new Size(30, 24);
         btnBold.TabIndex = 0;
         btnBold.Text = "B";
         toolTip.SetToolTip(btnBold, "Bold the chosen words, or type bold from here");
@@ -312,9 +377,9 @@ partial class ChatForm
         // btnItalic
         //
         btnItalic.Font = new Font("Segoe UI", 9.75F, FontStyle.Italic, GraphicsUnit.Point, 0);
-        btnItalic.Location = new Point(36, 3);
+        btnItalic.Location = new Point(32, 2);
         btnItalic.Name = "btnItalic";
-        btnItalic.Size = new Size(34, 24);
+        btnItalic.Size = new Size(30, 24);
         btnItalic.TabIndex = 1;
         btnItalic.Text = "I";
         toolTip.SetToolTip(btnItalic, "Italicise the chosen words, or type italics from here");
@@ -324,9 +389,9 @@ partial class ChatForm
         // btnUnderline
         //
         btnUnderline.Font = new Font("Segoe UI", 9.75F, FontStyle.Underline, GraphicsUnit.Point, 0);
-        btnUnderline.Location = new Point(72, 3);
+        btnUnderline.Location = new Point(64, 2);
         btnUnderline.Name = "btnUnderline";
-        btnUnderline.Size = new Size(34, 24);
+        btnUnderline.Size = new Size(30, 24);
         btnUnderline.TabIndex = 2;
         btnUnderline.Text = "U";
         toolTip.SetToolTip(btnUnderline, "Underline the chosen words, or type underlined from here");
@@ -335,9 +400,9 @@ partial class ChatForm
         //
         // btnSize
         //
-        btnSize.Location = new Point(114, 3);
+        btnSize.Location = new Point(98, 2);
         btnSize.Name = "btnSize";
-        btnSize.Size = new Size(46, 24);
+        btnSize.Size = new Size(40, 24);
         btnSize.TabIndex = 3;
         btnSize.Text = "Aa";
         toolTip.SetToolTip(btnSize, "The size of the next words: normal, large or small");
@@ -346,9 +411,9 @@ partial class ChatForm
         //
         // btnColor
         //
-        btnColor.Location = new Point(162, 3);
+        btnColor.Location = new Point(142, 2);
         btnColor.Name = "btnColor";
-        btnColor.Size = new Size(46, 24);
+        btnColor.Size = new Size(40, 24);
         btnColor.TabIndex = 4;
         btnColor.Text = "A";
         toolTip.SetToolTip(btnColor, "The colour of the next words; press again for the next colour, and once more to put it back");
@@ -358,7 +423,7 @@ partial class ChatForm
         // btnEmoji
         //
         btnEmoji.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnEmoji.Location = new Point(708, 3);
+        btnEmoji.Location = new Point(432, 2);
         btnEmoji.Name = "btnEmoji";
         btnEmoji.Size = new Size(88, 24);
         btnEmoji.TabIndex = 5;
@@ -371,9 +436,9 @@ partial class ChatForm
         // btnShare
         //
         btnShare.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnShare.Location = new Point(802, 3);
+        btnShare.Location = new Point(524, 2);
         btnShare.Name = "btnShare";
-        btnShare.Size = new Size(170, 24);
+        btnShare.Size = new Size(70, 24);
         btnShare.TabIndex = 6;
         btnShare.Text = "Share";
         toolTip.SetToolTip(btnShare, "Attach a picture or send a file to the room");
@@ -384,22 +449,22 @@ partial class ChatForm
         //
         txtMessage.Dock = DockStyle.Fill;
         txtMessage.HideSelection = false;
-        txtMessage.Location = new Point(190, 459);
+        txtMessage.Location = new Point(3, 39);
         txtMessage.Multiline = true;
         txtMessage.Name = "txtMessage";
         txtMessage.ForeColor = Color.Black;
         txtMessage.ScrollBars = RichTextBoxScrollBars.Vertical;
-        txtMessage.Size = new Size(712, 54);
-        txtMessage.TabIndex = 6;
+        txtMessage.Size = new Size(503, 54);
+        txtMessage.TabIndex = 1;
         txtMessage.KeyDown += TxtMessage_KeyDown;
         //
         // btnSend
         //
         btnSend.Dock = DockStyle.Fill;
-        btnSend.Location = new Point(908, 459);
+        btnSend.Location = new Point(512, 39);
         btnSend.Name = "btnSend";
-        btnSend.Size = new Size(70, 54);
-        btnSend.TabIndex = 8;
+        btnSend.Size = new Size(85, 54);
+        btnSend.TabIndex = 2;
         btnSend.Text = "Send";
         toolTip.SetToolTip(btnSend, "Send the message to the current room (Enter)");
         btnSend.UseVisualStyleBackColor = true;
@@ -546,13 +611,17 @@ partial class ChatForm
         Text = "Lantern";
         menuStrip.ResumeLayout(false);
         menuStrip.PerformLayout();
-        tableLayout.ResumeLayout(false);
         pnlRoomHeader.ResumeLayout(false);
         pnlRoomHeader.PerformLayout();
         ctxTranscript.ResumeLayout(false);
         pnlFileNotice.ResumeLayout(false);
         pnlFileActions.ResumeLayout(false);
         pnlFormat.ResumeLayout(false);
+        pnlInput.ResumeLayout(false);
+        pnlChat.ResumeLayout(false);
+        pnlMembers.ResumeLayout(false);
+        pnlRooms.ResumeLayout(false);
+        tableLayout.ResumeLayout(false);
         statusStrip.ResumeLayout(false);
         statusStrip.PerformLayout();
         ResumeLayout(false);
@@ -573,6 +642,18 @@ partial class ChatForm
     private ToolStripMenuItem helpMenu;
     private ToolStripMenuItem aboutMenuItem;
     private TableLayoutPanel tableLayout;
+
+    /// <summary>The left column: the rooms, under the header that manages them.</summary>
+    protected Panel pnlRooms;
+
+    /// <summary>The middle column: the transcript over the input area.</summary>
+    protected TableLayoutPanel pnlChat;
+
+    /// <summary>The bottom row of the middle column: the tools over the message box and Send.</summary>
+    protected TableLayoutPanel pnlInput;
+
+    /// <summary>The right column: who is in the room.</summary>
+    protected Panel pnlMembers;
     protected Panel pnlRoomHeader;
     private Label lblRoomsHeader;
     protected FlowLayoutPanel pnlRoomActions;
