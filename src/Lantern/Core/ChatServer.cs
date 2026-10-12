@@ -414,8 +414,16 @@ public sealed partial class ChatServer : IAsyncDisposable
     /// A text message from <paramref name="sender"/> goes to the members of its room — and only to
     /// them (F6). The sender's own nickname is stamped on it here rather than trusted from the frame,
     /// so a client cannot put words in someone else's mouth.
+    /// <para>
+    /// The formatting it was sent with travels beside the sentence (T12.1), and is accepted or refused
+    /// right here: a run list that does not add up to the sentence it annotates is dropped whole, so every
+    /// window in the room agrees the line was plain rather than one of them showing bold the others
+    /// discarded. Both paths arrive through this method — the host's own window, and a client's frame whose
+    /// runs were already judged on the way in — so there is one place a line's looks are decided.
+    /// </para>
     /// </summary>
-    public void SendText(IParticipant sender, string body, Guid? id = null, DateTime? sentAt = null)
+    public void SendText(IParticipant sender, string body, Guid? id = null, DateTime? sentAt = null,
+        IReadOnlyList<StyledRun>? styles = null)
     {
         ArgumentNullException.ThrowIfNull(sender);
 
@@ -432,7 +440,11 @@ public sealed partial class ChatServer : IAsyncDisposable
             return;
         }
 
-        var message = new TextMessage(sender.Nickname, room.Name, body, sentAt ?? DateTime.Now, id);
+        var message = new TextMessage(sender.Nickname, room.Name, body, sentAt ?? DateTime.Now, id)
+        {
+            Styles = StyledRun.Accepted(styles, body),
+        };
+
         Broadcast(room, Frame.FromMessage(message, room), exceptConnectionId: sender.ConnectionId);
     }
 
@@ -661,7 +673,10 @@ public sealed partial class ChatServer : IAsyncDisposable
                 break;
 
             case FrameType.TEXT:
-                SendText(session, frame.Header.Text ?? string.Empty, frame.Header.Id, frame.Header.SentAt);
+                // Read off the frame already judged: a run list that does not add up to the sentence is no
+                // list at all, so what the room is shown is what this side was shown.
+                SendText(session, frame.Header.Text ?? string.Empty, frame.Header.Id, frame.Header.SentAt,
+                    frame.TextStyles());
                 break;
 
             case FrameType.PICTURE:

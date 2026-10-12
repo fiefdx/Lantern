@@ -60,6 +60,19 @@ public sealed record FrameHeader
     [JsonPropertyName("text")]
     public string? Text { get; init; }
 
+    /// <summary>
+    /// How <see cref="Text"/> is formatted, run by run (T12.1, v1.7). Absent means plain text, which is what
+    /// every message sent before v1.7 is and what an older peer will keep sending; a build that does not know
+    /// what this field is ignores it and still gets the whole sentence, which is the entire design.
+    /// </summary>
+    /// <remarks>
+    /// An annotation beside the sentence and never part of it. There is no version of this field that
+    /// restates, replaces, or re-encodes <see cref="Text"/>, and no version of <see cref="Text"/> that
+    /// carries markup for a receiver to strip.
+    /// </remarks>
+    [JsonPropertyName("styles")]
+    public List<StyleDto>? Styles { get; init; }
+
     /// <summary>When the message left its author — the transcript shows this, not arrival time.</summary>
     [JsonPropertyName("at")]
     public DateTime? SentAt { get; init; }
@@ -97,6 +110,47 @@ public sealed record FrameHeader
     public static FrameHeader FromJson(string json)
         => JsonSerializer.Deserialize<FrameHeader>(json, JsonOptions)
            ?? throw new FrameException("Frame header was empty.");
+}
+
+/// <summary>
+/// One run of formatting on the wire (T12.1, v1.7): a length, and what that stretch of the sentence looks
+/// like. Bold, italic, underline, size and colour are additive fields — each says one thing about the run
+/// and none of them rewrites another — and an unknown key inside a run is ignored by leaving the run alone,
+/// so a later round can add strike-through without this round throwing away the bold beside it.
+/// <para>
+/// Keys are one letter because this is a per-message record over a radio. Lengths and not offsets, so no
+/// receiver can be handed overlapping spans, gaps, or a list whose order matters. Only what is asked for is
+/// sent: a plain run is <c>{"n":10}</c> and nothing else.
+/// </para>
+/// </summary>
+public sealed record StyleDto
+{
+    /// <summary>Characters this run covers, counted the way the message itself is counted.</summary>
+    [JsonPropertyName("n")]
+    public int Length { get; init; }
+
+    /// <summary>The stretch is bold. Absent means it is not; the three flags are independent, not a font style.</summary>
+    [JsonPropertyName("b")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Bold { get; init; }
+
+    /// <summary>The stretch is italic. Absent means it is not.</summary>
+    [JsonPropertyName("i")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Italic { get; init; }
+
+    /// <summary>The stretch is underlined. Absent means it is not.</summary>
+    [JsonPropertyName("u")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Underline { get; init; }
+
+    /// <summary><c>#RRGGBB</c>, or absent for "the colour this window already uses".</summary>
+    [JsonPropertyName("c")]
+    public string? Color { get; init; }
+
+    /// <summary>0 small, 2 large. Absent means normal, so a plain run says nothing about size.</summary>
+    [JsonPropertyName("s")]
+    public int? Size { get; init; }
 }
 
 /// <summary>One entry of a MEMBER_LIST frame.</summary>

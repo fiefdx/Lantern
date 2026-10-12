@@ -171,9 +171,17 @@ public sealed class HostChatService : IChatService, IAsyncDisposable
                 }
 
                 // The server broadcasts to the room except its author, so this window's own copy is
-                // kept here rather than sent around a loop to come back.
-                state.Record(text, state.CurrentRoomId ?? Guid.Empty);
-                server.SendText(me, text.Body, text.Id, text.SentAt);
+                // kept here rather than sent around a loop to come back. The formatting travels with the
+                // body instead of being left behind — or the host's window would be the only one in the room
+                // that ever saw it — and this side holds its own runs to the same ruler as everyone else's,
+                // because a host still showing bold that every client refused is two windows seeing two
+                // different lines.
+                var line = text.IsStyled && !StyledRun.Fits(text.Styles, text.Body)
+                    ? text.WithStyles([])
+                    : text;
+
+                state.Record(line, state.CurrentRoomId ?? Guid.Empty);
+                server.SendText(me, line.Body, line.Id, line.SentAt, line.Styles);
                 break;
 
             case PictureMessage picture:

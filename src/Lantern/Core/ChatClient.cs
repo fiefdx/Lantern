@@ -187,7 +187,14 @@ public sealed class ChatClient : IChatService, IAsyncDisposable
                 }
 
                 await WriteOrThrowAsync(Frame.FromMessage(text, RoomOrThrow()), cancel).ConfigureAwait(false);
-                Keep(text);
+
+                // Kept as it will be seen. The host judges a run list against the sentence it annotates when
+                // it fans the line out, so a list that does not add up is on its way to being thrown away by
+                // everyone including the rest of this room — and this window keeping the bold for itself is
+                // how two windows end up describing one message differently.
+                Keep(text.IsStyled && !StyledRun.Fits(text.Styles, text.Body)
+                    ? text.WithStyles([])
+                    : text);
                 break;
 
             case PictureMessage picture:

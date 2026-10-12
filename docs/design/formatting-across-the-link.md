@@ -26,8 +26,13 @@ not involved. So this is a header change, not a new frame type.
 
 ```json
 { "kind": "text", "sender": "Haitao", "room": "Room 1", "body": "see the bold word",
-  "styles": [ { "n": 10 }, { "n": 4, "b": 1 }, { "n": 5 } ] }
+  "styles": [ { "n": 8 }, { "n": 4, "b": true }, { "n": 5 } ] }
 ```
+
+Keys are the field names as this document draws them; on the wire they are the header's own (`text`, `nick`,
+`styles`). The example above first added up to 19 over a 17-character sentence, which is the one thing the
+third bullet below says a receiver must throw away, and it wrote the bold flag as `1` where the encoder writes
+a JSON `true` — both corrected here rather than in the code, because the rule and the encoder are both right.
 
 * **Run-length, not per-character, and not offsets.** A run is `{ n }` for plain text, `{ n, ...style }` for styled
   text, laid end to end over the whole body. No start indices means no overlapping spans, no gap, and no ordering

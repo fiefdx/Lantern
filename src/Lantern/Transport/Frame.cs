@@ -59,7 +59,12 @@ public sealed class Frame
         RoomId = roomId,
     });
 
-    public static Frame Text(Guid id, Room room, string nickname, string text, DateTime sentAt) => new(new FrameHeader
+    /// <summary>
+    /// A chat line, with the formatting it was sent with when there was any (T12.1). The sentence goes in
+    /// <c>text</c> exactly as typed and the runs go beside it; nothing here merges the two.
+    /// </summary>
+    public static Frame Text(Guid id, Room room, string nickname, string text, DateTime sentAt,
+        IReadOnlyList<StyledRun>? styles = null) => new(new FrameHeader
     {
         Type = FrameType.TEXT,
         Id = id,
@@ -68,7 +73,53 @@ public sealed class Frame
         Nickname = nickname,
         Text = text,
         SentAt = sentAt,
+        Styles = RunsForWire(styles),
     });
+
+    /// <summary>
+    /// The runs as they go out, or null for none. A message nobody formatted sends no style field at all —
+    /// which is what a v1.6 peer sent, and what keeps an old frame and a new one comparable — and an empty
+    /// array is never sent either: a list of no runs describes no sentence, so it would be refused on the way
+    /// in. The honest way to say "plain" is to say nothing.
+    /// </summary>
+    private static List<StyleDto>? RunsForWire(IReadOnlyList<StyledRun>? runs)
+        => runs is null or { Count: 0 } ? null : runs.Select(RunForWire).ToList();
+
+    private static StyleDto RunForWire(StyledRun run) => new()
+    {
+        Length = run.Length,
+        Bold = run.Bold,
+        Italic = run.Italic,
+        Underline = run.Underline,
+        Color = run.Color,
+        // "Normal" is the size this window would have used anyway, so asking for it is silence. A size that
+        // is not one of the three is refused where it arrives rather than rewritten here: a sender that
+        // invents sizes needs to find out, and a receiver must never be handed one to parse.
+        Size = run.Size == StyledRun.Normal ? null : run.Size,
+    };
+
+    /// <summary>
+    /// The formatting this frame's sentence arrives with, already judged: no field, an empty list, or a list
+    /// that does not add up to the sentence all arrive as no formatting at all, and the words are unaffected
+    /// whichever it was. Runs whose size or colour nobody could render go the same way.
+    /// </summary>
+    /// <remarks>
+    /// This is where a peer's formatting is accepted, so this is where it is believed or refused. Both the
+    /// transcript line (<see cref="ToMessage"/>) and the host relaying a frame read their runs through here,
+    /// so a message cannot be plain in one window and formatted in another.
+    /// </remarks>
+    public IReadOnlyList<StyledRun> TextStyles()
+    {
+        if (Header.Styles is null or { Count: 0 })
+        {
+            return Array.Empty<StyledRun>();
+        }
+
+        return StyledRun.Accepted(Header.Styles.Select(RunFromWire).ToList(), Header.Text);
+    }
+
+    private static StyledRun RunFromWire(StyleDto style)
+        => new(style.Length, style.Bold, style.Italic, style.Underline, style.Size ?? StyledRun.Normal, style.Color);
 
     public static Frame Picture(Guid id, Room room, string nickname, string fileName, byte[] data, DateTime sentAt) => new(
         new FrameHeader
@@ -163,7 +214,9 @@ public sealed class Frame
     /// </summary>
     public static Frame FromMessage(Message message, Room room) => message switch
     {
-        TextMessage text => Text(text.Id, room, text.SenderNickname, text.Body, text.SentAt),
+        // The runs travel with the line they annotate, or are left off when there were none. Never folded
+        // into the body: a message whose formatting was refused must still say what it said.
+        TextMessage text => Text(text.Id, room, text.SenderNickname, text.Body, text.SentAt, text.Styles),
         PictureMessage picture => Picture(picture.Id, room, picture.SenderNickname, picture.FileName, picture.Data, picture.SentAt),
         FileMessage file => FileMeta(file.Id, file.TransferId, room.Id, room.Name, file.SenderNickname, file.FileName, file.SizeBytes),
         SystemMessage notice => SystemNotice(room, notice.Body),
@@ -185,7 +238,9 @@ public sealed class Frame
         // duplicated frame can be spotted by id.
         return Type switch
         {
-            FrameType.TEXT => new TextMessage(nick, room, Header.Text ?? string.Empty, at, Header.Id),
+            // The sentence, plus whatever formatting survived the trip with it. The words were already read
+            // out of the header above, so a frame whose styles are nonsense still lands here as a message.
+            FrameType.TEXT => new TextMessage(nick, room, Header.Text ?? string.Empty, at, Header.Id) { Styles = TextStyles() },
             FrameType.PICTURE => new PictureMessage(nick, room, Header.FileName ?? "image", Body, at, Header.Id),
             FrameType.FILE_META => new FileMessage(nick, room, Header.FileName ?? "file", Header.SizeBytes ?? 0, Header.TransferId, at, Header.Id),
             FrameType.SYSTEM_NOTICE => new SystemMessage(room, Header.Text ?? string.Empty, at, Header.Id),

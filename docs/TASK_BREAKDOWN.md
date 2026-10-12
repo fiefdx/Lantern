@@ -319,6 +319,42 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 
 ---
 
+## M12 — Formatting Across the Link (v1.7)
+
+- [x] **T12.1 [Core, Transport]** **Formatting rides beside the sentence, never inside it.** `Body` stays exactly
+      the string it always was — same bytes, same length, same thing a v1.6 peer puts on screen — and what the line
+      looks like travels next to it as `styles`: runs laid end to end over the whole message, each a length plus
+      whichever of bold, italic, underline, size (`0`/`1`/`2`) and `#RRGGBB` colour were asked for. Nothing said is
+      sent twice, so a plain line gains no field at all and an old peer never sees one.
+      `StyledRun` is the run and `FrameHeader.Styles` the wire field; `Frame.Text(..., styles)` and
+      `Frame.TextStyles()` are the one place per direction that a domain message becomes a header and a header
+      becomes one — which matters because the host does not forward a client's frame, it rebuilds the message from
+      the frame it received, and a rebuild that reads only the sentence is where formatting would have silently
+      stopped at the host's own machine.
+      **The one failure mode and its one remedy.** Runs are counted with `ValidationRules.Length`, the ruler since
+      v1.4, so a boundary cannot fall inside `👨‍👩‍👧` and half a family cannot be bold; a list whose lengths do not add
+      up to the sentence it annotates is **thrown away whole** and the words are shown. Never half a list. Same
+      answer for more than 64 runs, for a size nobody could render, for a colour that is not `#RRGGBB`. An unknown
+      key anywhere in the header — and inside a run — is ignored and the thing beside it survives, which is how a
+      later round adds strike-through without this round losing the bold next to it.
+      The accept-or-refuse is applied wherever a line enters a view, in both directions and on both sides
+      (`Frame.TextStyles`, `ChatServer.SendText`, `ChatClient`/`HostChatService` keeping their own copies, and
+      `FakeChatService`, which is not allowed to be a kinder protocol than the one the windows will meet): a window
+      showing formatting that every receiver refused is two windows describing one message differently.
+- [x] **T12.1 [QA]** `StyledTextTests` (14) and `StyledTextRelayTests` (4): the sentence byte for byte with and
+      without styles, and no style field on a line nobody formatted; runs that do not add up refused whole while the
+      preview still says the whole line; a family emoji is one character of style or none, and a list measured in
+      UTF-16 units loses every run in the message; 65 runs refused, 64 arrive; three flags on one character come
+      back as three, and one flag alone leaves the other two off; size and colour arrive, and normal size is the
+      absence of a field; an impossible size or colour goes with the rest of the list; a header full of keys nobody
+      in this build has heard of still arrives as the message it arrived as, id and timestamp included; and the fake
+      carries a styled line into the room it recorded it in, refusing what the wire refuses.
+      On a live link: the host speaks formatted and the client hears it formatted, a styled line crosses the host
+      still styled, a line whose runs do not add up reaches the room as words, and the host's own window files the
+      plain copy too. **617 tests** total.
+
+---
+
 ## Feature → Milestone Traceability
 
 | Feature | Milestone | | Feature | Milestone |

@@ -254,7 +254,14 @@ public class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
-    /// <summary>Records the message. The sender renders it locally, so no echo back up.</summary>
+    /// <summary>
+    /// Records the message. The sender renders it locally, so no echo back up.
+    /// <para>
+    /// A styled line is judged on the way in, as it is on the wire: runs that do not add up to the sentence
+    /// they annotate are dropped and the words are kept (see <see cref="SimulateIncoming"/> for why the fake
+    /// insists on the same rules as the service it stands in for).
+    /// </para>
+    /// </summary>
     public virtual Task SendAsync(Message message, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -263,7 +270,7 @@ public class FakeChatService : IChatService
             throw Fail(error);
         }
 
-        Record(message);
+        Record(WithAcceptedStyles(message));
         return Task.CompletedTask;
     }
 
@@ -332,7 +339,14 @@ public class FakeChatService : IChatService
         return Task.CompletedTask;
     }
 
-    /// <summary>Pushes a message in "from the network": incoming traffic, sound notifier (F10).</summary>
+    /// <summary>
+    /// Pushes a message in "from the network": incoming traffic, sound notifier (F10).
+    /// <para>
+    /// "From the network" includes the rule that travels with it: a styled line is accepted or refused here
+    /// the way the wire refuses it (see <see cref="ChatServer.SendText"/>), because a double with kinder
+    /// rules than the thing it stands in for is how a window comes to pass a test the room fails.
+    /// </para>
+    /// </summary>
     /// <remarks>
     /// Unlike <see cref="ChatClient"/>, the fake lets a handler's exception through on purpose: it
     /// delivers on the caller's own thread, so a throw here is the test's own bug and should be seen
@@ -341,8 +355,12 @@ public class FakeChatService : IChatService
     public void SimulateIncoming(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        Record(message);
-        MessageReceived?.Invoke(this, message);
+
+        // The line handlers see is the line that was filed, so a test cannot be shown formatting that the
+        // transcript refused to keep.
+        var arriving = WithAcceptedStyles(message);
+        Record(arriving);
+        MessageReceived?.Invoke(this, arriving);
     }
 
     /// <summary>
@@ -402,6 +420,21 @@ public class FakeChatService : IChatService
         transcript.Add(message);
         Find(message.RoomName)?.Append(message);
     }
+
+    /// <summary>
+    /// The message as this service will carry it, which for a styled line means with the formatting it
+    /// earned: runs that do not add up to the sentence they annotate are dropped whole and the words are
+    /// kept, exactly as they are on the wire. Everything else survives, its id included — the thing that was
+    /// refused was never the message.
+    /// </summary>
+    /// <remarks>
+    /// Applied wherever a line enters this service's views, in both directions. A fake that let an impossible
+    /// run list through would be a second, gentler protocol for the windows to be tested against.
+    /// </remarks>
+    private static Message WithAcceptedStyles(Message message)
+        => message is TextMessage { Styles.Count: > 0 } text && !StyledRun.Fits(text.Styles, text.Body)
+            ? text.WithStyles([])
+            : message;
 
     private User Me(Room room)
         => room.Members.FirstOrDefault(u => u.Nickname == Nickname) ?? new User(SelfId, Nickname);
