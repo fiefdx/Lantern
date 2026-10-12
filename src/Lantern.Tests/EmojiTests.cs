@@ -204,7 +204,7 @@ public sealed class EmojiTests
 
     private static RichTextBox Rt(Control form) => (RichTextBox)form.Controls.Find("rtbChat", true)[0]!;
 
-    private static TextBox Box(Control form) => (TextBox)form.Controls.Find("txtMessage", true)[0]!;
+    private static RichTextBox Box(Control form) => (RichTextBox)form.Controls.Find("txtMessage", true)[0]!;
 
     private static ListBox Rooms(Control form) => (ListBox)form.Controls.Find("lstRooms", true)[0]!;
 

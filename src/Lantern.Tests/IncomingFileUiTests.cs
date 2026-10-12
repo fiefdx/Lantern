@@ -34,7 +34,7 @@ public sealed class IncomingFileUiTests
 
             // In the window rather than in a dialog: the room is still there to be typed in while the
             // person decides, which a modal box would not allow.
-            Assert.True(((TextBox)Find(form, "txtMessage")!).Enabled);
+            Assert.True(((RichTextBox)Find(form, "txtMessage")!).Enabled);
             Assert.True(((Button)Find(form, "btnSend")!).Enabled);
 
             // The transcript says a file is coming from the moment it is announced - the sender's window

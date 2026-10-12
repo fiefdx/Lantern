@@ -97,7 +97,7 @@ public class ChatFormTests
             var rooms = (ListBox)Find(form, "lstRooms")!;
             var members = (ListBox)Find(form, "lstMembers")!;
             var send = (Button)Find(form, "btnSend")!;
-            var message = (TextBox)Find(form, "txtMessage")!;
+            var message = (RichTextBox)Find(form, "txtMessage")!;
 
             Assert.False(send.Enabled);
             Assert.False(message.Enabled);
@@ -120,7 +120,7 @@ public class ChatFormTests
             using var form = new Lantern.UI.HostForm(service);
             var rooms = (ListBox)Find(form, "lstRooms")!;
             var chat = (RichTextBox)Find(form, "rtbChat")!;
-            var box = (TextBox)Find(form, "txtMessage")!;
+            var box = (RichTextBox)Find(form, "txtMessage")!;
             var send = (Button)Find(form, "btnSend")!;
 
             // A control that has never been shown has no window handle, so PerformClick would do

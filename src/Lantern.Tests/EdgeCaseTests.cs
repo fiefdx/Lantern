@@ -400,14 +400,14 @@ public sealed class EdgeCaseTests : IAsyncLifetime
             await Watch.UntilAsync(() => form.RoomNameNow is not null, "the room to be joined");
 
             var typed = "this is what I was writing when the host deleted the room";
-            ((TextBox)Find(form, "txtMessage")).Text = typed;
+            ((RichTextBox)Find(form, "txtMessage")).Text = typed;
 
             // The host deletes the room this person is typing in - scenario 3 done unkindly. Nothing may be
             // thrown at them, and nothing they typed may vanish: the room went, the words stayed.
             service.SimulateRoomClosed("Room 1");
             await Watch.UntilAsync(() => form.RoomNameNow is null, "the window to notice the room is gone");
 
-            Assert.Equal(typed, ((TextBox)Find(form, "txtMessage")).Text);
+            Assert.Equal(typed, ((RichTextBox)Find(form, "txtMessage")).Text);
 
             // With no room there is nowhere for the words to go, so the way out is greyed rather than waiting
             // to fail. Pressing it anyway - which is what a person who is not looking does - changes nothing.
@@ -417,7 +417,7 @@ public sealed class EdgeCaseTests : IAsyncLifetime
             send.PerformClick();
             Application.DoEvents();
 
-            Assert.Equal(typed, ((TextBox)Find(form, "txtMessage")).Text);
+            Assert.Equal(typed, ((RichTextBox)Find(form, "txtMessage")).Text);
             Assert.DoesNotContain(service.Transcript, m => m is TextMessage t && t.Body == typed);
 
             // And the window is still a window: it can be pointed at another room when one appears.

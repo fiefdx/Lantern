@@ -244,7 +244,7 @@ public class TranscriptLayoutTests
             // what the conversation is painted too.
             Assert.Equal(((ListBox)Find(form, "lstRooms")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
             Assert.Equal(((ListBox)Find(form, "lstMembers")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
-            Assert.Equal(((TextBox)Find(form, "txtMessage")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
+            Assert.Equal(((RichTextBox)Find(form, "txtMessage")!).BackColor.ToArgb(), transcript.BackColor.ToArgb());
 
             form.Dispose();
         });

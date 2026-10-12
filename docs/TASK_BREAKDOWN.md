@@ -381,6 +381,46 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       a fixture whose runs did not add up would not fail as "the runs were wrong", it would quietly arrive plain and
       then fail as "the transcript is broken" — which is a long way to go to diagnose an addition, and three
       fixtures did exactly that while this was being written. **631 tests** total.
+- [x] **T12.3 [UI]** **The box formats and the tools say where you are.** The message box becomes a `MessageInput`
+      (a `RichTextBox` that says what an empty one is for, since `PlaceholderText` is a `TextBox` idea and this
+      control has no such thing) and the tools move into a strip **above** it: Bold, Italic, Underline, Size, Colour,
+      Emoji, Share — Send stays exactly where it has always been. Moving Emoji and Share up there is the same
+      decision as the strip itself: a button beside a text box is an unrelated button that happens to be nearby,
+      and a button above it is a tool that does something to it.
+      **The box holds the ink and the window holds the intention.** `brush` is what the next character typed will
+      look like, and it is kept in step from both directions: clicking a tool moves the brush and the ink, moving
+      the caret reads the brush back off the ink. Only the first half leaves the Bold button lit after the caret has
+      walked somewhere plain, and a tool that lies about where you are is worse than no tool. The style mask trap
+      the design warned about is real, so `InputFormatting` deliberately does the one thing a RichTextBox is too
+      slow for — writes the ink **one character at a time**, reading each character's own flags and changing only
+      the bit its tool owns. At the size of a message that is nothing, and it cannot lose an italic, cannot disagree
+      with a selection that is partly styled, and cannot be defeated by whatever the control decides to do with a
+      mask it was handed.
+      **Three things the control does not do, so the window does.** `MaxLength` is not enforced by a RichTextBox and
+      counts UTF-16 units in any case, so the limit is applied in `TextChanged` in text elements, cut on a character
+      boundary so a family emoji is never halved, with a word in the status bar because a sentence that quietly
+      stopped is a sentence the person did not write. A paste is words or nothing, and it is caught on the
+      keystroke, not on the window message — see the design note, because what was found there is worth reading.
+      And a message that was formatted has to *arrive* formatted: the runs are read back off the box against the
+      sentence actually being sent, which is the trimmed one, so the offset of the spaces at its front is what keeps
+      them lined up, then folded to the 64 the wire carries and sent only if they say anything at all — an ordinary
+      message still travels exactly as it did before any of this existed.
+      **The brush is wiped by the send it was typed for.** `RichTextBox.Clear()` leaves the caret's formatting
+      behind, so a box cleared while bold is a box that types bold; the reset is explicit and has a test.
+- [x] **T12.3 [QA]** `StyledComposerTests` (28): the tools are above the box they format and are not in the row the
+      send button is in; the box is two lines tall and scrolls when it needs to and not before; a bold word typed
+      and sent arrives bold in the room and the word after it does not; a plain message carries no style field at
+      all; bold then italic on one selection leaves both on (the mask trap, named); bold off again leaves nothing to
+      say; colour and size arrive as they were chosen; emphasis does not outlive the message it was typed for;
+      spaces around a message do not knock the runs out of step; more style changes than the wire carries are folded
+      and not dropped, and the folded runs still add up to the sentence; Enter sends and Shift+Enter is left to the
+      box; the limit counts characters somebody counts, including a 500th face, and says what it cut off; a paste
+      arrives as text and a paste of nothing says so; **a window opening pastes nothing** (the RichEdit window sends
+      itself the paste message three times while it is being created, and believing it filled the box off the
+      clipboard); Ctrl+V is handled here; the tools show what the caret is sitting in, are greyed out with the box
+      when there is nowhere to send, and are drawn in the size and colour they are about to give. Ten existing
+      `(TextBox)` casts on `txtMessage` and one wireframe-parity test of the input row moved with the control.
+      **659 tests** total.
 
 ---
 

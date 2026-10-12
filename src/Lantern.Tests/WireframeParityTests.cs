@@ -48,18 +48,31 @@ public sealed class WireframeParityTests
     }
 
     [Fact]
-    public void TheBottomRowIsShareTheMessageTheSend()
+    public void TheInputAreaIsToolsThenMessageThenSend()
     {
         Sta.Run(() =>
         {
             using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
 
+            // v1.7 moved the tools out of the input row and into a strip above it: a button beside a text box is
+            // an unrelated button that happens to be nearby, and a button above it is a tool that formats it.
+            // Share and Emoji went up there too, since both put something into the box rather than doing
+            // something to the room. Send stayed where it always was.
             Assert.Equal("Share", ((Button)Find(form, "btnShare")).Text);
             Assert.Equal("Send", ((Button)Find(form, "btnSend")).Text);
+            Assert.Equal("Emoji", ((Button)Find(form, "btnEmoji")).Text);
 
-            // The drawn box says "message ...", which is what a placeholder is for: the box is empty and a
-            // person still knows what goes in it.
-            Assert.Equal("Message", ((TextBox)Find(form, "txtMessage")).PlaceholderText);
+            foreach (var name in new[] { "btnBold", "btnItalic", "btnUnderline", "btnSize", "btnColor" })
+            {
+                Assert.NotNull(Find(form, name));
+            }
+
+            // The drawn box says "message ...", which is what a placeholder is for: the box is empty and a person
+            // still knows what goes in it. A RichTextBox has no PlaceholderText, so the box draws the word itself.
+            var box = (Lantern.UI.MessageInput)Find(form, "txtMessage");
+
+            Assert.Equal("Message", Lantern.UI.MessageInput.Hint, ignoreCase: true);
+            Assert.True(box.ShowsHint);
         });
     }
 

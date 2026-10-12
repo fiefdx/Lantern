@@ -266,7 +266,7 @@ public sealed class EmojiPickerTests
 
     private static ListBox Rooms(Control form) => (ListBox)form.Controls.Find("lstRooms", true)[0];
 
-    private static TextBox Box(Control form) => (TextBox)form.Controls.Find("txtMessage", true)[0];
+    private static RichTextBox Box(Control form) => (RichTextBox)form.Controls.Find("txtMessage", true)[0];
 
     private static Button Button(Control form) => (Button)form.Controls.Find("btnEmoji", true)[0];
 

@@ -312,7 +312,7 @@ public class RoomManagementUiTests
             // And the window knows it is nowhere: no room means no typing into it (F6), and the transcript of a
             // room that no longer exists is not shown to anybody. It does not go blank either - a window with
             // nowhere to send to says what to do next rather than sitting there empty.
-            Assert.False(Find<TextBox>(form, "txtMessage").Enabled);
+            Assert.False(Find<RichTextBox>(form, "txtMessage").Enabled);
             Assert.False(Find<Button>(form, "btnSend").Enabled);
             Assert.DoesNotContain("Room 1", ChatPane(form), StringComparison.Ordinal);
             Assert.Contains("Select a room", ChatPane(form), StringComparison.Ordinal);

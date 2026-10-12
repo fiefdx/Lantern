@@ -138,7 +138,7 @@ public sealed class RoomListRefreshTests
             rooms.SelectedIndex = 0;
             await Watch.UntilAsync(() => form.RoomNameNow == "Room 1", "Room 1 to be entered after the refusal");
 
-            var box = (TextBox)Find(form, "txtMessage");
+            var box = (RichTextBox)Find(form, "txtMessage");
             var send = (Button)Find(form, "btnSend");
             Assert.True(send.Enabled);
 

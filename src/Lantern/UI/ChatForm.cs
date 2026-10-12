@@ -158,7 +158,13 @@ public partial class ChatForm : Form
     /// </summary>
     private void SetUp()
     {
-        txtMessage.MaxLength = ValidationRules.MessageMaxLength;
+        // How long a message may be is said here rather than left to the control. A RichTextBox does not hold a
+        // text box to its <c>MaxLength</c> - it accepts what it is handed anyway - and it counts UTF-16 units, which
+        // is not the ruler this program's limit is measured in: a face is one character and two units (v1.4). So
+        // the limit is applied to what arrived, in the units that matter, with a word said about what did not fit.
+        txtMessage.TextChanged += (_, _) => EnforceLength();
+        txtMessage.SelectionChanged += (_, _) => ShowToolStates();
+        txtMessage.PasteRequested += (_, _) => PastePlain(ClippedText);
 
         // The button wears one of the faces it offers, drawn by the same code that colours them in the transcript:
         // the affordance and the result are the same picture, so there is nothing to be surprised by later.
@@ -311,6 +317,12 @@ public partial class ChatForm : Form
         btnSend.Enabled = !value && CurrentRoom is not null;
         btnShare.Enabled = !value && CurrentRoom is not null;
         btnEmoji.Enabled = !value && CurrentRoom is not null;
+
+        foreach (var tool in Tools)
+        {
+            tool.Enabled = !value && CurrentRoom is not null;
+        }
+
         UseWaitCursor = value;
     }
 
@@ -562,6 +574,12 @@ public partial class ChatForm : Form
             btnSend.Enabled = editable;
             btnShare.Enabled = editable;
             btnEmoji.Enabled = editable;
+
+            // A tool that still worked while the box was shut would be formatting a message that cannot be sent.
+            foreach (var tool in Tools)
+            {
+                tool.Enabled = editable;
+            }
         }
 
         if (CurrentRoom is null)
@@ -615,18 +633,278 @@ public partial class ChatForm : Form
 
     private void TxtMessage_KeyDown(object? sender, KeyEventArgs e)
     {
-        // Enter sends, Shift+Enter adds a line break (scenario 4).
+        // Enter sends, Shift+Enter adds a line break (scenario 4). The line break is the box's own work: this
+        // window only has to keep out of its way, which it does by not touching the key.
         if (e.KeyCode == Keys.Enter && !e.Shift)
         {
             e.Handled = true;
             e.SuppressKeyPress = true;
             _ = SendMessageAsync();
+
+            return;
+        }
+
+        // Ctrl+V puts words in and nothing else. This is asked for on the keystroke rather than on the window
+        // message that a paste arrives as, because that message turns out not to mean what its number says - see
+        // MessageInput for what was found when it was believed.
+        if (e.Control && e.KeyCode == Keys.V)
+        {
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            PastePlain(ClippedText);
+        }
+    }
+
+    // ------------------------------------------------------- the tools above the box
+    //
+    // Five of them, and they are the five things the wire can say about a stretch of a sentence (T12.1). The box
+    // holds the ink and the window holds what was asked for: <see cref="brush"/> is what the next character typed
+    // will look like, and it is kept in step from both directions - clicking a tool moves the brush and the ink,
+    // moving the caret reads the brush back off the ink. Only the first half of that would leave the buttons
+    // saying bold after the caret had moved somewhere plain, and a tool that lies about where you are is worse
+    // than no tool at all.
+
+    /// <summary>
+    /// What the next character typed in the box will look like. A run with no length, because it describes an
+    /// intention rather than annotating a sentence that exists yet.
+    /// </summary>
+    private StyledRun brush = new(0);
+
+    /// <summary>True while this code is the one moving the caret, so the box's own news about it can be ignored.</summary>
+    private bool styling;
+
+    /// <summary>True while the length rule is being applied, since trimming the box is itself a change to it.</summary>
+    private bool trimming;
+
+    private void BtnBold_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Bold);
+
+    private void BtnItalic_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Italic);
+
+    private void BtnUnderline_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Underline);
+
+    private void BtnSize_Click(object? sender, EventArgs e)
+    {
+        brush = brush with { Size = ComposerStyle.NextSize(brush.Size) };
+
+        FormatSelection(run => run with { Size = brush.Size });
+    }
+
+    private void BtnColor_Click(object? sender, EventArgs e)
+    {
+        brush = brush with { Color = ComposerStyle.Hex(ComposerStyle.NextColour(ComposerStyle.Colour(brush.Color))) };
+
+        FormatSelection(run => run with { Color = brush.Color });
+    }
+
+    /// <summary>
+    /// Flips one flag - on the highlighted characters, on the caret, and on the button - without disturbing the
+    /// others, which is the whole difficulty of the job. See <see cref="InputFormatting"/> for why this is done one
+    /// character at a time rather than by handing the control a new font.
+    /// </summary>
+    private void ToggleFont(FontStyle flag)
+    {
+        var on = flag switch
+        {
+            FontStyle.Bold => !brush.Bold,
+            FontStyle.Italic => !brush.Italic,
+            _ => !brush.Underline,
+        };
+
+        brush = flag switch
+        {
+            FontStyle.Bold => brush with { Bold = on },
+            FontStyle.Italic => brush with { Italic = on },
+            _ => brush with { Underline = on },
+        };
+
+        FormatSelection(run => flag switch
+        {
+            FontStyle.Bold => run with { Bold = on },
+            FontStyle.Italic => run with { Italic = on },
+            _ => run with { Underline = on },
+        });
+    }
+
+    /// <summary>Puts the brush on what is highlighted, then on the caret, then says what the tools now are.</summary>
+    private void FormatSelection(Func<StyledRun, StyledRun> change)
+    {
+        styling = true;
+
+        try
+        {
+            InputFormatting.ApplyToSelection(txtMessage, change);
+            InputFormatting.SetPending(txtMessage, brush);
+        }
+        finally
+        {
+            styling = false;
+        }
+
+        ShowToolStates();
+    }
+
+    /// <summary>
+    /// Says out loud, on the buttons, what the caret is sitting in. Called on every change of selection, which
+    /// includes every click of a tool and every press of an arrow key. Nothing else does this, so a person who moves
+    /// into their own bold with the arrow keys sees the bold button lit rather than being told otherwise.
+    /// </summary>
+    private void ShowToolStates()
+    {
+        if (styling)
+        {
+            return;
+        }
+
+        var here = InputFormatting.FlagsHere(txtMessage);
+
+        brush = here;
+
+        ShowTool(btnBold, here.Bold);
+        ShowTool(btnItalic, here.Italic);
+        ShowTool(btnUnderline, here.Underline);
+
+        // The size tool is drawn at the size it is about to give and the colour tool wears the colour it is about
+        // to give, because "Aa" and "A" in the room's own font and colour would be two buttons saying "something
+        // about ink" and nothing about which.
+        btnSize.Font = ComposerStyle.SizeFont(txtMessage.Font, here.Size);
+        btnColor.ForeColor = ComposerStyle.Colour(here.Color) ?? SystemColors.ControlText;
+
+        static void ShowTool(Button tool, bool on) => tool.BackColor = on ? ComposerStyle.ToolOnColor : ComposerStyle.ToolOffColor;
+    }
+
+    /// <summary>The tools that format the box, so that nothing gets left enabled when the box itself is not.</summary>
+    private Button[] Tools => [btnBold, btnItalic, btnUnderline, btnSize, btnColor];
+
+    /// <summary>
+    /// Starts a fresh message with nothing claimed about it. Emphasis that survives the send it was typed for is
+    /// how a chat window turns into a ransom note - every word from then on in bold, nobody able to say how it
+    /// started.
+    /// </summary>
+    private void ResetBrush()
+    {
+        brush = new StyledRun(0);
+
+        // The box has to be told as well: a RichTextBox keeps the formatting of the caret it just emptied, so a
+        // box cleared while bold is a box that types bold. This is the whole bug in one line.
+        styling = true;
+
+        try
+        {
+            InputFormatting.SetPending(txtMessage, brush);
+        }
+        finally
+        {
+            styling = false;
+        }
+
+        ShowToolStates();
+    }
+
+    // ------------------------------------------------------------------- the length of a message
+
+    /// <summary>
+    /// Keeps the box to the length a message may be, in the characters a person counts, and says when it cut
+    /// something off.
+    /// </summary>
+    /// <remarks>
+    /// Cut at a character boundary, because half a family emoji in a message is not a character at all; and with a
+    /// word said in the status bar, because a sentence that quietly stopped is a sentence the person did not write.
+    /// </remarks>
+    private void EnforceLength()
+    {
+        if (trimming)
+        {
+            return;
+        }
+
+        var text = txtMessage.Text;
+
+        if (ValidationRules.Length(text) <= ValidationRules.MessageMaxLength)
+        {
+            return;
+        }
+
+        var keep = CharBoundary(text, ValidationRules.MessageMaxLength);
+
+        trimming = true;
+
+        try
+        {
+            txtMessage.Select(keep, text.Length - keep);
+            txtMessage.SelectedText = string.Empty;
+        }
+        finally
+        {
+            trimming = false;
+        }
+
+        SetStatus($"a message is {ValidationRules.MessageMaxLength} characters, and the rest of this one did not fit");
+    }
+
+    /// <summary>Where the <paramref name="elements"/>th character of <paramref name="text"/> begins.</summary>
+    private static int CharBoundary(string text, int elements)
+    {
+        var seen = 0;
+
+        for (var e = System.Globalization.StringInfo.GetTextElementEnumerator(text); e.MoveNext();)
+        {
+            if (seen++ == elements)
+            {
+                return e.ElementIndex;
+            }
+        }
+
+        return text.Length;
+    }
+
+    /// <summary>
+    /// Puts what the clipboard holds into the box as words and nothing else.
+    /// <para>
+    /// Rich text pasted in with its own formatting would put ink on the screen that nobody here chose, in colours
+    /// the room has never heard of, and the wire carries no description of what Word thinks that sentence looks
+    /// like. Words are what a paste is for. A clipboard holding a picture says so too - Share is the button for
+    /// that, and it is not this box's job to guess.
+    /// </para>
+    /// </summary>
+    private bool PastePlain(Func<string> clipboardText)
+    {
+        ArgumentNullException.ThrowIfNull(clipboardText);
+
+        var words = clipboardText();
+
+        if (words.Length == 0)
+        {
+            SetStatus("nothing was on the clipboard to paste - Share is what sends a picture");
+
+            return false;
+        }
+
+        // Assigning to the selection is what an insertion is: it replaces what is highlighted, lands in the
+        // formatting the caret is already in, and leaves the caret after the words like anything typed.
+        txtMessage.SelectedText = words;
+
+        return true;
+    }
+
+    /// <summary>What the clipboard has to say in words, or nothing when it is holding something that is not words.</summary>
+    private static string ClippedText()
+    {
+        try
+        {
+            return Clipboard.GetText();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException or FormatException)
+        {
+            // A clipboard another program is still writing to is not this window's problem, and a paste that
+            // cannot happen is a paste that says so rather than one that throws.
+            return string.Empty;
         }
     }
 
     private async Task SendMessageAsync()
     {
-        var body = txtMessage.Text.Trim();
+        var typed = txtMessage.Text;
+        var body = typed.Trim();
         if (CurrentRoom is not { } room || body.Length == 0)
         {
             return;
@@ -638,13 +916,34 @@ public partial class ChatForm : Form
             return;
         }
 
-        var message = new TextMessage(Service.Nickname, room.Name, body);
+        var message = new TextMessage(Service.Nickname, room.Name, body) { Styles = StylesOf(typed, body) };
         await RunAsync(async () =>
         {
             await Service.SendAsync(message);
             txtMessage.Clear();
+            ResetBrush();
             Append(message);
         });
+    }
+
+    /// <summary>
+    /// What the box says about how the message looks, lined up with the sentence that is actually being sent.
+    /// <para>
+    /// Two things could go wrong here and both are silent. The body is trimmed before it travels, so runs counted
+    /// against what is in the box would describe a longer sentence than the one they arrive with, and a receiver
+    /// refuses a run list that does not add up (T12.1) - the words would get there and the emphasis would not. And
+    /// a box with nothing formatted in it reads as one plain run, which must not become a style field at all:
+    /// an ordinary message travels exactly as it did before any of this existed.
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<StyledRun> StylesOf(string typed, string body)
+    {
+        // Where the trimmed sentence starts inside what was typed, which is only ever some spaces at the front.
+        var from = typed.Length - typed.TrimStart().Length;
+
+        var runs = StyledRun.Fold(InputFormatting.RunsOf(txtMessage, from, body.Length), StyledRun.MaxRuns);
+
+        return StyledRun.SaysAnything(runs) ? runs : [];
     }
 
     private void BtnShare_Click(object? sender, EventArgs e) => _ = ShareAsync();

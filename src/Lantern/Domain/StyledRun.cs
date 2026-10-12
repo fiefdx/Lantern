@@ -141,6 +141,103 @@ public sealed record StyledRun(
     }
 
     /// <summary>
+    /// Whether this run says anything at all about the characters it covers. A line nobody formatted is one of
+    /// these, end to end, and what goes on the wire then is no style field rather than a field saying nothing
+    /// (T12.1) - which is how a v1.6 peer and a v1.7 peer agree on what an ordinary message looks like.
+    /// </summary>
+    public bool IsPlain =>
+        !Bold && !Italic && !Underline && Size == Normal && Color is null;
+
+    /// <summary>
+    /// Whether a run list is worth sending: false when every run on it is plain, which is what a box with nothing
+    /// formatted in it reads as.
+    /// </summary>
+    public static bool SaysAnything(IReadOnlyList<StyledRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        return runs.Any(run => !run.IsPlain);
+    }
+
+    /// <summary>
+    /// Folds a run list down to at most <paramref name="maximum"/> runs without losing a character.
+    /// <para>
+    /// The wire carries at most <see cref="MaxRuns"/> runs, and a person who taps the bold key across a long
+    /// message can make more than that. Refusing the lot would be the worst answer available: the words would
+    /// arrive and every emphasis in them would not, which is the receiver's problem in T12.1 recreated by the
+    /// sender. So the shortest run is folded into whichever of its neighbours is shorter, over and over, and the
+    /// style that goes is the one that was saying least about the fewest characters. The sentence keeps every
+    /// character it had, and every run that comes out is a style that went in.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<StyledRun> Fold(IReadOnlyList<StyledRun> runs, int maximum)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        var folded = Merge(runs);
+
+        while (folded.Count > Math.Max(1, maximum))
+        {
+            var least = 0;
+
+            for (var at = 1; at < folded.Count; at++)
+            {
+                if (folded[at].Length < folded[least].Length)
+                {
+                    least = at;
+                }
+            }
+
+            // The neighbour to fold into is the one covering fewer characters, so the style that survives is the
+            // one that was saying more. A list of one cannot fold, which is what the check above is for.
+            var into = least switch
+            {
+                0 => 1,
+                _ when least == folded.Count - 1 => least - 1,
+                _ => folded[least - 1].Length <= folded[least + 1].Length ? least - 1 : least + 1,
+            };
+
+            // Runs are laid end to end and carry a length rather than a position, so folding two together is
+            // addition whichever side the survivor was on.
+            var survivor = folded[into] with { Length = folded[into].Length + folded[least].Length };
+
+            var kept = Math.Min(into, least);
+            var dropped = Math.Max(into, least);
+
+            folded.RemoveAt(dropped);
+            folded[kept] = survivor;
+            folded = Merge(folded).ToList();
+        }
+
+        return folded;
+    }
+
+    /// <summary>Neighbouring runs of one style joined into one, which is what the wire wants and the box over-reports.</summary>
+    private static List<StyledRun> Merge(IReadOnlyList<StyledRun> runs)
+    {
+        var merged = new List<StyledRun>();
+
+        foreach (var run in runs)
+        {
+            if (merged.Count > 0)
+            {
+                var last = merged[^1];
+
+                if (last with { Length = 0 } == run with { Length = 0 })
+                {
+                    merged[^1] = last with { Length = last.Length + run.Length };
+
+                    continue;
+                }
+            }
+
+            merged.Add(run);
+        }
+
+        return merged;
+    }
+
+    /// <summary>
     /// Cuts the sentence into the stretches the styling talks about, in the order they occur.
     /// <para>
     /// Runs are counts of <em>characters as anybody counting them would count them</em>, so this walks

@@ -50,8 +50,14 @@ partial class ChatForm
         lstMembers = new ListBox();
         btnShare = new Button();
         btnEmoji = new Button();
-        txtMessage = new TextBox();
+        txtMessage = new MessageInput();
         btnSend = new Button();
+        pnlFormat = new Panel();
+        btnBold = new Button();
+        btnItalic = new Button();
+        btnUnderline = new Button();
+        btnSize = new Button();
+        btnColor = new Button();
         statusStrip = new StatusStrip();
         lblStatus = new ToolStripStatusLabel();
         lblFileProgress = new ToolStripStatusLabel();
@@ -73,6 +79,7 @@ partial class ChatForm
         ctxTranscript.SuspendLayout();
         pnlFileNotice.SuspendLayout();
         pnlFileActions.SuspendLayout();
+        pnlFormat.SuspendLayout();
         SuspendLayout();
         //
         // menuStrip
@@ -159,21 +166,26 @@ partial class ChatForm
         tableLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170F));
         tableLayout.Controls.Add(pnlRoomHeader, 0, 0);
         tableLayout.Controls.Add(lstRooms, 0, 1);
-        tableLayout.Controls.Add(btnShare, 0, 2);
+        tableLayout.Controls.Add(pnlFormat, 0, 2);
+        tableLayout.SetColumnSpan(pnlFormat, 4);
         tableLayout.Controls.Add(rtbChat, 1, 1);
-        tableLayout.Controls.Add(txtMessage, 1, 2);
+        tableLayout.Controls.Add(txtMessage, 1, 3);
+        tableLayout.SetColumnSpan(txtMessage, 2);
         tableLayout.Controls.Add(pnlMembersHeader, 3, 0);
         tableLayout.Controls.Add(lstMembers, 3, 1);
-        tableLayout.Controls.Add(btnEmoji, 2, 2);
-        tableLayout.Controls.Add(btnSend, 3, 2);
+        tableLayout.Controls.Add(btnSend, 3, 3);
         tableLayout.Dock = DockStyle.Fill;
         tableLayout.Location = new Point(0, 24);
         tableLayout.Name = "tableLayout";
         tableLayout.Padding = new Padding(6, 4, 6, 4);
-        tableLayout.RowCount = 3;
+        // Four rows now: the headers, the room, the strip of tools, and the box they apply to. The strip is its own
+        // row rather than a corner of the input row because a tool belongs above the thing it formats - beside it,
+        // it is an unrelated button that happens to be nearby.
+        tableLayout.RowCount = 4;
         tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F));
         tableLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
+        tableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
         tableLayout.Size = new Size(984, 521);
         tableLayout.TabIndex = 1;
         //
@@ -267,48 +279,126 @@ partial class ChatForm
         lstMembers.Size = new Size(164, 413);
         lstMembers.TabIndex = 4;
         //
-        // btnShare
         //
-        btnShare.Dock = DockStyle.Fill;
-        btnShare.Location = new Point(6, 457);
-        btnShare.Name = "btnShare";
-        btnShare.Size = new Size(178, 28);
-        btnShare.TabIndex = 5;
-        btnShare.Text = "Share";
-        toolTip.SetToolTip(btnShare, "Attach a picture or send a file to the room");
-        btnShare.UseVisualStyleBackColor = true;
-        btnShare.Click += BtnShare_Click;
+        // pnlFormat - the tools of the message box: the five that change what the words look like, and the two
+        // that put something into them. The style tools are at the left, in the order somebody works through them
+        // (shape, then size, then colour); the two that insert something are at the right, over the box they insert into.
+        //
+        pnlFormat.Controls.Add(btnBold);
+        pnlFormat.Controls.Add(btnItalic);
+        pnlFormat.Controls.Add(btnUnderline);
+        pnlFormat.Controls.Add(btnSize);
+        pnlFormat.Controls.Add(btnColor);
+        pnlFormat.Controls.Add(btnEmoji);
+        pnlFormat.Controls.Add(btnShare);
+        pnlFormat.Dock = DockStyle.Fill;
+        pnlFormat.Location = new Point(6, 427);
+        pnlFormat.Name = "pnlFormat";
+        pnlFormat.Size = new Size(972, 30);
+        pnlFormat.TabIndex = 4;
+        //
+        // btnBold
+        //
+        btnBold.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+        btnBold.Location = new Point(0, 3);
+        btnBold.Name = "btnBold";
+        btnBold.Size = new Size(34, 24);
+        btnBold.TabIndex = 0;
+        btnBold.Text = "B";
+        toolTip.SetToolTip(btnBold, "Bold the chosen words, or type bold from here");
+        btnBold.UseVisualStyleBackColor = false;
+        btnBold.Click += BtnBold_Click;
+        //
+        // btnItalic
+        //
+        btnItalic.Font = new Font("Segoe UI", 9.75F, FontStyle.Italic, GraphicsUnit.Point, 0);
+        btnItalic.Location = new Point(36, 3);
+        btnItalic.Name = "btnItalic";
+        btnItalic.Size = new Size(34, 24);
+        btnItalic.TabIndex = 1;
+        btnItalic.Text = "I";
+        toolTip.SetToolTip(btnItalic, "Italicise the chosen words, or type italics from here");
+        btnItalic.UseVisualStyleBackColor = false;
+        btnItalic.Click += BtnItalic_Click;
+        //
+        // btnUnderline
+        //
+        btnUnderline.Font = new Font("Segoe UI", 9.75F, FontStyle.Underline, GraphicsUnit.Point, 0);
+        btnUnderline.Location = new Point(72, 3);
+        btnUnderline.Name = "btnUnderline";
+        btnUnderline.Size = new Size(34, 24);
+        btnUnderline.TabIndex = 2;
+        btnUnderline.Text = "U";
+        toolTip.SetToolTip(btnUnderline, "Underline the chosen words, or type underlined from here");
+        btnUnderline.UseVisualStyleBackColor = false;
+        btnUnderline.Click += BtnUnderline_Click;
+        //
+        // btnSize
+        //
+        btnSize.Location = new Point(114, 3);
+        btnSize.Name = "btnSize";
+        btnSize.Size = new Size(46, 24);
+        btnSize.TabIndex = 3;
+        btnSize.Text = "Aa";
+        toolTip.SetToolTip(btnSize, "The size of the next words: normal, large or small");
+        btnSize.UseVisualStyleBackColor = false;
+        btnSize.Click += BtnSize_Click;
+        //
+        // btnColor
+        //
+        btnColor.Location = new Point(162, 3);
+        btnColor.Name = "btnColor";
+        btnColor.Size = new Size(46, 24);
+        btnColor.TabIndex = 4;
+        btnColor.Text = "A";
+        toolTip.SetToolTip(btnColor, "The colour of the next words; press again for the next colour, and once more to put it back");
+        btnColor.UseVisualStyleBackColor = false;
+        btnColor.Click += BtnColor_Click;
         //
         // btnEmoji
         //
-        btnEmoji.Dock = DockStyle.Fill;
-        btnEmoji.Location = new Point(814, 457);
+        btnEmoji.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnEmoji.Location = new Point(708, 3);
         btnEmoji.Name = "btnEmoji";
-        btnEmoji.Size = new Size(82, 28);
-        btnEmoji.TabIndex = 7;
+        btnEmoji.Size = new Size(88, 24);
+        btnEmoji.TabIndex = 5;
         btnEmoji.Text = "Emoji";
         btnEmoji.TextImageRelation = TextImageRelation.ImageBeforeText;
         toolTip.SetToolTip(btnEmoji, "Choose an emoji from a table and put it in the message");
         btnEmoji.UseVisualStyleBackColor = true;
         btnEmoji.Click += BtnEmoji_Click;
         //
+        // btnShare
+        //
+        btnShare.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnShare.Location = new Point(802, 3);
+        btnShare.Name = "btnShare";
+        btnShare.Size = new Size(170, 24);
+        btnShare.TabIndex = 6;
+        btnShare.Text = "Share";
+        toolTip.SetToolTip(btnShare, "Attach a picture or send a file to the room");
+        btnShare.UseVisualStyleBackColor = true;
+        btnShare.Click += BtnShare_Click;
+        //
         // txtMessage
         //
         txtMessage.Dock = DockStyle.Fill;
-        txtMessage.Location = new Point(190, 457);
+        txtMessage.HideSelection = false;
+        txtMessage.Location = new Point(190, 459);
         txtMessage.Multiline = true;
         txtMessage.Name = "txtMessage";
-        txtMessage.PlaceholderText = "Message";
-        txtMessage.Size = new Size(618, 28);
+        txtMessage.ForeColor = Color.Black;
+        txtMessage.ScrollBars = RichTextBoxScrollBars.Vertical;
+        txtMessage.Size = new Size(712, 54);
         txtMessage.TabIndex = 6;
         txtMessage.KeyDown += TxtMessage_KeyDown;
         //
         // btnSend
         //
         btnSend.Dock = DockStyle.Fill;
-        btnSend.Location = new Point(814, 457);
+        btnSend.Location = new Point(908, 459);
         btnSend.Name = "btnSend";
-        btnSend.Size = new Size(164, 28);
+        btnSend.Size = new Size(70, 54);
         btnSend.TabIndex = 8;
         btnSend.Text = "Send";
         toolTip.SetToolTip(btnSend, "Send the message to the current room (Enter)");
@@ -462,6 +552,7 @@ partial class ChatForm
         ctxTranscript.ResumeLayout(false);
         pnlFileNotice.ResumeLayout(false);
         pnlFileActions.ResumeLayout(false);
+        pnlFormat.ResumeLayout(false);
         statusStrip.ResumeLayout(false);
         statusStrip.PerformLayout();
         ResumeLayout(false);
@@ -492,8 +583,14 @@ partial class ChatForm
     protected ListBox lstMembers;
     protected Button btnShare;
     protected Button btnEmoji;
-    protected TextBox txtMessage;
+    protected MessageInput txtMessage;
     protected Button btnSend;
+    protected Panel pnlFormat;
+    protected Button btnBold;
+    protected Button btnItalic;
+    protected Button btnUnderline;
+    protected Button btnSize;
+    protected Button btnColor;
     private StatusStrip statusStrip;
     protected ToolStripStatusLabel lblStatus;
     private ContextMenuStrip ctxTranscript;

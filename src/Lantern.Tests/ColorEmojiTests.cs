@@ -233,7 +233,7 @@ public sealed class ColorEmojiTests
 
     private static string Transcript(Control form) => Rt(form).Text;
 
-    private static TextBox Box(Control form) => (TextBox)form.Controls.Find("txtMessage", true)[0];
+    private static RichTextBox Box(Control form) => (RichTextBox)form.Controls.Find("txtMessage", true)[0];
 
     private static void Send(Control form) => ((Button)form.Controls.Find("btnSend", true)[0]!).PerformClick();
 

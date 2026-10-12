@@ -103,6 +103,13 @@ runs. It becomes a `RichTextBox`, and that swap is where the work and the risk a
   needs `e.SuppressKeyPress`, and both halves get a test.
 * **Pasting becomes a decision: paste as plain text.** A selection copied out of a browser arrives with 11 kinds of
   formatting and a background colour. The box is for a chat message; what it accepts is the text.
+  *Caught while building it:* the obvious way to do that is to intercept the window's paste message, and the paste
+  message does not mean what its number says. The RichEdit window behind a RichTextBox is sent three messages with
+  the paste message number while it is being created - before the form has finished showing, nothing focused,
+  nobody at the keyboard. Honouring them meant that entering a room pasted whatever was sitting on the clipboard
+  into the message box, silently, and the first anyone heard of it was three tests that had nothing to do with
+  pasting. A paste is intercepted on the keystroke, and the message is honoured only on a box that has the focus
+  with a modifier held down. There is a test named *a window opening pastes nothing*.
 * **Toggles apply to the selection** (`SelectionFont`, `SelectionColor`, `SelectionCharOffset`), and to what is typed
   next. They reset when the message is sent. Style state that outlives the send is how a chat turns into a
   ransom note.
@@ -119,11 +126,26 @@ runs. It becomes a `RichTextBox`, and that swap is where the work and the risk a
   input row. They all move together with the control, and that is fine — it is a slow change, not a dangerous one.
   What would be dangerous is the first two bullets, done quietly.
 
-**One thing deliberately not done in this round.** Once the box is a RichTextBox it *could* show colourful emoji
-pictures, like the transcript. It will not: a picture inside the box is not a character, so the 500-character count
-would silently stop counting the faces, and the wire would have to map pictures back to the emoji they came from.
-Faces stay text in the box (outline), pictures stay in the transcript (colour). If that is the wrong call, say so —
-it is the only decision here that was made for convenience rather than for the person using it.
+**The colourful faces in the box, and what measuring it changed.** This section used to refuse the request: once the
+box is a RichTextBox it *could* draw faces in colour like the transcript, and it was argued that it should not,
+because a picture inside the box is not a character, so the 500-character count would silently stop counting the
+faces and the wire would have to map pictures back to the emoji they came from. That refusal was overruled by the
+person using the product, and going to measure why it had been written produced something worse than the concern it
+recorded:
+
+* A `\pict` group in an *editable* RichTextBox is not a U+FFFC object replacement character, which is what every
+  account of this gives. It is a **space** - `0x20`, one ASCII space, in `.Text`. Type `a`, insert a picture of a
+  face, type `b`, and the box contains `a b`. The face is not merely uncounted, it is *gone*: the sentence that
+  reaches the room says "a b", and the person who typed `a🙂b` has had a word taken out of it.
+* Hidden text (`\v`) survives in `.Text` and takes up no width, so it is tempting as a way to keep the character
+  somewhere. It is not: it is text, so the count and the wire see it, and RichEdit mangles any character that is not
+  escaped as `\uXXXX\uXXXX` - the faces came out as `??`.
+
+So the rule the refusal was protecting is right, and the box has to hold the *character*: faces are counted, sent and
+compared as the emoji they are. Which leaves colour as paint and nothing else - the glyph drawn over the character
+the box already contains, in the box's own background colour underneath it, so that what is on the screen is a
+picture and what is in the control is still one character. That is the route left standing, and it is the one this
+feature takes. Text stays the truth; colour is what the window does with it.
 
 ## Tasks
 
