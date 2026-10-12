@@ -1,0 +1,131 @@
+# Formatting that travels: the design before the code
+
+*v1.7 (planned). Decided: "I send bold words, others see bold words."*
+
+Nothing here is built yet. It is written down because the decision changes the wire protocol, and a protocol change
+done halfway is the one mistake a peer-to-peer program cannot recover from gracefully — two machines in a room end up
+unable to read each other, and the person in the middle has no idea which one is at fault.
+
+## The rule the whole design hangs on
+
+**The sentence is never optional. Formatting is an annotation on it.**
+
+`TextMessage.Body` stays exactly what it is today: plain text, counted by v1.4's ruler, capped at 500 characters, and
+always present and always enough to read the message. A style list is bolted on beside it and can be thrown away by
+any receiver — old, new, confused, or simply unable to parse it — without anybody losing a word. That single rule is
+what makes this safe to roll out across machines that are not on the same version.
+
+It also answers the compatibility question without a version handshake: a v1.6 peer deserialising a v1.7 header
+ignores the field it doesn't know and shows plain text. A v1.7 peer receiving from v1.6 gets no style list and shows
+plain text. Nobody is ever told their chat is out of date.
+
+## On the wire
+
+Text already rides in the frame's JSON header (`Frame.JsonHeader`, UTF-8 bytes); `Body` is for binary payloads and is
+not involved. So this is a header change, not a new frame type.
+
+```json
+{ "kind": "text", "sender": "Haitao", "room": "Room 1", "body": "see the bold word",
+  "styles": [ { "n": 10 }, { "n": 4, "b": 1 }, { "n": 5 } ] }
+```
+
+* **Run-length, not per-character, and not offsets.** A run is `{ n }` for plain text, `{ n, ...style }` for styled
+  text, laid end to end over the whole body. No start indices means no overlapping spans, no gap, and no ordering
+  problem for a receiver to get wrong.
+* **`n` counts text elements** — the same ruler `ValidationRules.Length` uses since v1.4, and the same thing a
+  person counts. Offsets in UTF-16 units would split a face in half; a run boundary inside `👨‍👩‍👧` would give half a
+  family in bold and half not.
+* **The sum must match.** If the runs don't add up to `Length(body)`, the receiver **ignores the whole style list**
+  and shows the plain text. A style list that disagrees with the text is a bug in the sender, and the recipient has
+  no way to guess which half to believe. This is the only failure mode, and its remedy is always the same: read the
+  sentence.
+* **At most 64 runs** per message. More than that is either nonsense or somebody trying to make a GDI control spend
+  its evening laying out runs.
+
+Style fields, all optional and additive:
+
+| key | meaning | receiver with no idea what it is |
+| --- | --- | --- |
+| `b` | bold | ignored, run shown plain |
+| `u` | underline | ignored |
+| `c` | colour, `#RRGGBB` from a fixed small palette | ignored |
+| `s` | size, one of `0` / `1` / `2` (small, normal, large) | ignored |
+
+Deliberately **not** italic: RichTextBox can do it, but every field costs a test on both sides and italic in a chat
+window answers a question nobody asked. Every field added later is additive by the rule above, so leaving it out is
+free; putting it in badly is not.
+
+`Body` is unchanged on the wire with or without styles, byte for byte — which is the assertion that proves a v1.6
+peer is not being subtly broken.
+
+## In the domain
+
+`TextMessage` gains an optional read-only list of styled runs, defaulting to empty. It stays a record and every
+existing construction keeps compiling — the ~200 places that build a `TextMessage(sender, room, body)` are the reason
+this is an optional extra and not a constructor parameter.
+
+The style list is validated **where it is accepted from the wire**, not in the domain object's constructor: a message
+with an impossible style list must still arrive as a message.
+
+## In the transcript
+
+`ChatForm.Append` already writes RTF per entry and already interleaves inline pictures (photos v1.2, file pages v1.3,
+faces v1.5), so writing a run with `\b`, `\ul`, `\fs<half-points>` and `\cf<colour>` in its own group is the same
+machinery pointed at formatting.
+
+* Headlines stay unformatted. A bold word inside a bold-ish headline is noise, and the headline is metadata.
+* A face inside a styled run stays a picture — the run's formatting wraps around the `\pict`, which RTF nests happily.
+* Copying the transcript out still loses pictures (v1.5) and now also loses style. That is what a RichTextBox copy
+  is; the message itself is intact, and it is in the room, and that is what the other machine received.
+* Hit-testing from v1.3.1 walks character positions in the control. Formatting adds no characters, so the file and
+  picture spans are unaffected — but there must be a test that says so, because "unaffected" is exactly the sort of
+  claim this project has been wrong about before.
+
+## In the input area — the expensive part
+
+Bold in a box requires a box that can hold bold. `txtMessage` is a classic edit control: one font, one colour, no
+runs. It becomes a `RichTextBox`, and that swap is where the work and the risk are:
+
+* **`MaxLength` stops existing.** An edit control refuses keys past the limit; a RichTextBox does not have the
+  notion. Counting moves into `TextChanged`, in text elements, with the v1.6 lesson attached — assignments bypass the
+  control's own limits, and any trimming done inside `TextChanged` re-enters it, so it needs a re-entry guard and a
+  message in the status bar rather than a silent chop.
+* **Enter sends, Shift+Enter breaks a line.** A RichTextBox takes Enter for itself; the existing `KeyDown` handler
+  needs `e.SuppressKeyPress`, and both halves get a test.
+* **Pasting becomes a decision: paste as plain text.** A selection copied out of a browser arrives with 11 kinds of
+  formatting and a background colour. The box is for a chat message; what it accepts is the text.
+* **Toggles apply to the selection** (`SelectionFont`, `SelectionColor`, `SelectionCharOffset`), and to what is typed
+  next. They reset when the message is sent. Style state that outlives the send is how a chat turns into a
+  ransom note.
+* **The toolbar goes above the box**, which is also the two-line box that was asked for: Bold, Underline, Size,
+  Colour, Emoji, Share — Send stays where it is, because muscle memory around Send is worth more than symmetry.
+* **Roughly 30 tests read `Box(form)` as a `TextBox`** and several wireframe-parity tests assert the geometry of the
+  input row. They all move together with the control, and that is fine — it is a slow change, not a dangerous one.
+  What would be dangerous is the first two bullets, done quietly.
+
+**One thing deliberately not done in this round.** Once the box is a RichTextBox it *could* show colourful emoji
+pictures, like the transcript. It will not: a picture inside the box is not a character, so the 500-character count
+would silently stop counting the faces, and the wire would have to map pictures back to the emoji they came from.
+Faces stay text in the box (outline), pictures stay in the transcript (colour). If that is the wrong call, say so —
+it is the only decision here that was made for convenience rather than for the person using it.
+
+## Tasks
+
+* **T12.1 [Core/Transport]** the style runs: DTO fields, encode/decode, the sum-must-match rule, the 64-run cap, the
+  unchanged-`Body` rule, and a test that a header carrying an unknown field still decodes into the message it
+  arrived as.
+* **T12.2 [UI]** the transcript renders runs, and a formatted message round-trips through two real loopback sockets
+  with the style intact.
+* **T12.3 [UI]** toolbar above the input, two-line box, RichTextBox swap, counting in `TextChanged`, Enter and
+  Shift+Enter, paste-as-plain, toggles that reset on send. `EmojiPickerForm` and Share move into the strip.
+* **T12.4 [QA]** the existing 599 updated for the new input control, plus the new behaviour's own tests; the wireframe
+  sheets re-drawn.
+* **T12.5 [Docs]** README, checklist, note — and the two things left behind on v1.6: `EmojiPickerForm` and
+  `ColorEmoji.Glyph` are still missing from `docs/umls/02-class-ui-and-services.puml`, and there is no long-form note
+  for the emoji table.
+
+## What to say if any of this is wrong
+
+1. Runs keyed by counted characters rather than by offsets — if you would rather have offsets, say why.
+2. Older peers silently showing plain text instead of being warned.
+3. Faces staying outline in the box for this round.
