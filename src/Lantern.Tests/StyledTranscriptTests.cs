@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using Lantern.Core;
 using Lantern.Domain;
 using Lantern.UI;
@@ -13,6 +14,8 @@ namespace Lantern.Tests;
 /// </summary>
 public class StyledTranscriptTests
 {
+    private const string Face = "\U0001F642";
+
     [Fact]
     public void AStyledWordArrivesInBold()
     {
@@ -165,6 +168,52 @@ public class StyledTranscriptTests
 
             Assert.Equal(1, pictures);
             Assert.True(BoldAt(chat, BodyIndex(chat, "all of this")), "the run stopped at the face");
+        });
+    }
+
+    [Fact]
+    public void ALargeFaceIsDrawnLargerThanAnOrdinaryOne()
+    {
+        Sta.Run(() =>
+        {
+            // A face in the transcript is a picture rather than a glyph, which means its size is decided here and
+            // not by the font: an outline glyph grows with the run it is in because the font does the growing, and a
+            // PNG grows only if whoever wrote it asked. A Large face that arrives the ordinary size is a message
+            // that stopped saying what it said on the way to the room.
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+
+            EnterRoom(form);
+            Receive(service, Styled("User 2", "Room 1", $"shout {Face}",
+                new StyledRun(6), new StyledRun(1, Size: StyledRun.Large)));
+            Receive(service, new TextMessage("User 2", "Room 1", $"shout {Face}"));
+
+            var heights = PictureHeights(form);
+
+            Assert.Equal(2, heights.Count);
+            Assert.True(heights[0] > heights[1],
+                $"the large face was drawn {heights[0]} pixels tall and the ordinary one {heights[1]}");
+        });
+    }
+
+    [Fact]
+    public void ASmallFaceIsDrawnSmallerThanAnOrdinaryOne()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+
+            EnterRoom(form);
+            Receive(service, Styled("User 2", "Room 1", $"quiet {Face}",
+                new StyledRun(6), new StyledRun(1, Size: StyledRun.Small)));
+            Receive(service, new TextMessage("User 2", "Room 1", $"quiet {Face}"));
+
+            var heights = PictureHeights(form);
+
+            Assert.Equal(2, heights.Count);
+            Assert.True(heights[0] < heights[1],
+                $"the small face was drawn {heights[0]} pixels tall and the ordinary one {heights[1]}");
         });
     }
 
@@ -329,6 +378,22 @@ public class StyledTranscriptTests
         chat.SelectAll();
 
         return chat.SelectedRtf;
+    }
+
+    /// <summary>
+    /// How tall each face the transcript drew actually is, in the order they were written. <see cref="RtfPicture"/>
+    /// states a picture's size in device pixels, so the transcript's own RTF says what was asked for.
+    /// </summary>
+    private static List<int> PictureHeights(Form form)
+    {
+        var heights = new List<int>();
+
+        foreach (Match picture in Regex.Matches(Rtf(form), @"\\pich(\d+)"))
+        {
+            heights.Add(int.Parse(picture.Groups[1].Value));
+        }
+
+        return heights;
     }
 
     private static Control? Find(Control root, string name)

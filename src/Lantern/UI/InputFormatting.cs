@@ -64,6 +64,14 @@ public static class InputFormatting
                 Write(box, change(Read(box)));
             }
         });
+
+        // Sizes moved. A box that paints faces over its own characters places them on the baseline of the line,
+        // and the line's baseline belongs to the tallest ink on it - so a line that has just been made larger has
+        // just moved the ground every face on it stands on.
+        if (box is MessageInput input)
+        {
+            input.ForgetLineSizes();
+        }
     }
 
     /// <summary>

@@ -562,6 +562,37 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       screen in two windows apart — an ordinary RichTextBox and the message box, each alone, since one capture of two
       overlapping windows is a capture of whichever is on top — the painted ink and the glyph's ink occupy identical
       rectangles at 7, 9, 11 and 13 points, with zero pixels of anything outside the square in either. **686 tests**.
+- [x] **T12.6 [UI,QA] fixed again** - a face no longer stands where its own size would put it, because a line is not
+      one size. Reported twice: **in the box**, a Large word with an ordinary face beside it left the face riding near
+      the top of the line with its black outline showing underneath; **in the transcript**, a face sent at Large arrived
+      at the size of the sentence it travelled in. The transcript half was ours - `WriteContentRun` asked how tall a
+      face should be drawn *once for the whole message*, so every face in it came out alike - and it is asked per run
+      now, off that run's own font, with a face too tall for its line clipped to the line instead of pushing it open.
+
+      The box half belongs to the control: it lays a line out on one baseline, and answers where a character is with
+      the top of the **line** for every character on it whatever size it is. So the offset comes from the tallest ink on
+      the line rather than from the face's own advance - an ordinary face beside Large letters stands **8** pixels down,
+      not the 2 it stands on alone - and the bottom of ink `em` tall is `em + (em + 4) / 6` (`FaceOverlay.Bottom`; the
+      table is in `docs/notes/the-glyph-is-the-advance.md`).
+
+      Getting the tallest ink is the interesting half. A line holding a face never reports one font: `SelectionFont`
+      calls a change of *family* a difference, and RichEdit borrows `Segoe UI Symbol` or `Calibri` to draw a face and
+      reports what it drew with rather than what it was given - so the size must be read, and reading it is cheap per
+      question (0.03-0.09 ms) and ruinous per character (a character-at-a-time walk measured **15 ms** for forty
+      characters, and every keystroke throws the answer away). So **faces are measured, not asked about** - their ink is
+      their advance, and the advance ends where the next character starts - while the words between them are asked in
+      stretches that halve only when they answer "mixed", cut on text-element boundaries. Measured: seventy words, 2
+      questions; a face among sixty-three characters, 2 (walking cost 12 and 15 ms); a line of faces alone, none.
+      `MessageInput` keeps the answer per display line and forgets it when the text, any font in it, or its own size
+      changes; it puts the selection back where it found it and says so through `Measuring`, so a measurement cannot
+      wipe a pending format off the toolbar.
+
+      `TwoFacesOnOneLineEndAtTheSameLine` holds two faces of different sizes to one baseline, and
+      `FindingABaselineAsksAboutWordsAndNeverAboutFaces` holds the reading to its cost - both are tests that fail on
+      the version before. Checked against the control rather than against ourselves: its own glyph and the face painted
+      over it both begin 8 pixels below the top of a mixed line, both exactly one em tall, no outline left showing.
+      **691 tests**, 0 warnings.
+
 
 ---
 

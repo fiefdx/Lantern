@@ -198,6 +198,26 @@ argued from documentation, because the documentation about this control turned o
   tops of the neighbouring letters' strokes live. Verified by measuring two windows separately - an ordinary
   RichTextBox, and the message box - at 7, 9, 11 and 13 points: the painted face's ink occupies exactly the
   rectangle the control's own glyph occupies, and neither has any ink outside that square.
+* **A line is not one size, and its baseline belongs to the tallest thing on it.** Asked where a character is, a
+  RichTextBox answers with the top of the **line** - for every character on it, whatever size that character is. So the
+  offset that puts a face's ink on the baseline can only be worked out from the tallest ink on the line, not from the
+  face's own size: measured, an ordinary face standing beside Large letters has its ink **8** pixels below the top of
+  the line rather than the 2 it has on a line of its own size. Paint it at its own offset and it floats up near the top
+  of the line, above the words beside it, with the black outline it was put there to cover still showing underneath.
+  The bottom of ink `em` pixels tall is `em + (em + 4) / 6`, measured the same way as the square that goes with it: 14
+  at an em of 12, 20 at an em of 17.
+* **What it costs to ask a RichTextBox what its own text is wearing - which is why the faces are not asked.** Size can
+  only be read through a selection, and `SelectionFont` returns `null` for a stretch whose runs differ in *any* respect,
+  including the **family**: a line containing a face therefore never answers as one font, because RichEdit borrows
+  `Segoe UI Symbol` or `Calibri` to draw the face and reports those rather than the font the control was given. Walking
+  such a line a character at a time measured **15 ms** for forty characters - and this is asked again after every
+  keystroke, since every edit throws the answer away - while highlighting a range that *crosses* a face costs an order
+  of magnitude more than one that does not. So faces are measured rather than asked: their ink is their advance, and the
+  advance ends where the next character starts, so two position questions settle a face without touching the selection.
+  The words between the faces are asked in stretches, and only a stretch that answers "mixed" is halved and asked again.
+  Measured: a line of seventy words, **2** questions; a face in a line of sixty-three characters, **2** (walking it cost
+  12 questions and 15 ms); a line of faces alone, **none**. The answer is kept per display line and thrown away whenever
+  the text, any font in it, or the box's own size changes.
 * **What is behind a selected face, and when nothing is.** A RichEdit window's selection is `SystemColors.Highlight`
   exactly (`FF0078D7` here, sampled). When the box loses the caret it draws **no selection at all** - the pixel where
   the blue was reads white again - so an unfocused selected face is patched with the paper, not with a blue nobody is

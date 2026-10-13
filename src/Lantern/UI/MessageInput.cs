@@ -34,6 +34,283 @@ public class MessageInput : RichTextBox
     public const string Hint = "Message";
 
     /// <summary>
+    /// How tall the tallest ink on each of the box's lines is, in pixels, as long as nobody has changed the text
+    /// or the ink since it was last worked out.
+    /// </summary>
+    private readonly Dictionary<int, int> tallest = [];
+
+    /// <summary>
+    /// Whether the box is reading its own ink right now - which it does by moving the selection, and nobody should
+    /// take that for a person moving the caret.
+    /// </summary>
+    private bool measuring;
+
+    /// <summary>
+    /// Whether the box is in the middle of reading what its own lines are wearing.
+    /// <para>
+    /// A <see cref="RichTextBox"/> has one font of its own and stores the rest itself, and the only way to ask what
+    /// a stretch of it looks like is to highlight that stretch. So working out how tall the ink on a line is means
+    /// selecting it, and a selection change is what tells the window's toolbar to ask what the caret is sitting in -
+    /// which would put the Bold button in the state of whatever character the reading happened to be on. The window
+    /// asks this before believing a selection change.
+    /// </para>
+    /// </summary>
+    public bool Measuring => measuring;
+
+    /// <summary>
+    /// The height in pixels of the tallest ink on the line a character sits on, or null when the box cannot say.
+    /// <para>
+    /// This is what tells <see cref="FaceOverlay"/> where the line's baseline is: the face has to be painted on the
+    /// baseline the line is using, not on the one its own size would give it, or a small face beside large letters
+    /// floats above them with its outline showing underneath.
+    /// </para>
+    /// <para>
+    /// Worked out once per line and kept, because it costs messages to the control and the answer only moves when
+    /// the text or the ink does. Asked lazily - on the first paint after something changed - rather than on every
+    /// keystroke.
+    /// </para>
+    /// </summary>
+    public int? TallestEmOnLine(int charIndex)
+    {
+        if (charIndex < 0 || charIndex > TextLength)
+        {
+            return null;
+        }
+
+        var line = GetLineFromCharIndex(charIndex);
+
+        if (line < 0)
+        {
+            return null;
+        }
+
+        if (!tallest.TryGetValue(line, out var em))
+        {
+            tallest[line] = em = TallestEm(line);
+        }
+
+        return em;
+    }
+
+    /// <summary>Says that the lines are not what they were: the next face asks afresh how tall the ink on it is.</summary>
+    public void ForgetLineSizes()
+    {
+        tallest.Clear();
+    }
+
+    /// <summary>
+    /// Reads one line's ink.
+    /// <para>
+    /// <b>Faces are measured, not asked about.</b> Asking the control what a face is wearing is both the expensive
+    /// question - a highlight that crosses one costs an order of magnitude more than one that does not, because the
+    /// control lays the fallback font out again - and the untrustworthy one: the answer comes back naming
+    /// <c>Segoe UI Symbol</c> or <c>Calibri</c> rather than the font the box was given, because those are the faces
+    /// RichEdit borrows to draw it with. And the size is already knowable for nothing, since a face's ink is its
+    /// advance square and the advance is where the next character starts. So the faces are stepped over, and the
+    /// questions go to the words between them.
+    /// </para>
+    /// <para>
+    /// <b>The words are asked in stretches, not one at a time.</b> A read of a highlighted stretch costs about a
+    /// thirtieth of a millisecond, which sounds like nothing until the arithmetic is done: a line of forty characters
+    /// walked a character at a time measured fifteen milliseconds, and this question is asked on every keystroke.
+    /// A whole stretch that wears one font answers for all of itself in one read - which is nearly every stretch -
+    /// and only one that says "mixed" is cut in half and asked again.
+    /// </para>
+    /// <para>
+    /// Every cut is on a text-element boundary, for the reason everything else here is: a family is two UTF-16 units
+    /// of some and one character, and half a face is nothing anybody typed.
+    /// </para>
+    /// </summary>
+    private int TallestEm(int line)
+    {
+        var from = GetFirstCharIndexFromLine(line);
+
+        if (from < 0)
+        {
+            return EmOf(Font.Size);
+        }
+
+        // The line ends where the next one starts, or at the end of the text. Both are display lines: a wrapped
+        // paragraph is several of these, and it is the display line whose baseline the control is laying out.
+        var to = GetFirstCharIndexFromLine(line + 1);
+        to = to < 0 ? TextLength : to;
+
+        var points = Font.Size;
+
+        // Nothing the box can be told to write is larger than this, so a line that has already produced one has
+        // produced the answer and the rest can go unread.
+        var largest = Font.Size + TranscriptStyle.LargeDelta;
+
+        foreach (var words in Words(from, to))
+        {
+            points = TallestIn(points, words.Start, words.End, largest);
+        }
+
+        foreach (var face in Faces(from, to))
+        {
+            points = Math.Max(points, PointsOfFace(face));
+        }
+
+        return EmOf(points);
+    }
+
+    /// <summary>
+    /// How tall the ink of one face is, in points: its own advance is its em, so two position questions answer it
+    /// and the control is never asked what it thinks the face's font is.
+    /// </summary>
+    private float PointsOfFace(int start)
+    {
+        var begin = GetPositionFromCharIndex(start);
+        var after = GetPositionFromCharIndex(Next(start));
+
+        // Back to points from pixels, because everything else here is counted in points and one unit in a method
+        // that has both is how a size drifts.
+        return Math.Max(1f, (after.X - begin.X) * 72f / DeviceDpi);
+    }
+
+    /// <summary>Where the character after this one starts, which is where its advance ends.</summary>
+    private int Next(int start) => start + System.Globalization.StringInfo.GetNextTextElement(Text, start).Length;
+
+    /// <summary>
+    /// The stretches of a line that are words rather than faces, and would therefore like to be asked about ink.
+    /// </summary>
+    private IEnumerable<(int Start, int End)> Words(int from, int to)
+    {
+        var start = -1;
+
+        foreach (var (at, element) in Elements(from, to))
+        {
+            if (ColorEmoji.IsEmoji(element))
+            {
+                if (start >= 0)
+                {
+                    yield return (start, at);
+
+                    start = -1;
+                }
+            }
+            else if (start < 0)
+            {
+                start = at;
+            }
+        }
+
+        if (start >= 0)
+        {
+            yield return (start, to);
+        }
+    }
+
+    /// <summary>Where every face on a line starts.</summary>
+    private IEnumerable<int> Faces(int from, int to) =>
+        Elements(from, to).Where(e => ColorEmoji.IsEmoji(e.Element)).Select(e => e.Start);
+
+    private float TallestIn(float best, int from, int to, float largest)
+    {
+        var at = SelectionStart;
+        var length = SelectionLength;
+        var edges = Edges(from, to);
+        var points = best;
+
+        measuring = true;
+
+        try
+        {
+            Look(0, edges.Count - 1);
+        }
+        finally
+        {
+            Select(at, length);
+            measuring = false;
+        }
+
+        return points;
+
+        void Look(int low, int high)
+        {
+            if (high <= low || points >= largest)
+            {
+                return;
+            }
+
+            Select(edges[low], edges[high] - edges[low]);
+
+            // A font back means the whole stretch wears that one, which is the answer for all of it. Null means they
+            // differ somewhere, and there is nothing to do but ask smaller.
+            if (SelectionFont is { } worn)
+            {
+                points = Math.Max(points, worn.Size);
+
+                return;
+            }
+
+            if (high - low == 1)
+            {
+                // One character that will not say what it is wearing. Leave it at the size the line is taken to be.
+                return;
+            }
+
+            var middle = (low + high) / 2;
+
+            Look(low, middle);
+            Look(middle, high);
+        }
+    }
+
+    /// <summary>
+    /// Where each character of a stretch begins, and where the stretch ends - the cuts a halving is allowed to make.
+    /// </summary>
+    private List<int> Edges(int from, int to)
+    {
+        var edges = new List<int> { from };
+
+        for (var e = System.Globalization.StringInfo.GetTextElementEnumerator(Text); e.MoveNext();)
+        {
+            var at = e.ElementIndex;
+
+            if (at >= to)
+            {
+                break;
+            }
+
+            if (at > from)
+            {
+                edges.Add(at);
+            }
+        }
+
+        edges.Add(to);
+
+        return edges;
+    }
+
+    /// <summary>The characters of a stretch of the box's text, each with where it starts.</summary>
+    private IEnumerable<(int Start, string Element)> Elements(int from, int to)
+    {
+        for (var e = System.Globalization.StringInfo.GetTextElementEnumerator(Text); e.MoveNext();)
+        {
+            var at = e.ElementIndex;
+
+            if (at >= to)
+            {
+                yield break;
+            }
+
+            if (at >= from)
+            {
+                yield return (at, e.GetTextElement());
+            }
+        }
+    }
+
+    /// <summary>
+    /// A point size in device pixels, which is what the square of a face is measured in: twelve at nine points on
+    /// this machine, seventeen at thirteen, and the same as the advance the control reports for a face at that size.
+    /// </summary>
+    private int EmOf(float points) =>
+        Math.Max(1, (int)Math.Round((points * DeviceDpi / 72f), MidpointRounding.AwayFromZero));
+
+    /// <summary>
     /// Raised instead of the control's own paste, which is <see cref="RichTextBox"/> pasting whatever the
     /// clipboard happens to be holding - rich text and all.
     /// <para>
@@ -129,6 +406,9 @@ public class MessageInput : RichTextBox
     {
         base.OnTextChanged(e);
 
+        // New words, other words' ink coming in, or words going away: either way a line may be wearing something it
+        // was not before, and a face painted to the wrong baseline is a face floating in the line.
+        tallest.Clear();
         Invalidate();
     }
 
@@ -137,7 +417,13 @@ public class MessageInput : RichTextBox
     {
         base.OnSelectionChanged(e);
 
-        Invalidate();
+        // Reading the box's own ink is done by selecting pieces of it, and putting the caret back afterwards. That
+        // is not the person moving the caret, and asking for a whole repaint every time would be asking for one
+        // while painting, for a picture that has not changed.
+        if (!measuring)
+        {
+            Invalidate();
+        }
     }
 
     /// <summary>Reflowing the text moves the faces, including the ones that were not on a line ending before.</summary>
@@ -145,7 +431,18 @@ public class MessageInput : RichTextBox
     {
         base.OnResize(e);
 
+        // Reflowing moves the lines as well as the faces on them: what was one display line becomes two, and each
+        // of those has its own tallest ink.
+        tallest.Clear();
         Invalidate();
+    }
+
+    /// <summary>The room's font is what an unstyled line is worn in, so every line's height goes with it.</summary>
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+
+        tallest.Clear();
     }
 
     /// <summary>

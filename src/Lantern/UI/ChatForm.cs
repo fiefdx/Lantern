@@ -859,7 +859,10 @@ public partial class ChatForm : Form
     /// </summary>
     private void ShowToolStates()
     {
-        if (styling)
+        // `styling` is this window moving the selection to write ink on the box; `Measuring` is the box moving it
+        // to read its own ink back. Both raise the same selection change, and neither is a person moving the caret
+        // - which is what this is meant to be listening for.
+        if (styling || txtMessage.Measuring)
         {
             return;
         }
@@ -2137,14 +2140,18 @@ public partial class ChatForm : Form
     /// </remarks>
     private void WriteContentRun(string text, Color color, IReadOnlyList<StyledRun>? styles = null)
     {
-        var pixels = GlyphPixels;
-
         // Styling first, then faces, so that a face inside a bold run is still one face and not a run that gave up
         // halfway. The styling owns the character counts; the faces are drawn inside whichever stretch they fall in.
         foreach (var (stretch, run) in StyledRun.Split(text, styles))
         {
             var runColor = TranscriptStyle.RunColour(run) ?? color;
             using var runFont = TranscriptStyle.RunFont(rtbChat.Font, run);
+
+            // Per run, and off the run's font rather than the control's. A face in the transcript is a picture, and a
+            // picture is as tall as it is told to be: an outline glyph grows with its font because the font does the
+            // growing, a PNG grows only if whoever wrote it asked. Taking the size once for the whole message left a
+            // Large face arriving at the ordinary size - a message that stopped saying what it said on the way in.
+            var pixels = GlyphPixels(runFont ?? rtbChat.Font);
 
             foreach (var (piece, emoji) in ColorEmoji.Split(stretch))
             {
@@ -2160,8 +2167,23 @@ public partial class ChatForm : Form
         }
     }
 
-    /// <summary>How tall a colour emoji is drawn: the line it has to sit on, never smaller than it reads well.</summary>
-    private int GlyphPixels => Math.Max(18, rtbChat.Font.Height);
+    /// <summary>
+    /// How tall a colour face is drawn in one run.
+    /// <para>
+    /// A little taller than the ink it sits among, because Windows' faces fill their em and the em is smaller than
+    /// the line: at the room's own font that is 18 pixels on a 16 pixel line. The same ratio at every size, so the
+    /// faces keep step with the words they are written between - a Large face large, a small one small, and not the
+    /// whole room's faces cut to one size because the control has only one font of its own.
+    /// </para>
+    /// </summary>
+    private int GlyphPixels(Font run)
+    {
+        var line = Math.Max(1, rtbChat.Font.Height);
+
+        // Never so small that it stops reading as a face at all, which is the same rule as before applied to the
+        // smallest size the wire carries rather than to the room's.
+        return Math.Max(12, (int)Math.Round(run.Height * 18f / line));
+    }
 
     /// <remarks>
     /// The font is set on every run rather than only on the styled ones, for the same reason the colour is: a RichTextBox

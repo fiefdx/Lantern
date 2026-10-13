@@ -257,6 +257,106 @@ public class ColorFacesInTheBoxTests
     }
 
     [Fact]
+    public void TwoFacesOnOneLineEndAtTheSameLine()
+    {
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            // One line, two faces, two sizes. RichEdit puts every run on a line on the same baseline, and answers
+            // "where is this character" with the top of the LINE whatever size the character is - so the only thing
+            // that decides how far down a face's square goes is the line's baseline, and the baseline belongs to the
+            // tallest ink on the line. A face painted against its own size instead floats above the words beside it
+            // and leaves the outline it was meant to be hiding showing underneath it.
+            box.Text = $"{Face} {Face}";
+            box.Select(3, Face.Length);
+            box.SelectionFont = new Font(box.Font.FontFamily, box.Font.Size + TranscriptStyle.LargeDelta);
+            box.Select(box.Text.Length, 0);
+
+            Repaint(box);
+
+            var ordinary = FaceOverlay.CellOf(box, 0);
+            var large = FaceOverlay.CellOf(box, 3);
+
+            Assert.True(large.Width > ordinary.Width,
+                $"the second face was not made larger: {large.Width} against {ordinary.Width}");
+
+            Assert.Equal(large.Bottom, ordinary.Bottom);
+
+            // And the small face has genuinely come down to the line rather than keeping its own offset: on a line
+            // of its own size it starts a couple of pixels under the top of the line, and here it starts further
+            // down than that, because the line's baseline moved with the large face in it.
+            var line = box.GetPositionFromCharIndex(0).Y;
+            var own = FaceOverlay.Bottom(ordinary.Width) - ordinary.Width;
+
+            Assert.True(ordinary.Top - line > own,
+                $"a face {ordinary.Width} across was painted {ordinary.Top - line} below the top of a line whose " +
+                $"tallest ink is {large.Width} across; {own} is where it would sit on a line of its own size");
+        });
+    }
+
+    [Fact]
+    public void FindingItsBaselineLeavesTheCaretAndTheToolbarAlone()
+    {
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+            var bold = (Button)Find(form, "btnBold")!;
+
+            // Finding where the baseline of a line is costs a look at what the line is wearing, and a RichTextBox
+            // will only say what a stretch of itself looks like if that stretch is highlighted. So the box selects
+            // its own line to measure it, and puts the caret back afterwards. What a person is owed is that the
+            // detour is invisible: the caret where they left it, and the tools still saying what the caret is in
+            // rather than what whichever character the reading happened to be on is.
+            box.Text = $"{Face} hello there";
+            box.Select(0, Face.Length);
+            box.SelectionFont = new Font(box.Font.FontFamily, box.Font.Size, FontStyle.Bold);
+            box.Select(box.Text.Length, 0);
+
+            var at = box.SelectionStart;
+            var state = bold.BackColor;
+
+            Repaint(box);
+
+            Assert.False(box.Measuring, "the box is still reading itself");
+            Assert.Equal(at, box.SelectionStart);
+            Assert.Equal(0, box.SelectionLength);
+            Assert.Equal(state, bold.BackColor);
+        });
+    }
+
+    [Fact]
+    public void FindingABaselineAsksAboutWordsAndNeverAboutFaces()
+    {
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            // A line of words answers for itself in one question: what a stretch of itself wears is something a
+            // RichTextBox will say, and an ordinary sentence is one stretch.
+            var words = Looks(box, "hello there and here and there too and here and here and here and here");
+
+            Assert.True(words <= 2, $"a line of nothing but words was asked about {words} times");
+
+            // A face in the line used to cost a dozen questions, because the control will not call a whole line one
+            // font once a face is in it - it borrows another font to draw the face, and reports the line as mixed.
+            // Faces are measured instead of asked about, which is both cheaper and more honest: the dear question is
+            // the one whose highlight crosses a face, and the answer comes back naming Segoe UI Symbol rather than
+            // anything the box was given. Measured: twelve questions and fifteen milliseconds walking this line, two
+            // questions now, and the size of a face was always knowable from where the next character starts.
+            var sentence = Looks(box, $"{Face} hello there and here and there too and here and here and here");
+
+            Assert.True(sentence <= 4, $"a face in a line of words cost {sentence} questions");
+
+            // And a line of faces alone is never asked at all.
+            Assert.Equal(0, Looks(box, string.Concat(Enumerable.Repeat(Face, 12))));
+        });
+    }
+
+    [Fact]
     public void ASelectedFaceSitsOnTheSelectionRatherThanCuttingAHoleInIt()
     {
         Sta.Run(() =>
@@ -509,6 +609,38 @@ public class ColorFacesInTheBoxTests
             .PerformClick();
 
     /// <summary>What the box's own paint would put on screen, on a bitmap of the box's client area.</summary>
+    /// <summary>
+    /// How many times the box highlights a piece of itself in order to say how tall the ink on its first line is -
+    /// the one question about itself that a RichTextBox has to be asked, and the one that can quietly cost more than
+    /// the painting it is serving.
+    /// </summary>
+    private static int Looks(MessageInput box, string text)
+    {
+        var at = box.SelectionStart;
+        var length = box.SelectionLength;
+
+        // New text is what tells the box that the lines it measured are not the lines it has now.
+        box.Text = text;
+
+        var looks = 0;
+
+        void Counted(object? sender, EventArgs e) => looks++;
+
+        box.SelectionChanged += Counted;
+
+        try
+        {
+            box.TallestEmOnLine(0);
+        }
+        finally
+        {
+            box.SelectionChanged -= Counted;
+            box.Select(at, length);
+        }
+
+        return looks;
+    }
+
     private static Bitmap Painted(RichTextBox box)
     {
         var bitmap = new Bitmap(box.ClientSize.Width, box.ClientSize.Height);

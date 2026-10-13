@@ -58,14 +58,38 @@ public static class FaceOverlay
     {
         var start = box.GetPositionFromCharIndex(charIndex);
         var after = box.GetPositionFromCharIndex(charIndex + elementLength);
-        var advance = Math.Max(8, after.X - start.X);
+        var em = Math.Max(8, after.X - start.X);
 
-        // How far below the top of the cell the ink starts, measured at four sizes: two pixels on advances of nine
-        // and twelve, three on fifteen and seventeen. Four sixths of an advance rounded down reproduces all four, and
-        // being derived from the advance it follows the run rather than the box - which matters, because a face typed
-        // at Large sits in a taller line than the box's own font and has to be moved down with it.
-        return new Rectangle(start.X, start.Y + ((advance + 4) / 6), advance, advance);
+        // Where the ink on this line ends, which is not where this face's ink would end if the line were all face.
+        //
+        // RichEdit lays a line out on one baseline, and it answers "where is this character" with the top of the
+        // LINE for every character on it whatever size that character is. So on a line carrying any Large ink, the
+        // baseline of a small face is several pixels below where it would be on a line of its own size: paint it at
+        // its own offset and it floats up near the top of the line, above the words next to it, with the outline it
+        // was put there to hide still showing underneath. (Measured: an ordinary face beside Large letters has its
+        // ink eight pixels below the top of the line, not the two it has on a line of its own.)
+        //
+        // Only the box that owns its ink can say what the tallest thing on one of its lines is - a RichTextBox will
+        // tell you a line's font if the line has one, and nothing otherwise - so a plain one is assumed uniform,
+        // which is what the square has always been.
+        var tallest = box is MessageInput input && input.TallestEmOnLine(charIndex) is { } known
+            ? Math.Max(em, known)
+            : em;
+
+        return new Rectangle(start.X, start.Y + Math.Max(0, Bottom(tallest) - em), em, em);
     }
+
+    /// <summary>
+    /// How far below the top of a line the ink of ink this tall reaches - which is the baseline everything on the
+    /// line is standing on, since the baseline is what the tallest ink on a line defines.
+    /// <para>
+    /// Measured the same way as the square it goes with: a lone face on a line, ink found on the screen, nothing of
+    /// ours painted on it. An ordinary face's ink ended 14 pixels below the top of its line, a large one's 20, and
+    /// the same at the two sizes in between as an em plus four sixths of an em rounded down - two pixels of air
+    /// above a nine pixel face, three above a fifteen or seventeen pixel one.
+    /// </para>
+    /// </summary>
+    public static int Bottom(int em) => em + ((em + 4) / 6);
 
     /// <summary>
     /// Where to draw a face's bitmap so that the <em>ink</em> of it - not the square of bitmap it comes in - lands on

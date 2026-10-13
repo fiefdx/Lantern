@@ -138,6 +138,57 @@ a window of its own with the other one closed — the ink the control draws, and
 Identical bounds, and nothing of the outline left standing outside them. That is the whole claim of the task, in
 pixels: the colour face is where the character is.
 
+## The line under it is not the line you measured
+
+Every number above was taken from a box holding one face and nothing else, and that turned out to be the mistake: the
+offset from the top of the cell to the bottom of the ink is not a property of the face.
+
+RichEdit lays a line out on **one baseline**, and `GetPositionFromCharIndex` answers with the top of the *line* for
+every character on it whatever size that character is. Pick Large, write a word, go back to ordinary size and write a
+face: the line grows, the baseline moves down with the tallest ink on it, and the face's cell - all the control will
+tell you - stays where it was. Paint the face at its own two-pixel offset and it rides near the top of the line, above
+the words beside it, with a crescent of the black outline it was put there to cover still showing underneath.
+
+Measured the same way as everything else here, with the outline glyph showing and nothing of ours painted on it:
+
+| the line | face ink, below the top of the line | face ink, tall |
+| --- | --- | --- |
+| one ordinary face | 14 | 12 |
+| an ordinary face beside Large letters | **20** | 12 |
+| a large face beside ordinary letters | 20 | 17 |
+
+So the question was never "how far down does a face's ink go" but "**where does the ink on this line end**", and that
+is the bottom of the tallest ink on the line: `em + (em + 4) / 6` for an em measured as above - 14 at an em of 12, 20 at
+an em of 17. A face is hung from that line instead, `the line's bottom - its own em` below the top of the line, which is
+what puts a small face and a large word on the same floor.
+
+### Getting the tallest ink at a price you can pay on a keystroke
+
+Sizes can only be read through a selection, and there are two traps in reading them.
+
+**A line containing a face never reports one font.** `SelectionFont` gives `null` whenever the highlighted runs differ
+in *any* respect, and it counts the **family** as a respect. A line with a face in it is therefore reported as mixed
+even when the whole of it was typed at one size, because the control borrows `Segoe UI Symbol` or `Calibri` to draw the
+face and truthfully reports what it drew with rather than what it was told. So "assume the line is uniform unless it
+says otherwise" is not available: it says otherwise on exactly the lines this is needed for.
+
+**Reading is cheap per question and ruinous per character.** Measured here: the font of a highlight costs 0.03-0.09 ms
+to read, and a highlight that *crosses a face* an order of magnitude more, because the control lays the fallback font
+out again. Walking a line a character at a time cost **15 ms for forty characters** - 15 ms off every keystroke, since
+every edit throws the previous answer away.
+
+What works:
+
+* **Faces are measured, not asked about.** Their ink is their advance, and the advance ends where the next character
+  starts: two position questions per face, no selection touched, and no reliance on a font name that was never the
+  box's own.
+* **The words between them are asked in stretches.** Highlight the stretch: an ordinary sentence answers for all of
+  itself in one question, and only a stretch that answers "mixed" is halved and asked again - cut on text-element
+  boundaries, so a family emoji is never cut in half. Measured: seventy words, 2 questions; a face among sixty-three
+  characters, 2 (walking cost 12); a line of faces alone, none.
+* **Nothing the box can be told to write is bigger than Large**, so a line that has produced a Large has produced the
+  answer, whatever is left unread on it.
+
 ## What is behind a face
 
 The patch has to be the colour that was behind the glyph, or a selected face turns into a hole punched in the
