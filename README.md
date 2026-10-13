@@ -115,7 +115,7 @@ is drawn where the glyph was, repainted every time the box paints. That is the o
 box without the box ceasing to hold the text, because a picture embedded in an editable RichTextBox leaves a literal
 **space** where the face was. A face you have selected keeps the selection's blue, and a box you have clicked out of
 keeps no blue at all, because that is what the control draws.
-(`docs/notes/the-face-that-came-out-in-colour.md`, `docs/notes/the-glyph-is-wider-than-its-advance.md`,
+(`docs/notes/the-face-that-came-out-in-colour.md`, `docs/notes/the-glyph-is-the-advance.md`,
 `docs/testing/v1.5-colour-emoji-checklist.md`.)
 
 **Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail (up to 5 MB). Anything

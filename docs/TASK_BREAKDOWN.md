@@ -515,21 +515,19 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       property instead of the window; the overlay is therefore wired to `WM_PAINT` in `WndProc`, and the hint with
       it. `DrawToBitmap` returns almost none of a RichEdit's glyphs (31 dark pixels for a line of text), so nothing
       is asserted from a picture of the control; `CopyFromScreen` works but has to be let settle, since the same
-      white paper read `D7D7D9`, `E7E7E8`, `ECECED` on three captures in a row. **The glyph is an em and the cell is
-      an advance**: asked where a face is, the control answers with its 12-pixel advance at 9pt, while the ink it
-      draws there measures 15 across and 14 down (21 and 21 at 13pt) — an em, a third wider than the advance, run
-      out over the character after it. Hiding the cell left four pixels of black outline beside the colour face with
-      the face a little left of where the glyph was, which is exactly what this task was opened to fix, so
-      `FaceOverlay.CellOf` derives the square from the advance and the erase underneath is an **ellipse**, because a
-      rectangle that wide rubs out the first strokes of the following letter. And the colour behind a face is
+      white paper read `D7D7D9`, `E7E7E8`, `ECECED` on three captures in a row. The square a face is painted into
+      comes from the control's own idea of where the character is — its advance, 12 pixels at 9pt — and the erase
+      underneath it is an **ellipse**, because a face's footprint is round and a rectangle rubs out the first strokes
+      of the letter after it. (The ratio this entry originally claimed for that square — an em a third wider than the
+      advance — turned out to be measuring a full stop. See the fix entry below.) And the colour behind a face is
       `SystemColors.Highlight` exactly while the box has the caret and the paper when it has not, because an
       unfocused RichEdit draws no selection at all — hence repaints on focus gain and loss alongside text, caret,
       size and scroll.
 - [x] **T12.6 [QA]** `ColorFacesInTheBoxTests`, eleven tests: the box paints a face in Windows' colours and in more
       than one hue (one flat blob would be a stuck brush, not a face); the erase leaves the words beside a face
-      alone; **`TheSquareCoversTheGlyphTheControlActuallyDraws`** holds the painted square against the measured ink
-      of the control's own outline glyph at 9 and 13 points, which is the test the old cell-sized patch fails by four
-      pixels; a face in large words is bigger than one in ordinary ones, and one wrapped onto a second line is
+      alone; **`TheSquareCoversTheGlyphTheControlActuallyDraws`** holds the painted square against the measured ink of
+      the control's own outline glyph at four sizes, which is the test a wrongly-sized patch fails outright; a face
+      in large words is bigger than one in ordinary ones, and one wrapped onto a second line is
       painted on the second line; a joined family is one face and not three; a sentence with no face in it is left
       untouched and a sentence with one in it is *left alone* — same `Text`, same length, before and after the paint;
       and **`TheBoxPaintsItsOwnFaces`** pins the control's paint to the painter the other ten call, without which
@@ -538,9 +536,32 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       the paint rather than about the text, and it is the reason the placeholder word is on the screen now. A
       selected face asserts both halves of the measurement — the selection colour while the box has the caret, and
       no blue at all when it does not — and says out loud that the first half is worthless without a real focus.
-      `ThePatchCoversTheFaceAndNotTheWordsBesideIt` was relaxed honestly: the glyph overflows its advance, so the
-      erase must too, and the limit is now the face's own square rather than the character's cell. **684 tests**
-      total. Note `docs/notes/the-glyph-is-wider-than-its-advance.md`.
+      **684 tests** total. Note `docs/notes/the-glyph-is-the-advance.md`.
+- [x] **T12.6 [UI,QA] fixed** — the coloured face showed beside the character rather than on it, which is what the
+      task had been opened to prevent, and the cause was a measurement rather than a paint. The square had been
+      `advance + advance / 3` starting one pixel inside the cell, on the strength of an earlier reading of 15 pixels
+      of ink on a 12 pixel advance. That reading measured `🙂.`: **the full stop was the extra three pixels**, and its
+      height dragged the vertical bound down to the baseline with it. Measured again with a face and a run of spaces,
+      the caret parked in the spaces (an active RichTextBox puts a blinking caret — a column of ink one line tall —
+      into every capture), the glyph's ink is the advance exactly, square, on the cell's left edge, two pixels below
+      its top at 7 and 9pt and three at 11 and 13pt. So `CellOf` returns the advance with `dy = (advance + 4) / 6`,
+      derived from the run's advance so a face typed Large comes down with its own line.
+
+      The second offset was in the artwork, not the geometry: a bitmap of a face is not a face that fills a bitmap
+      (a 15 pixel bitmap inks 12 of them, a 22 pixel one inks 18, and the air measures three pixels at nearly every
+      size from 9 to 25), so drawing one into a rectangle puts the picture inside it and low. `CachedGlyph` now
+      returns the ink it measured while rasterising alongside the bitmap, and `DrawOf` hangs the drawing from the
+      middle of that ink — the one point on the picture that may be placed by the square — at the scale that lands the
+      ink on the glyph. Ask for the bitmap at the square plus three and that scale is one exactly: the face is
+      rasterised at the size it is shown rather than stretched into it.
+
+      `ThePaintedFaceIsTheSizeOfTheCharacterItCovers` is the regression test, and it is the shape the earlier tests
+      were missing: measure what was painted and compare its bounds to the character's square, rather than assert the
+      square's arithmetic at one another place. It excludes the erase patch by colour, since on a grey canvas the
+      box's own white paper shows as a pale ellipse a pixel wider than the character all round. Measured off the
+      screen in two windows apart — an ordinary RichTextBox and the message box, each alone, since one capture of two
+      overlapping windows is a capture of whichever is on top — the painted ink and the glyph's ink occupy identical
+      rectangles at 7, 9, 11 and 13 points, with zero pixels of anything outside the square in either. **686 tests**.
 
 ---
 

@@ -172,18 +172,32 @@ argued from documentation, because the documentation about this control turned o
   returns a picture with almost none of its glyphs in it (31 dark pixels for a line of text), which is why nothing
   here is asserted from a screenshot of the control. `CopyFromScreen` at the control's screen position does work -
   but not immediately: pixels read straight after a repaint are mid-composition and lie (the same white background
-  read `D7D7D9`, then `E7E7E8`, then `ECECED` on three successive captures). Settle the window first.
-* **The glyph is an em and the cell is an advance, and they are not the same width.** Asked where a face is, a
-  RichTextBox answers with where its *advance* begins - 12 pixels wide at 9pt. Measured on the screen, with a lone
-  face on a line, the ink the control actually drew spanned 15 pixels across and 14 down at 9pt, and 21 and 21 at
-  13pt. The emoji this font supplies is drawn at an em, which is a third wider than the advance again, running out
-  past the characters after it. Paint the cell and four pixels of black outline stay on screen to the right of the
-  colour face, with the face sitting where the advance was rather than where the glyph was - which is precisely the
-  complaint that opened this task. `FaceOverlay.CellOf` therefore derives the square from the advance
-  (`advance + advance / 3`, which gives 16 and 22 where the ink measured 15 and 21), and the erase underneath the
-  face is an **ellipse**, because the footprint that has to be covered is round and a rectangle that wide would rub
-  out the first strokes of whatever letter follows. Verified against an ordinary RichTextBox showing the same words:
-  nothing dark survives past the patch at either size, and the word after a face keeps its ink.
+  read `D7D7D9`, then `E7E7E8`, then `ECECED` on three successive captures). Settle the window first. Two more ways
+  the same measurement goes wrong, both of them found the hard way: an active RichTextBox has a blinking caret in the
+  capture, and a caret is a column of ink one line tall; and a window sitting partly below the bottom of the screen
+  captures as black, which reads as "no ink anywhere" once the paper sample is taken from inside it.
+* **The glyph is the advance. The picture of a face is not the same square as the face.** Asked where a face is, a
+  RichTextBox answers with where its *advance* begins - 12 pixels wide at 9pt - and measured cleanly the glyph's ink
+  is that advance exactly: square, starting on the cell's own left edge, sitting a little below its top (two pixels
+  at 7 and 9pt, three at 11 and 13pt). The first measurement here said 15 across on a 12 pixel advance, and the
+  geometry built from it - `advance + advance / 3`, one pixel inside the cell - put the colour face up and left of
+  the character with four pixels of black outline standing out on its right. The extra three pixels were a **full
+  stop**: the string measured had been `🙂.` and the period was counted as part of the face. Measure a face with a
+  run of spaces after it and the caret parked in the spaces, and the glyph is the advance.
+
+  The other square is the artwork's, and it is not either of those: `ColorEmoji` rasterises a colour glyph with air
+  round it - three pixels of it at nearly every size from 9 to 25 measured, so a 15 pixel bitmap inks 12 and a 22
+  pixel one inks 18, but never the whole bitmap.
+  So `CachedGlyph` reports the ink it measured while rasterising, and `DrawOf` hangs the drawing from the middle of
+  that ink at the scale that puts the ink on the glyph - the only point on the picture that may be placed by the
+  square. Ask for the bitmap at the square plus three and the scale lands near one, which is to say the face is
+  rasterised at the size it is shown rather than stretched into it.
+
+  The erase underneath the face is an **ellipse** one pixel larger than the square: the footprint to cover is round,
+  antialiasing feathers about a pixel past the ink at every edge, and a rectangle would fill the corners where the
+  tops of the neighbouring letters' strokes live. Verified by measuring two windows separately - an ordinary
+  RichTextBox, and the message box - at 7, 9, 11 and 13 points: the painted face's ink occupies exactly the
+  rectangle the control's own glyph occupies, and neither has any ink outside that square.
 * **What is behind a selected face, and when nothing is.** A RichEdit window's selection is `SystemColors.Highlight`
   exactly (`FF0078D7` here, sampled). When the box loses the caret it draws **no selection at all** - the pixel where
   the blue was reads white again - so an unfocused selected face is patched with the paper, not with a blue nobody is

@@ -21,20 +21,29 @@ namespace Lantern.UI;
 public static class FaceOverlay
 {
     /// <summary>
-    /// The square the control actually draws a given face in.
+    /// How much bigger than the square to be covered the face is rasterised, which is the air the renderer leaves
+    /// round the artwork (<see cref="ColorEmoji.Face"/>).
+    /// </summary>
+    private const int InkAir = 3;
+    /// <summary>
+    /// The square the control actually draws a given face in, ink and antialiasing included.
     /// <para>
-    /// <b>It is not the cell.</b> <c>GetPositionFromCharIndex</c> reports where the character's <em>advance</em>
-    /// begins, and the emoji the font supplies is drawn wider than that: measured off the screen for a lone face in
-    /// Microsoft YaHei UI, its dark ink spanned x 2..16 and y 1..14 in a cell from x 1 twelve wide at 9pt, and x
-    /// 2..22 and y 2..22 in a cell from x 1 seventeen wide at 13pt. The ink is fifteen and twenty-one across, the
-    /// advances twelve and seventeen - the glyph is drawn at an <em>em</em>, and the em of these fonts is a third
-    /// wider than the advance again. Paint the cell and the right shoulder of the black outline is left showing,
-    /// with the colour face sitting to the left of where the glyph actually was, which is exactly the mess this class
-    /// exists to remove.
+    /// <b>The advance, not the cell's height and not an em.</b> Measured off the screen with a lone face on a line and
+    /// nothing of ours painted on it: in Microsoft YaHei UI the ink the control drew occupied x +0..+12 and y +2..+14
+    /// from the cell at 9pt, and x +0..+17 and y +3..+20 at 13pt - twelve by twelve on an advance of twelve, seventeen
+    /// by seventeen on an advance of seventeen. The glyph is the advance, square, starting at the cell's own left edge
+    /// and sitting a little way down from its top.
+    /// </para>
+    /// <para>
+    /// An earlier version of this method made the square a third wider than the advance, on the strength of a
+    /// measurement that had counted a full stop typed after the face as part of it. The face came out four to six
+    /// pixels wider than the character it was hiding, and two or three pixels above it, which looks exactly like what
+    /// it is: the picture sitting where the character is not.
     /// </para>
     /// <para>
     /// The advance is measured from the control rather than assumed, because it belongs to the run: a face typed at
-    /// Large sits in a wider cell than one typed at Small, and both need their own square.
+    /// Large sits in a wider cell than one typed at Small, and each needs its own square. One earlier attempt at this
+    /// used the box's own <c>Font.Height</c>, which is the same for both and puts large faces too high in the line.
     /// </para>
     /// </summary>
     public static Rectangle CellOf(RichTextBox box, int charIndex) =>
@@ -49,17 +58,47 @@ public static class FaceOverlay
     {
         var start = box.GetPositionFromCharIndex(charIndex);
         var after = box.GetPositionFromCharIndex(charIndex + elementLength);
-
-        // The advance plus a third: 12 -> 16 and 17 -> 22 where the ink measured 15 and 21 across, so the square is
-        // the glyph with a pixel to spare rather than the glyph exactly. Being a pixel wide of the mark is the right
-        // way to be wrong here; being a pixel short leaves black outline on screen, which is the thing that started
-        // this task.
         var advance = Math.Max(8, after.X - start.X);
-        var em = advance + advance / 3;
 
-        // A pixel in from the cell's left at both sizes measured. Not centred on the cell: the glyph is not centred
-        // on it either, it runs out past the advance on the right and stops just inside the left.
-        return new Rectangle(start.X + 1, start.Y + 1, em, em);
+        // How far below the top of the cell the ink starts, measured at four sizes: two pixels on advances of nine
+        // and twelve, three on fifteen and seventeen. Four sixths of an advance rounded down reproduces all four, and
+        // being derived from the advance it follows the run rather than the box - which matters, because a face typed
+        // at Large sits in a taller line than the box's own font and has to be moved down with it.
+        return new Rectangle(start.X, start.Y + ((advance + 4) / 6), advance, advance);
+    }
+
+    /// <summary>
+    /// Where to draw a face's bitmap so that the <em>ink</em> of it - not the square of bitmap it comes in - lands on
+    /// <paramref name="glyph"/>.
+    /// <para>
+    /// A face rendered into a bitmap of N pixels inks about N - 3 of them: there is air round the artwork - three
+    /// pixels at nearly every size measured, 9 through 25, so 12 of a 15, 15 of an 18, 18 of a 22 - and it is not
+    /// quite the same at each. Drawing such a bitmap into the square the glyph occupied therefore puts the picture a
+    /// couple of pixels inside it and low, which on a two-line box is visible. So the bitmap is scaled by the ratio
+    /// the two ink boxes give and hung from the middle of its own ink rather than from its corner.
+    /// </para>
+    /// <para>
+    /// The scale is very nearly one, because <see cref="Paint"/> asks for a bitmap three pixels bigger than the square
+    /// it is going into: the face is rasterised at the size it is shown, and a picture that is not rescaled is a
+    /// picture that stays sharp.
+    /// </para>
+    /// </summary>
+    public static RectangleF DrawOf(Rectangle glyph, Rectangle ink, int side)
+    {
+        if (ink.Width < 1 || ink.Height < 1 || side < 1)
+        {
+            return glyph;
+        }
+
+        var scale = Math.Min(glyph.Width / (float)ink.Width, glyph.Height / (float)ink.Height);
+
+        // Hang the drawing from the middle of its ink: whatever air the renderer left, the ink ends up centred on the
+        // square it was asked to cover.
+        return new RectangleF(
+            glyph.X + glyph.Width / 2f - ((ink.X + ink.Width / 2f) * scale),
+            glyph.Y + glyph.Height / 2f - ((ink.Y + ink.Height / 2f) * scale),
+            side * scale,
+            side * scale);
     }
 
     /// <summary>
@@ -94,8 +133,10 @@ public static class FaceOverlay
                 continue;
             }
 
+            // Asked for three pixels wider than the square it has to cover, because the artwork does not fill its own
+            // cell - see DrawOf, which puts the ink back where the glyph's ink was.
             var glyph = CellOf(box, start, element.Length);
-            var face = ColorEmoji.CachedGlyph(element, glyph.Width);
+            var face = ColorEmoji.CachedGlyph(element, glyph.Width + InkAir);
 
             // A face the machine has no artwork for keeps its outline, and that is the whole of the fallback: no
             // patch over it, so the control's own drawing stays exactly as it is.
@@ -115,15 +156,14 @@ public static class FaceOverlay
             if (behind is not null)
             {
                 // The glyph's own footprint, and not the square of it: a face is round, so an ellipse inscribed in
-                // the square it is drawn in is the shape that has to be erased. A rectangle would do what the
-                // measurement above makes unavoidable - the glyph overflows its advance, so the erase does too - and
-                // then wipe the first strokes of whatever letter follows. Anything this covers, the control's own
-                // outline glyph was already drawing over.
+                // the square the glyph was drawn in - a pixel larger, for the antialiasing that feathers out past the
+                // ink - is the shape that has to be erased. A rectangle would cover the corners, which on a square
+                // this tight are the tops and bottoms of the letters either side, and they are not ours to rub out.
                 using var brush = new SolidBrush(behind.Value);
-                graphics.FillEllipse(brush, glyph);
+                graphics.FillEllipse(brush, Rectangle.Inflate(glyph, 1, 1));
             }
 
-            graphics.DrawImage(face, glyph);
+            graphics.DrawImage(face.Image, DrawOf(glyph, face.Ink, face.Image.Width));
             painted++;
         }
 

@@ -34,7 +34,7 @@ public static class ColorEmoji
 
     private static readonly SKTypeface? typeface = Load();
     private static readonly Dictionary<string, byte[]?> cache = [];
-    private static readonly Dictionary<string, Bitmap?> faces = [];
+    private static readonly Dictionary<string, Face?> faces = [];
     private static readonly object gate = new();
 
     /// <summary>True when this machine has Windows' emoji font and Skia could open it.</summary>
@@ -165,6 +165,19 @@ public static class ColorEmoji
     }
 
     /// <summary>
+    /// A cached face, and the part of its square that is actually painted.
+    /// <para>
+    /// The second half is the reason this is a pair rather than a bitmap. A face drawn into an N by N cell does not
+    /// fill it - there is air round the artwork, three pixels of it at nearly every size from 9 to 25 measured, and
+    /// not quite the same number at each -
+    /// so anybody putting the picture somewhere exact has to know where the ink is or it lands a couple of pixels off
+    /// the mark. <see cref="FaceOverlay"/> is the anybody who cares most: it is covering a glyph the control drew
+    /// itself, and being two pixels wrong there is the complaint this whole feature was opened with.
+    /// </para>
+    /// </summary>
+    public sealed record Face(Bitmap Image, Rectangle Ink);
+
+    /// <summary>
     /// A face a control can draw again and again: the same bitmap for the same face at the same size, because the
     /// message box asks for its handful of faces on every repaint and decoding one each time is work nobody can see.
     /// </summary>
@@ -173,7 +186,7 @@ public static class ColorEmoji
     /// sizes a line comes in, which is a couple of hundred small bitmaps for the life of the window. Where a face is
     /// asked for once - a button's icon - <see cref="Glyph"/> still hands out a fresh one for the control to own.
     /// </remarks>
-    public static Bitmap? CachedGlyph(string element, int pixels)
+    public static Face? CachedGlyph(string element, int pixels)
     {
         if (pixels < 1)
         {
@@ -186,11 +199,47 @@ public static class ColorEmoji
 
             if (!faces.TryGetValue(key, out var face))
             {
-                faces[key] = face = Glyph(element, pixels);
+                // Where the ink is, measured once per face per size. It is a scan of every pixel in a small bitmap,
+                // which is worth doing exactly once and caching alongside the picture it describes rather than on
+                // every repaint of a box that may hold a dozen faces.
+                face = Glyph(element, pixels) is not { } image
+                    ? null
+                    : new Face(image, InkOf(image));
+
+                faces[key] = face;
             }
 
             return face;
         }
+    }
+
+    /// <summary>
+    /// The bounding box of everything in a bitmap that is not transparent, which is what <see cref="Render"/> fits
+    /// to the cell and therefore what the cell's edges do not tell. Anything with even a touch of alpha counts, so
+    /// this is the artwork plus its antialiasing - a pixel wider, on each side, than the ink a person would point at.
+    /// </summary>
+    private static Rectangle InkOf(Bitmap image)
+    {
+        var left = image.Width;
+        var top = image.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < image.Height; y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                if (image.GetPixel(x, y).A > 0)
+                {
+                    left = Math.Min(left, x);
+                    right = Math.Max(right, x);
+                    top = Math.Min(top, y);
+                    bottom = Math.Max(bottom, y);
+                }
+            }
+        }
+
+        return right < 0 ? Rectangle.Empty : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
     }
 
     /// <summary>A PNG of one emoji, cached: a room full of the same face is one raster, not two hundred.</summary>

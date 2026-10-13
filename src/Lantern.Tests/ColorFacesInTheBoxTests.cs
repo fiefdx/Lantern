@@ -87,14 +87,12 @@ public class ColorFacesInTheBoxTests
                 }
             }
 
-            // "After" is not so simple, and the reason is measured rather than argued: the emoji this font supplies
-            // is drawn wider than the advance it occupies, three pixels past it at 9pt (see
-            // TheSquareCoversTheGlyphTheControlActuallyDraws). Hiding that glyph therefore covers a column or two of
-            // the next character's cell - which is where the outline was drawn anyway, so nothing visible is lost.
-            // What must not happen is the erase running past the face, so the limit is the face's own square, and the
-            // erase is an ellipse because a face is round: the corners of that square, where the tops of letters are,
-            // are left exactly as they were.
-            var square = FaceOverlay.CellOf(box, 3);
+            // "After" is not so simple: the erase is a pixel wider than the glyph on every side, to take the
+            // antialiasing that feathers out past the ink (see TheSquareCoversTheGlyphTheControlActuallyDraws for
+            // what the glyph actually covers). That pixel is the limit of what may be touched in the cells of the
+            // words that follow, and the erase is an ellipse rather than a rectangle because a face is round: the
+            // corners of the square, where the tops and bottoms of the letters either side live, stay as they were.
+            var square = Rectangle.Inflate(FaceOverlay.CellOf(box, 3), 1, 1);
 
             foreach (var at in new[] { 6, 7, 8, 9, 10 })
             {
@@ -120,36 +118,141 @@ public class ColorFacesInTheBoxTests
             var box = Box(form);
 
             // Measured off the screen with a lone face on a line, in this app's own font, with nothing of ours
-            // painted on it. Relative to the cell the character's advance starts in, the control's outline glyph put
-            // ink at x +1..+15 and down to y +14 at 9pt, and at x +1..+21 and down to +22 at 13pt - in cells 12 and
-            // 17 wide. The cell is the advance; the glyph is an em, and an em here is a third wider than the advance
-            // again.
+            // painted on it - ink being whatever differs from the paper of the same box, on the same line. Relative to
+            // the cell the character's advance starts in, the outline glyph put ink at:
             //
-            // Hide the cell and the right shoulder of the black outline stays on screen beside the colour face, with
-            // the face sitting where the advance was rather than where the glyph was. That is the complaint this
-            // task was opened with, and it is why the square below is asked for instead of the cell.
-            foreach (var (points, inkRight, inkBottom) in new[] { (9f, 15, 14), (13f, 21, 22) })
+            //   7pt  x +0..+9   y +2..+11      11pt  x +0..+15  y +3..+18
+            //   9pt  x +0..+12  y +2..+14      13pt  x +0..+17  y +3..+20
+            //
+            // - the advance, square, beginning on the cell's own left edge and sitting a little below its top. (An
+            // earlier version of this comment quoted a face "15 across on an advance of 12", measured with a full
+            // stop typed after the face; the stop was the extra three pixels, and painting by it put the colour face
+            // four pixels wider than the character it was meant to be.)
+            //
+            // So the square has to be that square and no bigger. A face painted wider than the character it replaces
+            // looks exactly like what it is - a picture lying where the character is not - and the erase that goes
+            // with it takes the letters either side with it.
+            foreach (var (points, inkRight, inkTop, inkBottom) in new[]
+            {
+                (7f, 9, 2, 11), (9f, 12, 2, 14), (11f, 15, 3, 18), (13f, 17, 3, 20),
+            })
             {
                 box.Font = new Font("Microsoft YaHei UI", points);
-                box.Text = Face + ".";
+                box.Text = Face;
                 box.Select(box.Text.Length, 0);
 
                 var cell = box.GetPositionFromCharIndex(0);
                 var advance = box.GetPositionFromCharIndex(2).X - cell.X;
                 var square = FaceOverlay.CellOf(box, 0);
 
-                Assert.True(square.Left <= cell.X + 1,
-                    $"{points}pt: the ink starts one pixel into the cell and the square starts at +{square.X - cell.X}");
-                Assert.True(square.Right - 1 >= cell.X + inkRight,
-                    $"{points}pt: the outline inks to +{inkRight} and the square stops at +{square.Right - 1 - cell.X}");
-                Assert.True(square.Bottom - 1 >= cell.Y + inkBottom,
-                    $"{points}pt: the outline inks to y+{inkBottom} and the square stops at y+{square.Bottom - 1 - cell.Y}");
+                Assert.Equal(advance, square.Width);
 
-                // Wide enough for the glyph and no wider: whatever this square covers, the erase covers too, so a
-                // square bigger than the glyph would start rubbing out the letter behind it for nothing.
-                Assert.True(square.Width <= advance + advance / 2,
-                    $"{points}pt: a square {square.Width} wide on a {advance} advance reaches too far into the next character");
+                Assert.True(square.Left <= cell.X,
+                    $"{points}pt: the ink starts on the cell's own left edge and the square starts at +{square.X - cell.X}");
+                Assert.True(square.Right - 1 >= cell.X + inkRight - 1,
+                    $"{points}pt: the outline inks to +{inkRight - 1} and the square stops at +{square.Right - 1 - cell.X}");
+                Assert.True(square.Top <= cell.Y + inkTop,
+                    $"{points}pt: the outline starts at y+{inkTop} and the square starts at y+{square.Y - cell.Y}");
+                Assert.True(square.Bottom - 1 >= cell.Y + inkBottom - 1,
+                    $"{points}pt: the outline inks to y+{inkBottom - 1} and the square stops at y+{square.Bottom - 1 - cell.Y}");
             }
+        });
+    }
+
+    [Fact]
+    public void TheFaceIsPaintedWhereTheGlyphWas()
+    {
+        // A face does not fill its own bitmap: there is air round the artwork - three pixels of it at nearly every
+        // size measured from 9 to 25, so 12 of a 15, 15 of an 18, 18 of a 22 - and it is not quite the same at each.
+        // So the bitmap cannot simply be drawn into the square the glyph occupied - the picture
+        // would land inside it and below it, a couple of pixels off the character, which is the complaint this test
+        // exists to keep. DrawOf hangs the drawing from the middle of its own ink instead.
+        //
+        // The numbers below are what the painter actually asks for at 9pt: a square 12 wide, and a bitmap three
+        // wider than that, whose ink measured about 12 of the 15.
+        var glyph = new Rectangle(40, 6, 12, 12);
+        const int Side = 15;
+        var ink = new Rectangle(2, 2, 12, 12);
+
+        var drawn = FaceOverlay.DrawOf(glyph, ink, Side);
+
+        // Where the ink of the drawing lands, given the place and scale DrawOf chose.
+        var scale = drawn.Width / Side;
+        var lands = new RectangleF(drawn.X + (ink.X * scale), drawn.Y + (ink.Y * scale), ink.Width * scale, ink.Height * scale);
+
+        Assert.Equal(glyph.X, lands.X, 1);
+        Assert.Equal(glyph.Y, lands.Y, 1);
+        Assert.Equal(glyph.Width, lands.Width, 1);
+        Assert.Equal(glyph.Height, lands.Height, 1);
+
+        // And the scale stays near one, because the bitmap is asked for at about the size it is shown: a face in a
+        // message box is rasterised at that size rather than stretched into it, and a stretched face is a blurry one.
+        Assert.True(drawn.Width > Side * 0.8f && drawn.Width < Side * 1.2f,
+            $"a {glyph.Width} pixel square was filled by stretching a {Side} pixel bitmap to {drawn.Width:0.#}");
+
+        // Air on all four sides, or a bitmap with nothing in it, leaves the square alone rather than dividing by zero.
+        Assert.Equal(glyph, FaceOverlay.DrawOf(glyph, Rectangle.Empty, 12));
+    }
+
+    [Fact]
+    public void ThePaintedFaceIsTheSizeOfTheCharacterItCovers()
+    {
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"hi {Face} there";
+            box.Select(box.Text.Length, 0);
+
+            // The canvas is one flat grey and the overlay paints nothing but the face, so every pixel that comes back
+            // not-grey belongs to the picture - and how big that picture is, next to the square the control's own
+            // glyph occupies, is the offset complaint in one number. This is the test the previous geometry failed
+            // outright: a face painted 16 across over a character 12 wide is a picture sitting where the character
+            // is not, however good the picture looks on its own.
+            var painted = Painted(box);
+            var square = FaceOverlay.CellOf(box, 3);
+
+            var left = painted.Width;
+            var top = painted.Height;
+            var right = -1;
+            var bottom = -1;
+
+            for (var y = 0; y < painted.Height; y++)
+            {
+                for (var x = 0; x < painted.Width; x++)
+                {
+                    var p = painted.GetPixel(x, y);
+
+                    // Solidly different from the canvas *and* from the box's own paper. Hiding the outline glyph puts
+                    // a patch of the paper down first, which on a grey canvas shows up as a pale ellipse a pixel
+                    // wider than the character all round - true of the erase, but not the face, and this test is
+                    // about the face. Nor merely different: the artwork's outermost ring is almost transparent and
+                    // feathers a pixel further out than anyone can see on white paper.
+                    if (Math.Abs(p.R - Beneath.R) + Math.Abs(p.G - Beneath.G) + Math.Abs(p.B - Beneath.B) > 40
+                        && Math.Abs(p.R - box.BackColor.R) + Math.Abs(p.G - box.BackColor.G)
+                        + Math.Abs(p.B - box.BackColor.B) > 40)
+                    {
+                        left = Math.Min(left, x);
+                        right = Math.Max(right, x);
+                        top = Math.Min(top, y);
+                        bottom = Math.Max(bottom, y);
+                    }
+                }
+            }
+
+            var wide = right - left + 1;
+            var tall = bottom - top + 1;
+
+            // A pixel each way for the antialiasing the artwork feathers out with, and no more.
+            Assert.True(wide >= square.Width - 1 && wide <= square.Width + 1,
+                $"the character is {square.Width} wide and the face painted over it is {wide}");
+            Assert.True(tall >= square.Height - 1 && tall <= square.Height + 1,
+                $"the character is {square.Height} tall and the face painted over it is {tall}");
+            Assert.True(left >= square.Left - 1 && right <= square.Right,
+                $"the face runs x {left}..{right} over a character at x {square.Left}..{square.Right - 1}");
+            Assert.True(top >= square.Top - 1 && bottom <= square.Bottom,
+                $"the face runs y {top}..{bottom} over a character at y {square.Top}..{square.Bottom - 1}");
         });
     }
 
