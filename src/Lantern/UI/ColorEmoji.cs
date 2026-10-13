@@ -33,7 +33,8 @@ public static class ColorEmoji
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "seguiemj.ttf");
 
     private static readonly SKTypeface? typeface = Load();
-    private static readonly Dictionary<string, byte[]? > cache = [];
+    private static readonly Dictionary<string, byte[]?> cache = [];
+    private static readonly Dictionary<string, Bitmap?> faces = [];
     private static readonly object gate = new();
 
     /// <summary>True when this machine has Windows' emoji font and Skia could open it.</summary>
@@ -161,6 +162,35 @@ public static class ColorEmoji
         using var loaded = Image.FromStream(stream);
 
         return new Bitmap(loaded);
+    }
+
+    /// <summary>
+    /// A face a control can draw again and again: the same bitmap for the same face at the same size, because the
+    /// message box asks for its handful of faces on every repaint and decoding one each time is work nobody can see.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Png"/>, these are never disposed: what can be held is the faces a person can pick times the few
+    /// sizes a line comes in, which is a couple of hundred small bitmaps for the life of the window. Where a face is
+    /// asked for once - a button's icon - <see cref="Glyph"/> still hands out a fresh one for the control to own.
+    /// </remarks>
+    public static Bitmap? CachedGlyph(string element, int pixels)
+    {
+        if (pixels < 1)
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            var key = $"{pixels}|{element}";
+
+            if (!faces.TryGetValue(key, out var face))
+            {
+                faces[key] = face = Glyph(element, pixels);
+            }
+
+            return face;
+        }
     }
 
     /// <summary>A PNG of one emoji, cached: a room full of the same face is one raster, not two hundred.</summary>

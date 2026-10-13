@@ -501,6 +501,46 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       area's words with it. **673 tests** total. Note `docs/notes/the-face-is-the-button.md`; sheet
       `docs/testing/v1.7-formatting-and-layout-checklist.md` rewritten round the new tools (21 rows, of which 10–11
       and 20 are the ones only a person can settle).
+- [x] **T12.6 [UI]** **The face in the box is the coloured one.** The message box drew 🙂 as a black outline while
+      the transcript, the picker and the toolbar all showed the coloured face, because a `RichTextBox` paints its
+      text with GDI and GDI does not render a COLR/CPAL font's colour layers. Embedding a real picture was measured
+      and rejected — in an *editable* RichTextBox an RTF `\pict` leaves a literal space (`0x20`) in `.Text`, so
+      `a🙂b` arrives at the room as `a b`: not a worse-looking message, a different message. So the character stays
+      and the face is **paint over it** (`FaceOverlay`, called from the control's own paint): the glyph is covered
+      with what was behind it and Windows' own artwork is drawn where the glyph was. The text is untouched, so the
+      count, the caret, the wire and the 500-character rule never hear about any of this.
+      **Four things about this control turned out to be untrue, all of them measured.** `OnPaint` is never called
+      for a RichTextBox — one paint message in, zero overrides invoked — which means the placeholder word added in
+      T12.3 had **never once appeared on screen**, and its test had been passing all along by asking the `ShowsHint`
+      property instead of the window; the overlay is therefore wired to `WM_PAINT` in `WndProc`, and the hint with
+      it. `DrawToBitmap` returns almost none of a RichEdit's glyphs (31 dark pixels for a line of text), so nothing
+      is asserted from a picture of the control; `CopyFromScreen` works but has to be let settle, since the same
+      white paper read `D7D7D9`, `E7E7E8`, `ECECED` on three captures in a row. **The glyph is an em and the cell is
+      an advance**: asked where a face is, the control answers with its 12-pixel advance at 9pt, while the ink it
+      draws there measures 15 across and 14 down (21 and 21 at 13pt) — an em, a third wider than the advance, run
+      out over the character after it. Hiding the cell left four pixels of black outline beside the colour face with
+      the face a little left of where the glyph was, which is exactly what this task was opened to fix, so
+      `FaceOverlay.CellOf` derives the square from the advance and the erase underneath is an **ellipse**, because a
+      rectangle that wide rubs out the first strokes of the following letter. And the colour behind a face is
+      `SystemColors.Highlight` exactly while the box has the caret and the paper when it has not, because an
+      unfocused RichEdit draws no selection at all — hence repaints on focus gain and loss alongside text, caret,
+      size and scroll.
+- [x] **T12.6 [QA]** `ColorFacesInTheBoxTests`, eleven tests: the box paints a face in Windows' colours and in more
+      than one hue (one flat blob would be a stuck brush, not a face); the erase leaves the words beside a face
+      alone; **`TheSquareCoversTheGlyphTheControlActuallyDraws`** holds the painted square against the measured ink
+      of the control's own outline glyph at 9 and 13 points, which is the test the old cell-sized patch fails by four
+      pixels; a face in large words is bigger than one in ordinary ones, and one wrapped onto a second line is
+      painted on the second line; a joined family is one face and not three; a sentence with no face in it is left
+      untouched and a sentence with one in it is *left alone* — same `Text`, same length, before and after the paint;
+      and **`TheBoxPaintsItsOwnFaces`** pins the control's paint to the painter the other ten call, without which
+      every measurement above would be about a method nobody runs. **`AnEmptyBoxPaintsTheWordThatSaysWhatItIsFor`**
+      is the regression test for the dead `OnPaint`: it asserts `PaintedHint`, which is the same claim made about
+      the paint rather than about the text, and it is the reason the placeholder word is on the screen now. A
+      selected face asserts both halves of the measurement — the selection colour while the box has the caret, and
+      no blue at all when it does not — and says out loud that the first half is worthless without a real focus.
+      `ThePatchCoversTheFaceAndNotTheWordsBesideIt` was relaxed honestly: the glyph overflows its advance, so the
+      erase must too, and the limit is now the face's own square rather than the character's cell. **684 tests**
+      total. Note `docs/notes/the-glyph-is-wider-than-its-advance.md`.
 
 ---
 

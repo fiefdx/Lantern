@@ -159,6 +159,37 @@ the box already contains, in the box's own background colour underneath it, so t
 picture and what is in the control is still one character. That is the route left standing, and it is the one this
 feature takes. Text stays the truth; colour is what the window does with it.
 
+**What the four measurements said** (`FaceOverlay`, and every number below was taken off the screen rather than
+argued from documentation, because the documentation about this control turned out to be wrong twice):
+
+* **`OnPaint` does not happen.** The paint message arrives at a RichTextBox's window procedure and WinForms invokes
+  neither the override nor the `Paint` event - counted: one paint message in, zero `OnPaint` calls. So the only place
+  anything can be painted on this control is inside `WndProc` after the base has handled `WM_PAINT`. The placeholder
+  word from T12.3 had been drawn in an `OnPaint` override this whole time, which means **the box never once said
+  "Message" on screen**, and its test kept passing because it asked the `ShowsHint` property, which is a fact about
+  the text and not about the window.
+* **A control that cannot be photographed can still be photographed off the display.** `DrawToBitmap` on a RichEdit
+  returns a picture with almost none of its glyphs in it (31 dark pixels for a line of text), which is why nothing
+  here is asserted from a screenshot of the control. `CopyFromScreen` at the control's screen position does work -
+  but not immediately: pixels read straight after a repaint are mid-composition and lie (the same white background
+  read `D7D7D9`, then `E7E7E8`, then `ECECED` on three successive captures). Settle the window first.
+* **The glyph is an em and the cell is an advance, and they are not the same width.** Asked where a face is, a
+  RichTextBox answers with where its *advance* begins - 12 pixels wide at 9pt. Measured on the screen, with a lone
+  face on a line, the ink the control actually drew spanned 15 pixels across and 14 down at 9pt, and 21 and 21 at
+  13pt. The emoji this font supplies is drawn at an em, which is a third wider than the advance again, running out
+  past the characters after it. Paint the cell and four pixels of black outline stay on screen to the right of the
+  colour face, with the face sitting where the advance was rather than where the glyph was - which is precisely the
+  complaint that opened this task. `FaceOverlay.CellOf` therefore derives the square from the advance
+  (`advance + advance / 3`, which gives 16 and 22 where the ink measured 15 and 21), and the erase underneath the
+  face is an **ellipse**, because the footprint that has to be covered is round and a rectangle that wide would rub
+  out the first strokes of whatever letter follows. Verified against an ordinary RichTextBox showing the same words:
+  nothing dark survives past the patch at either size, and the word after a face keeps its ink.
+* **What is behind a selected face, and when nothing is.** A RichEdit window's selection is `SystemColors.Highlight`
+  exactly (`FF0078D7` here, sampled). When the box loses the caret it draws **no selection at all** - the pixel where
+  the blue was reads white again - so an unfocused selected face is patched with the paper, not with a blue nobody is
+  looking at any more. That is why the control asks for a repaint when it gains and loses the focus as well as when
+  the text, the caret, the size or the scroll move.
+
 ## Tasks
 
 * **T12.1 [Core/Transport]** the style runs: DTO fields, encode/decode, the sum-must-match rule, the 64-run cap, the
@@ -179,7 +210,8 @@ feature takes. Text stays the truth; colour is what the window does with it.
 
 1. Runs keyed by counted characters rather than by offsets — if you would rather have offsets, say why.
 2. Older peers silently showing plain text instead of being warned.
-3. Faces staying outline in the box for this round.
+3. ~~Faces staying outline in the box for this round.~~ - asked for, now in: the character stays and the face is
+   painted over it, for the reasons measured above.
 4. ~~Italic~~ — asked for, now in (see the style-mask trap above).
 
 ## T12.1 work order (for the session that writes the code, not for reading)

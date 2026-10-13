@@ -109,8 +109,14 @@ Bluetooth link as themselves, and in the transcript they come out **in colour**:
 `C:\Windows\Fonts\seguiemj.ttf` - the same font the picker itself reads - and put in the line as a small picture.
 WinForms draws text with GDI, and GDI cannot resolve a colour font's layers at all (asked for a face it returns an
 empty glyph), which is why the faces are pictures rather than text and why Lantern carries SkiaSharp for that one
-job. In the message box they are still text, because an edit control cannot contain a picture
-(`docs/notes/the-face-that-came-out-in-colour.md`, `docs/testing/v1.5-colour-emoji-checklist.md`).
+job. In the message box a face is **still the character** — counted as one, deleted as one, sent as itself — and the
+colour there is paint over it: the control's own outline glyph is covered with whatever was behind it and Windows' face
+is drawn where the glyph was, repainted every time the box paints. That is the only way colour gets into an editable
+box without the box ceasing to hold the text, because a picture embedded in an editable RichTextBox leaves a literal
+**space** where the face was. A face you have selected keeps the selection's blue, and a box you have clicked out of
+keeps no blue at all, because that is what the control draws.
+(`docs/notes/the-face-that-came-out-in-colour.md`, `docs/notes/the-glyph-is-wider-than-its-advance.md`,
+`docs/testing/v1.5-colour-emoji-checklist.md`.)
 
 **Pictures.** Press **Share** and pick an image: it goes into the room as a thumbnail (up to 5 MB). Anything
 Share is given that is not an image is sent as a file instead.
