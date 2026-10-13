@@ -27,7 +27,48 @@ public static class RtfPicture
     /// produced in a format GDI+ cannot read is still a message that arrived, and a window that threw
     /// here would lose the line and everything after it.
     /// </summary>
-    public static string? Inline(Image image)
+    public static string? Inline(Image image) => Group(image) is { } group ? Document([group]) : null;
+
+    /// <summary>
+    /// RTF for several pictures side by side, or null if any of them cannot be encoded.
+    /// <para>
+    /// <b>Several pictures in one document, which is not the same as one document per picture.</b> This is the
+    /// difference between three faces arriving and one of them arriving: handing <c>SelectedRtf</c> three complete
+    /// RTF documents in a row - which is what a sentence of three emoji used to be, because the header was written
+    /// per picture - gets a document read, and what RichEdit does with the second and third is not put them on the
+    /// screen. Measured: <c>🙂😀👍</c> came out with <b>one</b> picture in the transcript, so two of the three faces were
+    /// simply gone, and the one that survived was whichever RichEdit had settled on.
+    /// </para>
+    /// <para>
+    /// The header belongs to the document and the pictures belong inside it, which is how this writes them.
+    /// </para>
+    /// </summary>
+    public static string? Document(IReadOnlyList<string> groups)
+    {
+        if (groups.Count == 0)
+        {
+            return null;
+        }
+
+        var rtf = new StringBuilder(4096);
+        rtf.Append(@"{\rtf1\ansi\ansicpg1252\deff0\deflang1033");
+        rtf.Append(@"\pard\plain\fs20 ");
+
+        foreach (var group in groups)
+        {
+            rtf.Append(group);
+        }
+
+        rtf.Append('}');
+
+        return rtf.ToString();
+    }
+
+    /// <summary>
+    /// One picture as an RTF group: a <c>\pict</c> and its hex, without a document round it. Null when the image
+    /// cannot be encoded, which the caller turns into the text fallback.
+    /// </summary>
+    public static string? Group(Image image)
     {
         ArgumentNullException.ThrowIfNull(image);
 
@@ -52,8 +93,6 @@ public static class RtfPicture
         var height = Math.Max(1, image.Height);
 
         var rtf = new StringBuilder(png.Length * 2 + 256);
-        rtf.Append(@"{\rtf1\ansi\ansicpg1252\deff0\deflang1033");
-        rtf.Append(@"\pard\plain\fs20 ");
         rtf.Append(@"{\pict\pngblip");
         rtf.Append(@"\picw").Append(width);
         rtf.Append(@"\pich").Append(height);
@@ -66,7 +105,6 @@ public static class RtfPicture
             rtf.Append(b.ToString("x2"));
         }
 
-        rtf.Append('}');
         rtf.Append('}');
 
         return rtf.ToString();

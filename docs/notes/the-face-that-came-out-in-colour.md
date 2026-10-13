@@ -94,6 +94,49 @@ A picture is not a character, and this is the part that used to be invisible:
   emoji no longer has a cell in the control's text. They now look at a face written as text — in a headline — which
   is where the "is anything drawn at all, and is it not the missing-glyph box" promise still lives.
 
+## Three faces arrived as one
+
+The report, weeks after the feature was checked: **"the transcript ends up not showing all emoji. Some missing, some
+display as others."** Sending `🙂😀👍` produced one picture. Sending `🙂 😀 👍` - the same three faces with words between
+them - produced three.
+
+That difference is the whole bug. Faces separated by words are written to the transcript as separate insertions, and
+each worked; faces together are one stretch of text, and one stretch was turned into one RTF *string* by
+concatenating what had been written for each face - and each of those was a **complete RTF document**, header and all:
+
+```
+{\rtf1\ansi…\pard\plain\fs20 {\pict …face 1…}}{\rtf1\ansi…\pard\plain\fs20 {\pict …face 2…}}{\rtf1\ansi…}
+```
+
+RichEdit reads a document. What it does with the second and third is not put the other two faces on the screen:
+measured, `🙂😀👍` came back out of the control with **one** `\pict`. That is "some missing", exactly.
+
+Whether it is also "some display as others" is not settled here, and it is worth saying which half is measured. The
+one picture that survives is one of the three, and nobody looking at the transcript can tell which - so a person who
+sent three faces and saw one has earned the right to say the wrong one appeared. The other reading of the phrase, one
+face drawn in place of another, has no mechanism we could find: the raster cache is keyed on the character as well as
+on the size, and `TwoFacesAreTwoPictures` has held that since the feature was written. What the new test does is close
+the door on it either way - it compares the three surviving pictures with each other, and they are three.
+
+So the header belongs to the document and the pictures belong inside it. `RtfPicture` is now two questions - `Group`
+for one picture as a `\pict` group, `Document` for N groups inside one header - and `ColorEmoji.InlineRtf` collects
+the groups of a stretch and asks once. `Inline` is still there, being `Group` and `Document` of one.
+
+### The test for it lied at first, in a way worth knowing
+
+The assertion was "three pictures, and three *different* pictures", comparing each picture's hex against the others -
+and it found none, in a transcript that the probe had just shown to contain three. Two things about the RTF a
+RichTextBox writes **back out** are not true of the RTF you put in:
+
+* the hex is broken into **lines** - `\pichgoal270 \r\n89504e47…` - so a pattern wanting "the bytes after the size"
+  matches nothing at all;
+* and the first two hundred or so hex digits of two different faces are **identical**, because they are the PNG
+  magic, the `IHDR`, `sRGB`, `gAMA` and `pHYs` chunks of two files that are both 18×18 8-bit RGBA. The pictures differ
+  where the `IDAT` starts, which is well past any short prefix.
+
+A test comparing a prefix of each picture would therefore have said "three faces, one artwork" and been believed -
+which is exactly the report being investigated. Compare the whole blob, line breaks taken out.
+
 ## What is guaranteed by a test, and what is left to eyes
 
 Tests guarantee: the font read is Windows' own; a rasterised face has real hue and more than eight shades in it; a

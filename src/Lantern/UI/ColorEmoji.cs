@@ -116,10 +116,12 @@ public static class ColorEmoji
     /// One picture per text element, even when several arrive together. A cell is square because that is what an
     /// emoji is, and two faces in a row are two cells: drawing both into one cell would either squash them or put
     /// the second one outside the bitmap, where the person typing them would wait some time for it to appear.
+    /// Several of those cells go into <b>one</b> RTF document rather than being concatenated as several, which is
+    /// the difference between three faces arriving and one arriving - see <see cref="RtfPicture.Document"/>.
     /// </remarks>
     public static string? InlineRtf(string text, int pixels)
     {
-        StringBuilder? rtf = null;
+        var groups = new List<string>();
 
         foreach (var element in Elements(text))
         {
@@ -132,18 +134,16 @@ public static class ColorEmoji
 
             using var stream = new MemoryStream(png);
             using var bitmap = Image.FromStream(stream);
-            var inline = RtfPicture.Inline(bitmap);
 
-            if (inline is null)
+            if (RtfPicture.Group(bitmap) is not { } group)
             {
                 return null;
             }
 
-            rtf ??= new StringBuilder();
-            rtf.Append(inline);
+            groups.Add(group);
         }
 
-        return rtf?.ToString();
+        return groups.Count == 0 ? null : RtfPicture.Document(groups);
     }
 
     /// <summary>

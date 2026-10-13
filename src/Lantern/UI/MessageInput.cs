@@ -25,6 +25,19 @@ public class MessageInput : RichTextBox
     private const int WmMouseWheel = 0x020A;
 
     /// <summary>
+    /// RichEdit: draw the selection, or do not, without changing what is selected. <c>WM_USER + 63</c>.
+    /// <para>
+    /// The first window message this project has ever sent, and it is here for one reason: a RichTextBox will not
+    /// say what a stretch of its own text is wearing unless that stretch is highlighted, and highlighting the middle
+    /// of somebody's sentence makes that window draw itself again. See <see cref="MeasureInk"/>.
+    /// </para>
+    /// </summary>
+    private const int WmHideSelection = 0x043F;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr want, IntPtr detail);
+
+    /// <summary>
     /// The word an empty box shows, so that an empty editor does not read as a broken one.
     /// <para>
     /// The word is drawn rather than typed: the box's emptiness is what the Send button reads, and a message that
@@ -58,16 +71,16 @@ public class MessageInput : RichTextBox
     public bool Measuring => measuring;
 
     /// <summary>
-    /// The height in pixels of the tallest ink on the line a character sits on, or null when the box cannot say.
+    /// How tall the tallest ink on the line a character sits on is, in pixels of em, or null when the box has not
+    /// worked that out.
     /// <para>
     /// This is what tells <see cref="FaceOverlay"/> where the line's baseline is: the face has to be painted on the
     /// baseline the line is using, not on the one its own size would give it, or a small face beside large letters
     /// floats above them with its outline showing underneath.
     /// </para>
     /// <para>
-    /// Worked out once per line and kept, because it costs messages to the control and the answer only moves when
-    /// the text or the ink does. Asked lazily - on the first paint after something changed - rather than on every
-    /// keystroke.
+    /// <b>Read out of what <see cref="MeasureInk"/> found, and never measured here.</b> This is called from the
+    /// paint, and measuring is not something that can be done from a paint - see there.
     /// </para>
     /// </summary>
     public int? TallestEmOnLine(int charIndex)
@@ -79,23 +92,69 @@ public class MessageInput : RichTextBox
 
         var line = GetLineFromCharIndex(charIndex);
 
-        if (line < 0)
+        if (line < 0 || !tallest.TryGetValue(line, out var em))
         {
             return null;
-        }
-
-        if (!tallest.TryGetValue(line, out var em))
-        {
-            tallest[line] = em = TallestEm(line);
         }
 
         return em;
     }
 
-    /// <summary>Says that the lines are not what they were: the next face asks afresh how tall the ink on it is.</summary>
-    public void ForgetLineSizes()
+    /// <summary>
+    /// Looks at the box's own ink now, and remembers how tall the tallest thing on each line is.
+    /// <para>
+    /// <b>Now, and not when the window next paints - which is the whole point of this method existing.</b> Asked
+    /// what a stretch of text is wearing, a RichTextBox answers only about what is highlighted, so measuring means
+    /// highlighting, and highlighting makes the window draw itself again. This window paints a face over its own
+    /// outline glyph on every paint message it is given, so measuring from the paint measured from the paint: the
+    /// reading selected, the selection painted, the paint read, the reading selected. Counted on a line of twelve
+    /// characters: <b>346 selections and 31 paints</b> for one answer, all of them inside the one question, because
+    /// the answer had not been reached by the time the first of those paints arrived and each paint asked again.
+    /// A box doing that on every keystroke is a box that "refreshes many times in a flash", which is the report
+    /// this answers to.
+    /// </para>
+    /// <para>
+    /// The selection is hidden for the duration as well, which is worth one message either way: with the
+    /// highlighting invisible, the window has nothing to redraw, and the paints a reading used to cause are not
+    /// merely fewer but none - measured, zero, against two per highlight when it is shown.
+    /// </para>
+    /// </summary>
+    public void MeasureInk()
     {
+        if (measuring || !IsHandleCreated)
+        {
+            return;
+        }
+
         tallest.Clear();
+
+        var at = SelectionStart;
+        var length = SelectionLength;
+
+        measuring = true;
+        SendMessage(Handle, WmHideSelection, 1, 0);
+
+        try
+        {
+            // Every display line of what is there, which is not every line a person may have typed: a wrapped
+            // paragraph is several display lines, and each has its own tallest ink.
+            for (var line = 0; line <= GetLineFromCharIndex(TextLength); line++)
+            {
+                tallest[line] = TallestEm(line);
+            }
+        }
+        finally
+        {
+            // The caret goes back while the selection is still hidden, and the highlighting is put back on last of
+            // all: it ends up exactly where it started, so the one repaint this costs is the box putting its own
+            // selection back and nothing else. Measured: that is the whole of it - one paint per reading, where
+            // showing the highlighting while reading cost two apiece and doing it from the paint cost thirty-two.
+            Select(at, length);
+
+            SendMessage(Handle, WmHideSelection, 0, 0);
+
+            measuring = false;
+        }
     }
 
     /// <summary>
@@ -207,22 +266,11 @@ public class MessageInput : RichTextBox
 
     private float TallestIn(float best, int from, int to, float largest)
     {
-        var at = SelectionStart;
-        var length = SelectionLength;
         var edges = Edges(from, to);
         var points = best;
 
-        measuring = true;
-
-        try
-        {
-            Look(0, edges.Count - 1);
-        }
-        finally
-        {
-            Select(at, length);
-            measuring = false;
-        }
+        // The selection is hidden, and the caret put back, by the caller: see MeasureInk for why both are needed.
+        Look(0, edges.Count - 1);
 
         return points;
 
@@ -349,6 +397,18 @@ public class MessageInput : RichTextBox
     public bool PaintedHint { get; private set; }
 
     /// <summary>
+    /// How many times this window has been asked to paint itself.
+    /// <para>
+    /// For an ordinary control that number is a curiosity. For this one every paint message erases a face and draws
+    /// it again - the control paints its own outline glyph, and <see cref="PaintOverlay"/> covers it afterwards - so
+    /// a hundred extra paints is not wasted work but a visible strobe, and it is what a box that "refreshes many
+    /// times in a flash" is. It is counted here because nothing else can see it: a RichEdit window raises no event
+    /// for its own paint messages, and <c>OnPaint</c> does not happen.
+    /// </para>
+    /// </summary>
+    public int Paints { get; private set; }
+
+    /// <summary>
     /// Puts the faces and the hint on the window, after the control has drawn its own text over the whole client.
     /// </summary>
     /// <remarks>
@@ -407,8 +467,9 @@ public class MessageInput : RichTextBox
         base.OnTextChanged(e);
 
         // New words, other words' ink coming in, or words going away: either way a line may be wearing something it
-        // was not before, and a face painted to the wrong baseline is a face floating in the line.
-        tallest.Clear();
+        // was not before, and a face painted to the wrong baseline is a face floating in the line. Measured here
+        // rather than in the paint, which is what the paint would otherwise spend its time doing - MeasureInk.
+        MeasureInk();
         Invalidate();
     }
 
@@ -433,7 +494,7 @@ public class MessageInput : RichTextBox
 
         // Reflowing moves the lines as well as the faces on them: what was one display line becomes two, and each
         // of those has its own tallest ink.
-        tallest.Clear();
+        MeasureInk();
         Invalidate();
     }
 
@@ -442,7 +503,19 @@ public class MessageInput : RichTextBox
     {
         base.OnFontChanged(e);
 
-        tallest.Clear();
+        MeasureInk();
+    }
+
+    /// <summary>
+    /// The first moment the box can be asked anything about how it lays its text out, so it asks at once: the
+    /// first paint of a room has a face in it as often as not, and an answer that arrives a paint late is a face
+    /// painted one place and corrected to another.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        MeasureInk();
     }
 
     /// <summary>
@@ -487,6 +560,7 @@ public class MessageInput : RichTextBox
         // not before, because paint underneath the control's own glyphs is paint nobody sees.
         if (m.Msg == WmPaint)
         {
+            Paints++;
             PaintOverlay();
         }
 

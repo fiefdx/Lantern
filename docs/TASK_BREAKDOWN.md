@@ -593,6 +593,41 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       over it both begin 8 pixels below the top of a mixed line, both exactly one em tall, no outline left showing.
       **691 tests**, 0 warnings.
 
+- [x] **T12.6 [UI,QA] fixed again (a second report, two defects)** - the fix above was checked against a still box,
+      and a moving one produced two new reports at once: **"it refreshes many times in a flash"** while faces were
+      typed next to words of two sizes, and **"the transcript ends up not showing all emoji, some missing, some display
+      as others"**. They are unrelated, and each was hiding behind the other.
+
+      **The flash is a loop, not a cost.** Reading a line's tallest ink highlights stretches of it, a highlight makes a
+      RichEdit window draw itself again, and this window paints a face over its own outline glyph on every paint message
+      it gets - so measuring *from the paint* measured from the paint. `MessageInput.Paints`, counted in `WndProc`
+      because a RichEdit raises no paint event and `OnPaint` does not happen, says what one cold reading of a
+      twelve-character line cost: **346 selections and 31 paints**, with the trace showing the *same* `Select(2, +12)`
+      over and over - the same question asked again from inside itself, since the answer had not been reached when the
+      first of those paints arrived. Two changes, in this order, because the first alone is not enough:
+      `EM_HIDESELECTION` (`WM_USER + 63`) around the reading, which is worth exactly what it says - **two paints per
+      highlight shown, none hidden**, measured - and measuring **when the text, a font in it, or the size changes**
+      (`MeasureInk`) instead of when the window next paints, with `TallestEmOnLine` demoted to reading what was found
+      and a face with no answer standing on its own em. A measurement that cannot be completed is not made cheap by
+      being invisible; the laziness that had been protecting the keystroke was protecting nothing, since re-reading six
+      lines including faces costs **1-2 ms**. `FindingABaselineNeverAsksForTheWindowToBePainted` counts paints.
+
+      **Three faces arrived as one because the RTF header was written per picture.** `RtfPicture.Inline` wrapped every
+      picture in a complete RTF document, and a stretch of adjacent emoji concatenated those documents into one
+      `SelectedRtf` assignment; RichEdit reads *a* document, and `🙂😀👍` came back out of the transcript with **one**
+      `\pict` while `🙂 😀 👍` - faces in separate stretches, so separate assignments - correctly had three. That is
+      "some missing", and it is why no test had seen it: every face test written until then had a word between its
+      faces. `RtfPicture` is `Group` (one `\pict`) and `Document` (one header, N groups) now, and `ColorEmoji.InlineRtf`
+      collects the groups of a stretch and asks once.
+
+      `ThreeFacesTogetherAreThreePicturesAndNotOne` failed twice before it was believed, and the second failure was the
+      test's own: a RichTextBox does not write a picture's hex back out the way it was put in - it breaks it into
+      **lines** (`\pichgoal270 
+89504e47`), and the first ~200 hex digits of two different faces are identical because
+      they are the PNG magic and the `IHDR`/`sRGB`/`gAMA`/`pHYs` chunks of two 18x18 RGBA files. Comparing a prefix of
+      each picture therefore reports "three faces, one artwork" - the report under investigation, manufactured by the
+      test. It compares whole blobs now. **693 tests**, 0 warnings.
+
 
 ---
 

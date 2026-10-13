@@ -202,6 +202,57 @@ is looking at any more, which is why the control asks for a whole repaint when i
 — alongside the four movements that obviously need one: text, caret, size, scroll. A face is paint at a position,
 and a position is only true until something moves.
 
+## The question a paint must not ask
+
+Everything above is a measurement of the control, and it turned out that *how* the measurement is asked matters as
+much as what it says. The report was: **"it refreshes many times in a flash"** while faces were being typed next to
+words of two sizes.
+
+Asking what a stretch of a RichTextBox wears means highlighting it. Highlighting is a change of selection, and a
+change of selection makes the window draw itself again - and this window, by its very nature, erases a face and draws
+it again on every paint message it is given. So a measurement taken from the paint took it from the paint: the reading
+selected, the selection painted, the paint read, the reading selected.
+
+That was not believed at first, because it looked like a cost rather than a loop. The counter that settled it is
+`MessageInput.Paints`, incremented in `WndProc` before `WM_PAINT` is handed on - a RichEdit window raises no event for
+its own paint messages and `OnPaint` does not happen, so nothing else can see them. One cold reading of a line of
+twelve characters:
+
+| what | measured |
+| --- | --- |
+| selections made | **346** |
+| paint messages taken | **31** |
+| and the trace showed | the *same* `Select(2, +12)` over and over |
+
+That last line is the whole diagnosis. A cost would have been a decreasing sequence of different stretches being
+halved; what was happening was the same question asked again from inside itself, because **the answer had not been
+reached by the time the first of those paints arrived** - so that paint asked, and the paint its first selection
+caused asked, and so on down, every keystroke, which is the flash a person sees.
+
+Hiding the selection was necessary and was not sufficient. `EM_HIDESELECTION` (`WM_USER + 63`) is RichEdit's own "keep
+it selected, stop drawing it", and it does what it says: a highlight costs **two paints shown and none hidden**,
+measured, and the halving of a whole mixed line - nine highlights, nine font reads - costs none at all. It was applied
+first, the flicker visibly improved, and it did not end the loop, because a measurement that cannot be completed is
+not made cheap by being invisible.
+
+What ended it is *when* the question gets asked:
+
+* `MeasureInk()` reads every display line **when the text, a font in it, or the box's size changes**, and when the
+  handle is created - never from the paint;
+* `TallestEmOnLine` is a **read of what was found** and returns null when nothing has been found yet; a face with no
+  answer stands on its own em rather than starting a measurement from the paint;
+* the selection is hidden for the reading and the caret is put back **inside** the hidden window, so the whole reading
+  costs at most the one repaint it takes to show the highlighting again;
+* `measuring` stops the toolbar believing the caret moved while the box was reading itself - a separate way for a
+  measurement to be visible, and one that used to wipe a pending Bold off the strip.
+
+Fearing the cost of measuring on every keystroke was why the reading had been lazy, and the fear was unfounded:
+re-reading **six lines including faces takes 1-2 ms**; six lines of words, 2 ms; a line of nothing but faces, no font
+questions at all.
+
+`FindingABaselineNeverAsksForTheWindowToBePainted` is the test, and it counts paints rather than asserting anything
+about text - the same lesson `PaintedHint` taught, learned twice.
+
 ## What did not change, and what to look at if another machine disagrees
 
 The text was never touched, so there is nothing new to count, to truncate, or to explain on the wire. The tests say

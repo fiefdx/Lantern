@@ -197,6 +197,34 @@ public class StyledTranscriptTests
     }
 
     [Fact]
+    public void ThreeFacesTogetherAreThreePicturesAndNotOne()
+    {
+        Sta.Run(() =>
+        {
+            // Faces that arrive together are one stretch of text, and one stretch was written into the transcript
+            // as one RTF string - which meant one RTF *document* per face, and three documents where one was
+            // wanted. RichEdit reads a document and stops; what it does with the second and third is not put the
+            // other two faces on the screen. Somebody who sent three faces got one of them, and could not tell
+            // from the transcript which of their three it was.
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var chat = Chat(form);
+
+            EnterRoom(form);
+            Receive(service, new TextMessage("User 2", "Room 1", "🙂😀👍"));
+
+            Assert.Equal(3, PictureHeights(form).Count);
+
+            // And three faces are three different pictures. Two faces coming out of the transcript with the same
+            // artwork is the other half of the report - the faces that arrived were not necessarily the ones sent.
+            var pictures = PictureBodies(chat);
+
+            Assert.Equal(3, pictures.Count);
+            Assert.Equal(3, pictures.Distinct().Count());
+        });
+    }
+
+    [Fact]
     public void ASmallFaceIsDrawnSmallerThanAnOrdinaryOne()
     {
         Sta.Run(() =>
@@ -384,6 +412,21 @@ public class StyledTranscriptTests
     /// How tall each face the transcript drew actually is, in the order they were written. <see cref="RtfPicture"/>
     /// states a picture's size in device pixels, so the transcript's own RTF says what was asked for.
     /// </summary>
+    /// <summary>
+    /// The artwork of each picture in the transcript, as the control wrote it back out. Enough of a picture to
+    /// compare two of them with: if two faces have the same body, the same face was drawn twice.
+    /// </summary>
+    private static List<string> PictureBodies(RichTextBox chat)
+    {
+        chat.SelectAll();
+
+        // The control writes a picture's bytes back out in lines, so the hex of one face is several runs with line
+        // breaks between them rather than one: a picture is known by its hex end to end, breaks taken back out.
+        return Regex.Matches(chat.SelectedRtf, @"pichgoal\d+[0-9a-f]+(?:\s*[0-9a-f]+)*")
+            .Select(m => Regex.Replace(m.Value, @"\s", ""))
+            .ToList();
+    }
+
     private static List<int> PictureHeights(Form form)
     {
         var heights = new List<int>();

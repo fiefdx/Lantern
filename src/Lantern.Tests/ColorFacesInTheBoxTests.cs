@@ -357,6 +357,51 @@ public class ColorFacesInTheBoxTests
     }
 
     [Fact]
+    public void FindingABaselineNeverAsksForTheWindowToBePainted()
+    {
+        Sta.Run(() =>
+        {
+            // This is the report: "it refreshes many times in a flash" while faces are being typed next to text of
+            // two sizes. Asking a RichTextBox what a stretch of itself wears means highlighting that stretch, and a
+            // change of selection makes the window draw itself again - and this window paints a face over its own
+            // outline glyph on every paint message it is given. Asked from the paint, that is a loop: the reading
+            // selected, the selection painted, the paint read, the reading selected, and the answer had not been
+            // reached when the first of those paints arrived, so each one asked again. Counted on a line of twelve
+            // characters: **346 selections and 31 paints** for a single answer, and every keystroke did it again.
+            //
+            // Two things ended it. The reading is done when the text or the ink changes, and the paint only reads
+            // what was found - so there is no question left to ask in the middle of a paint. And the reading is done
+            // with the selection hidden, which leaves it selected (the question is still answered) and leaves the
+            // window with nothing to redraw: measured, none - not fewer paints, none.
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"{Face} hello there";
+            box.Select(3, 5);
+            box.SelectionFont = new Font(box.Font.FontFamily, box.Font.Size + TranscriptStyle.LargeDelta);
+            box.Select(box.TextLength, 0);
+
+            Repaint(box);
+
+            var before = box.Paints;
+
+            box.MeasureInk();
+
+            // Counted the moment the reading finishes, before this test asks for a repaint of its own: what is
+            // being denied is that the reading draws anything while it is going on.
+            var during = box.Paints - before;
+
+            Assert.True(box.TallestEmOnLine(0) > 0, "the line's ink was never measured at all");
+
+            Assert.Equal(0, during);
+
+            // And the reading has to leave the caret where it found it, since it is the caret a person is watching.
+            Assert.Equal(box.Text.Length, box.SelectionStart);
+            Assert.Equal(0, box.SelectionLength);
+        });
+    }
+
+    [Fact]
     public void ASelectedFaceSitsOnTheSelectionRatherThanCuttingAHoleInIt()
     {
         Sta.Run(() =>
@@ -616,11 +661,12 @@ public class ColorFacesInTheBoxTests
     /// </summary>
     private static int Looks(MessageInput box, string text)
     {
+        // Setting the text measures the box too, which is the point of setting it that way: the reading belongs to
+        // the change rather than to the paint, so this counts the reading asked for on its own.
+        box.Text = text;
+
         var at = box.SelectionStart;
         var length = box.SelectionLength;
-
-        // New text is what tells the box that the lines it measured are not the lines it has now.
-        box.Text = text;
 
         var looks = 0;
 
@@ -630,7 +676,7 @@ public class ColorFacesInTheBoxTests
 
         try
         {
-            box.TallestEmOnLine(0);
+            box.MeasureInk();
         }
         finally
         {

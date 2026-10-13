@@ -70,7 +70,7 @@ public static class InputFormatting
         // just moved the ground every face on it stands on.
         if (box is MessageInput input)
         {
-            input.ForgetLineSizes();
+            input.MeasureInk();
         }
     }
 
