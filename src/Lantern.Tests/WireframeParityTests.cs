@@ -250,9 +250,14 @@ public sealed class WireframeParityTests
         {
             using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
 
-            Assert.Equal("Share", ((Button)Find(form, "btnShare")).Text);
             Assert.Equal("Send", ((Button)Find(form, "btnSend")).Text);
-            Assert.Equal("Emoji", ((Button)Find(form, "btnEmoji")).Text);
+
+            // The hand-drawn figure has the words "emoji" and "share" on these two buttons, and they still say
+            // those words - to the two people who cannot read them off a picture. The faces of the buttons are a
+            // smile and a sheet of paper now, so the words live in the accessible name and the hover: the same
+            // sentence, told in the one way each reader is able to hear it.
+            Assert.Equal("Emoji", ((Button)Find(form, "btnEmoji")).AccessibleName);
+            Assert.Contains("share", ((Button)Find(form, "btnShare")).AccessibleName, StringComparison.OrdinalIgnoreCase);
 
             // The drawn box says "message ...", which is what a placeholder is for: the box is empty and a person
             // still knows what goes in it. A RichTextBox has no PlaceholderText, so the box draws the word itself.

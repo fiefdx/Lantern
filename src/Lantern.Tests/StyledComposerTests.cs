@@ -3,6 +3,7 @@ using System.Text;
 using Lantern.Core;
 using Lantern.Domain;
 using Lantern.UI;
+using SkiaSharp;
 using Xunit;
 
 namespace Lantern.Tests;
@@ -184,12 +185,15 @@ public class StyledComposerTests
             Enter(form);
             box.Text = "red letters";
             box.Select(0, 3);
-            Click(form, "btnColor");
+            Pick(form, "btnColor", "Green");
             Send(form);
 
             var styles = Styles(service, "red letters");
 
-            Assert.Equal("#C00000", styles[0].Color);
+            // Named by the name the menu shows, and checked as the hex the wire carries: the menu says Green, the
+            // room hears #008000, and both have to be true of the same click.
+            Assert.Equal(Palette()["Green"], styles[0].Color);
+            Assert.Equal("#008000", styles[0].Color);
             Assert.Null(styles[^1].Color);
         });
     }
@@ -206,7 +210,7 @@ public class StyledComposerTests
             Enter(form);
             box.Text = "say it bigger";
             box.Select(0, 4);
-            Click(form, "btnSize");
+            Pick(form, "btnSize", "Large");
             Send(form);
 
             var styles = Styles(service, "say it bigger");
@@ -477,7 +481,7 @@ public class StyledComposerTests
 
             Assert.Equal(box.Font.Size, size.Font.Size, 1);
 
-            Click(form, "btnSize");
+            Pick(form, "btnSize", "Large");
 
             Assert.True(size.Font.Size > box.Font.Size, "the tool does not show the size it is offering");
         });
@@ -491,10 +495,225 @@ public class StyledComposerTests
             using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
 
             Enter(form);
-            Click(form, "btnColor");
+            Pick(form, "btnColor", "Purple");
 
-            Assert.Equal(Color.FromArgb(0xC0, 0, 0), Find(form, "btnColor")!.ForeColor);
+            Assert.Equal(Palette()["Purple"], Hex(Find(form, "btnColor")!.ForeColor));
         });
+    }
+
+    [Fact]
+    public void TheSizeToolOpensAMenuOfTheThreeSizes()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var menu = Menu(form, "btnSize");
+
+            Assert.Equal(["Small", "Normal", "Large"], menu.Items.Cast<ToolStripMenuItem>().Select(i => i.Text));
+
+            // The menu means what it says by being what it says: the Small row is set in the small font. Three words
+            // of one size ask the person reading them to already know the answer.
+            var points = menu.Items.Cast<ToolStripMenuItem>().Select(i => i.Font.SizeInPoints).ToList();
+
+            Assert.True(points[0] < points[1] && points[1] < points[2],
+                $"the size menu was set {string.Join(", ", points)} points, which does not get bigger going down");
+
+            // And the menu is found from the button it belongs to, which is also how a right-click finds it.
+            Assert.Same(menu, ((Button)Find(form, "btnSize")!).ContextMenuStrip);
+            Assert.NotSame(menu, Menu(form, "btnColor"));
+        });
+    }
+
+    [Fact]
+    public void TheToolsStillFitWhatTheySayAtTheSizeTheyShow()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var size = (Button)Find(form, "btnSize")!;
+            var colour = (Button)Find(form, "btnColor")!;
+            var box = Box(form);
+
+            // A room first, and words to put the caret in: with nowhere to send the box is shut, the menu picks
+            // nothing, and this test would measure the same 9-point button three times and think it had proved
+            // something.
+            Enter(form);
+            box.Text = "measure me";
+            box.Select(0, 6);
+
+            // The size tool is drawn at the size it is about to give, which means its own word gets bigger every
+            // time it is used - and a button whose word is cut off says "A" where it meant "Aa". Measured, not
+            // eyeballed, because the widths depend on the machine's font as much as on these numbers.
+            foreach (var name in new[] { "Small", "Normal", "Large" })
+            {
+                Pick(form, "btnSize", name);
+
+                Assert.True(Fits(size),
+                    $"at {size.Font.SizeInPoints} points the size tool's '{size.Text}' needs " +
+                    $"{Needed(size)}px of the {size.ClientSize.Width}px it has");
+            }
+
+            Assert.True(Fits(colour),
+                $"the colour tool's '{colour.Text}' needs {Needed(colour)}px of the {colour.ClientSize.Width}px it has");
+        });
+    }
+
+    [Fact]
+    public void TheArrowSayingAToolOpensAMenuIsAGlyphTheFontHas()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var family = ((Button)Find(form, "btnSize")!).Font.FontFamily.Name;
+
+            Assert.Contains((char)DropdownArrow, ((Button)Find(form, "btnSize")!).Text);
+            Assert.Contains((char)DropdownArrow, ((Button)Find(form, "btnColor")!).Text);
+
+            // Measured rather than assumed, because a code point the font has no glyph for comes back as .notdef - a
+            // replacement box on a toolbar, meaning nothing at all, and about the width of the arrow it replaced. The
+            // font's own table is the only honest answer to "will this draw".
+            using var typeface = SKFontManager.Default.MatchFamily(family);
+
+            Assert.NotNull(typeface);
+            Assert.True(typeface!.GetGlyph(DropdownArrow) != 0,
+                $"'{family}' has no glyph for U+{DropdownArrow:X4}, so both menu tools would wear a box");
+        });
+    }
+
+    [Fact]
+    public void TheColorToolOpensAMenuOfTheWholePalette()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var items = Menu(form, "btnColor").Items.Cast<ToolStripMenuItem>().ToList();
+
+            // Every colour the composer can put on the wire is offered, each in the colour it stands for, Automatic
+            // last. A menu offering three of six leaves the rest to be found by cycling, which is what this replaced.
+            Assert.Equal(["Red", "Orange", "Green", "Blue", "Purple", "Pink", "Automatic"],
+                items.Select(i => i.Text));
+
+            foreach (var item in items.Where(i => i.Text != "Automatic"))
+            {
+                Assert.Equal(item.Text, Palette().Single(p => p.Value == Hex(item.ForeColor)).Key);
+            }
+        });
+    }
+
+    [Fact]
+    public void AutomaticColorIsTheOneThatSaysNothing()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var box = Box(form);
+
+            Enter(form);
+            box.Text = "back to the window's own";
+            box.Select(0, 4);
+            Pick(form, "btnColor", "Blue");
+            box.Select(0, 4);
+            Pick(form, "btnColor", "Automatic");
+            Send(form);
+
+            // Automatic is not a colour, it is the absence of one. On the wire an absence is an empty field, not a
+            // hex code that matches one person's theme and misarrives as another's.
+            Assert.All(Styles(service, "back to the window's own"), style => Assert.Null(style.Color));
+        });
+    }
+
+    [Fact]
+    public void TheMenuSaysWhichChoiceIsAlreadyMade()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var box = Box(form);
+
+            Enter(form);
+            box.Text = "big and small";
+            box.Select(0, 3);
+            Pick(form, "btnSize", "Large");
+
+            Assert.True(SizeItem(form, "Large").Checked, "the size was chosen and the menu still says otherwise");
+            Assert.False(SizeItem(form, "Small").Checked);
+
+            // The caret is what the menu reports, because the caret is what the next character gets.
+            box.Select(10, 3);
+            Assert.True(SizeItem(form, "Normal").Checked);
+            box.Select(0, 3);
+            Assert.True(SizeItem(form, "Large").Checked);
+        });
+    }
+
+    [Fact]
+    public void TheEmojiToolIsAFaceWithNothingBesideIt()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var emoji = (Button)Find(form, "btnEmoji")!;
+
+            // The face is the label. "Emoji" beside a face says it twice, and the second time in a language the face
+            // does not need. The word still exists for the two people asking in other ways: one who cannot see the
+            // screen, and one hovering over a button they have not clicked yet.
+            Assert.Equal(string.Empty, emoji.Text);
+            Assert.NotNull(emoji.Image);
+            Assert.Equal("Emoji", emoji.AccessibleName);
+            Assert.Contains("emoji", ToolTipOf(form, emoji), StringComparison.OrdinalIgnoreCase);
+            AssertWhole(emoji);
+        });
+    }
+
+    [Fact]
+    public void TheShareToolIsAPageNotAWord()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+            var share = (Button)Find(form, "btnShare")!;
+
+            Assert.Equal(string.Empty, share.Text);
+            Assert.NotNull(share.Image);
+            Assert.Contains("share", share.AccessibleName, StringComparison.OrdinalIgnoreCase);
+            AssertWhole(share);
+
+            // A page says "a file", not "a picture or a file", so the hover has to finish what the icon starts.
+            var tip = ToolTipOf(form, share);
+            Assert.Contains("picture", tip, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("file", tip, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void AFaceIsDrawnWholeWhereverItIsDrawn()
+    {
+        // Measured before this was fixed: in a cell of N pixels drawn at an em of N, the ink of a face reached the
+        // last column and row at every size tried, and a flag ran off both sides besides. A COLR emoji's ink box is
+        // not its em box, so no choice of baseline makes it fit. Whatever is clipped here is clipped in the toolbar,
+        // in the picker and in the transcript at once, because one method draws all three.
+        Assert.True(Lantern.UI.ColorEmoji.Available, "this machine has no emoji font to measure");
+
+        foreach (var face in new[] { "🙂", "😀", "👍", "🎉", "🇻🇳", "🐧" })
+        {
+            foreach (var pixels in new[] { 16, 18, 22, 30 })
+            {
+                var glyph = Lantern.UI.ColorEmoji.Glyph(face, pixels);
+
+                Assert.NotNull(glyph);
+                var ink = InkBox(glyph, $"{face} at {pixels} was drawn with nothing inked in it");
+
+                Assert.True(ink.Left >= 1 && ink.Top >= 1 && ink.Right <= pixels - 2 && ink.Bottom <= pixels - 2,
+                    $"{face} at {pixels} was drawn from ({ink.Left},{ink.Top}) to ({ink.Right},{ink.Bottom}) in a " +
+                    $"{pixels}x{pixels} cell, so part of it is outside the cell");
+
+                // Square, because that is what an emoji is and what the line it sits on is sized by.
+                Assert.Equal(pixels, glyph.Width);
+                Assert.Equal(pixels, glyph.Height);
+                glyph.Dispose();
+            }
+        }
     }
 
     [Fact]
@@ -703,6 +922,92 @@ public class StyledComposerTests
         box.Select(index, 1);
 
         return box.SelectionFont?.Style ?? FontStyle.Regular;
+    }
+
+    /// <summary>The arrow on the two tools that open a menu (U+25BC, black down-pointing triangle).</summary>
+    private const int DropdownArrow = 0x25BC;
+
+    /// <summary>The word a tool draws, in the font it is drawn in, does it fit inside the tool?</summary>
+    private static bool Fits(Button tool) => Needed(tool) <= tool.ClientSize.Width;
+
+    private static int Needed(Button tool) =>
+        TextRenderer.MeasureText(tool.Text, tool.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+
+    /// <summary>Chooses one row of the menu a tool carries, the way a person does.</summary>
+    private static void Pick(Control form, string tool, string item) => Item(form, tool, item).PerformClick();
+
+    private static ToolStripMenuItem Item(Control form, string tool, string item) =>
+        Menu(form, tool).Items.Cast<ToolStripMenuItem>().Single(i => i.Text == item);
+
+    private static ToolStripMenuItem SizeItem(Control form, string item) => Item(form, "btnSize", item);
+
+    /// <summary>The menu a tool button carries - found from the button, because that is where it belongs.</summary>
+    private static ContextMenuStrip Menu(Control form, string tool)
+    {
+        var menu = ((Button)Find(form, tool)!).ContextMenuStrip;
+
+        Assert.NotNull(menu);
+
+        return menu!;
+    }
+
+    /// <summary>The palette as name to hex: what the menu shows, and what the wire carries.</summary>
+    private static Dictionary<string, string?> Palette() =>
+        ComposerStyle.Palette.ToDictionary(ink => ink.Name, ink => ink.Color is { } colour ? Hex(colour) : null);
+
+    private static string Hex(Color colour) => $"#{colour.R:X2}{colour.G:X2}{colour.B:X2}";
+
+    private static string ToolTipOf(Control form, Control target)
+    {
+        var field = typeof(Lantern.UI.ChatForm).GetField("toolTip", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var tip = (System.Windows.Forms.ToolTip)field.GetValue((Lantern.UI.ChatForm)form)!;
+
+        return tip.GetToolTip(target) ?? string.Empty;
+    }
+
+    /// <summary>A button whose picture is no bigger than the room the button gives it, and is not blank.</summary>
+    private static void AssertWhole(Button button)
+    {
+        Assert.NotNull(button.Image);
+        Assert.True(button.Image!.Width <= button.ClientSize.Width && button.Image.Height <= button.ClientSize.Height,
+            $"{button.Name} holds a {button.Image.Width}x{button.Image.Height} picture in a " +
+            $"{button.ClientSize.Width}x{button.ClientSize.Height} space, and WinForms cuts the difference");
+
+        // A picture with nothing inked in it looks exactly like a button whose icon failed to load.
+        InkBox((Bitmap)button.Image!, $"{button.Name}'s picture is blank");
+    }
+
+    /// <summary>The rectangle some picture's ink covers, counting the last inked row and column as inside.</summary>
+    private record struct InkBounds(int Left, int Top, int Right, int Bottom);
+
+    /// <summary>
+    /// The rectangle the non-transparent pixels of a picture cover, last inked row and column counted as inside.
+    /// A picture with nothing inked in it is the failure the caller would otherwise have to think of, so it fails here.
+    /// </summary>
+    private static InkBounds InkBox(Bitmap bitmap, string because)
+    {
+        var left = bitmap.Width;
+        var top = bitmap.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).A > 0)
+                {
+                    left = Math.Min(left, x);
+                    top = Math.Min(top, y);
+                    right = Math.Max(right, x);
+                    bottom = Math.Max(bottom, y);
+                }
+            }
+        }
+
+        Assert.True(right >= 0, because);
+
+        return new InkBounds(left, top, right, bottom);
     }
 
     /// <summary>The styling the room was told about for one line - and a complaint if the line never got there.</summary>

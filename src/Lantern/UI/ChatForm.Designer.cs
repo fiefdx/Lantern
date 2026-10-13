@@ -398,49 +398,64 @@ partial class ChatForm
         btnUnderline.UseVisualStyleBackColor = false;
         btnUnderline.Click += BtnUnderline_Click;
         //
-        // btnSize
+        // btnSize - "Aa" is drawn at the size the tool is about to give, and the arrow says this one opens a list
+        // rather than doing something on its own. The width is measured, not guessed: at the large size the tool
+        // sets its own word to 13 points, which needs 46 of these 58 - and a tool whose word is cut off says "A"
+        // where it meant to say "Aa". A test measures it, so the next word change has to earn its pixels.
         //
+        btnSize.AccessibleName = "Font size";
         btnSize.Location = new Point(98, 2);
         btnSize.Name = "btnSize";
-        btnSize.Size = new Size(40, 24);
+        btnSize.Size = new Size(58, 24);
         btnSize.TabIndex = 3;
-        btnSize.Text = "Aa";
+        btnSize.Text = "Aa ▼";
         toolTip.SetToolTip(btnSize, "The size of the next words: normal, large or small");
         btnSize.UseVisualStyleBackColor = false;
         btnSize.Click += BtnSize_Click;
         //
-        // btnColor
+        // btnColor - "A" wears the colour the tool is about to give. It used to say "press again for the next
+        // colour", which was the old way: five of the six colours were behind a click nobody thought to make.
         //
-        btnColor.Location = new Point(142, 2);
+        btnColor.AccessibleName = "Font colour";
+        btnColor.Location = new Point(162, 2);
         btnColor.Name = "btnColor";
-        btnColor.Size = new Size(40, 24);
+        btnColor.Size = new Size(58, 24);
         btnColor.TabIndex = 4;
-        btnColor.Text = "A";
-        toolTip.SetToolTip(btnColor, "The colour of the next words; press again for the next colour, and once more to put it back");
+        btnColor.Text = "A ▼";
+        toolTip.SetToolTip(btnColor, "The colour of the next words, or automatic to put it back");
         btnColor.UseVisualStyleBackColor = false;
         btnColor.Click += BtnColor_Click;
         //
-        // btnEmoji
+        // btnEmoji - a face, and nothing beside it: the face is the whole of what the button does. The picture is
+        // not set here because it is Windows' own emoji artwork rather than a resource (ChatForm.ShowToolPictures
+        // draws it, sized to this button so that none of it is cut off); the word survives as the accessible name
+        // and as the hover, which are the two people asking in ways a picture cannot answer.
         //
+        // A Button with no words draws its picture and nothing else - there is no DisplayStyle to set on one.
+        btnEmoji.AccessibleName = "Emoji";
         btnEmoji.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnEmoji.Location = new Point(432, 2);
+        btnEmoji.ImageAlign = ContentAlignment.MiddleCenter;
+        btnEmoji.Location = new Point(522, 2);
         btnEmoji.Name = "btnEmoji";
-        btnEmoji.Size = new Size(88, 24);
+        btnEmoji.Size = new Size(34, 24);
         btnEmoji.TabIndex = 5;
-        btnEmoji.Text = "Emoji";
-        btnEmoji.TextImageRelation = TextImageRelation.ImageBeforeText;
+        btnEmoji.TextAlign = ContentAlignment.MiddleCenter;
         toolTip.SetToolTip(btnEmoji, "Choose an emoji from a table and put it in the message");
         btnEmoji.UseVisualStyleBackColor = true;
         btnEmoji.Click += BtnEmoji_Click;
         //
-        // btnShare
+        // btnShare - a sheet of paper for "a file", drawn in code (ToolIcons.Page) rather than shipped as an
+        // image. The button used to be 170 wide because it filled a 170-wide column, then 70 because it said
+        // "Share"; a picture of a page needs no more of the strip than a B does.
         //
+        btnShare.AccessibleName = "Share a picture or a file";
         btnShare.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnShare.Location = new Point(524, 2);
+        btnShare.ImageAlign = ContentAlignment.MiddleCenter;
+        btnShare.Location = new Point(560, 2);
         btnShare.Name = "btnShare";
-        btnShare.Size = new Size(70, 24);
+        btnShare.Size = new Size(34, 24);
         btnShare.TabIndex = 6;
-        btnShare.Text = "Share";
+        btnShare.TextAlign = ContentAlignment.MiddleCenter;
         toolTip.SetToolTip(btnShare, "Attach a picture or send a file to the room");
         btnShare.UseVisualStyleBackColor = true;
         btnShare.Click += BtnShare_Click;

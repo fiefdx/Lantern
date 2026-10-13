@@ -455,6 +455,52 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       **664 tests** total. Note `docs/notes/the-window-in-three-columns.md`; sheet
       `docs/testing/v1.7-formatting-and-layout-checklist.md` (which also covers T12.2 and T12.3, the v1.7 features
       having had no sheet of their own until now).
+- [x] **T12.5 [UI]** **The tools above the box, optimised where a person actually aims.** Size and colour became
+      menus: they had been cycles, and a cycle hides five of the six colours behind a click nobody thinks to make
+      while leaving no way to see which of the three sizes is in use without clicking round through all of them.
+      The menu is the whole list at once — each size written at its own size, each colour written in itself, tick on
+      the choice the caret is in — and it is *built from* `ComposerStyle.Sizes` and `ComposerStyle.Palette` rather
+      than written out item by item, because a palette listed twice is a palette that can be edited in one place and
+      missed in the other, and the disagreement is a menu saying Green over a colour that arrives red. Hence
+      `Ink(Name, Color)`: the name and its colour are one entry now. Bold, italic and underline stay one-click
+      toggles, being the three that switch. The emoji tool wears Windows' own smile and the share tool a page drawn
+      in eight lines of code (`ToolIcons.Page`, taking `SystemColors.ControlText` so it survives a theme nobody has
+      looked at); the words moved to `AccessibleName` and the tooltip, which are the two ways of asking that a
+      picture cannot answer.
+      **What measuring the faces found.** “The emoji is cut off in the toolbar” was not the button. Counting pixels
+      in what `ColorEmoji.Render` produces: at an em of N in a cell of N, the ink of 🙂 reached the last row *and*
+      the last column at 16, 18, 20, 22, 24 and 28, and 🇻🇳 ran off both sides besides. A COLR/CPAL emoji's ink box
+      is not its em box, and the font's metrics describe the typeface rather than one emoji's artwork, so there is
+      no baseline offset that fixes it — the ink is taller than the em drawn at, and sliding it moves the cut from
+      the chin to the hair. The ink is therefore *measured* now (a probe canvas four times the em, a scan, then a
+      scaled and centred draw into the cell), allowing a pixel of air, a pixel of overhang for antialiasing, and
+      never scaling up — a flag stays a flag and not a fat flag. The cell stays exactly N×N because the line a face
+      sits on is sized by that number. Faces are ~11% smaller and complete, in the toolbar, the picker and the
+      transcript at once, since all three ask this one method. `Button` also turned out to have no `DisplayStyle`
+      (that is a `ToolStripItem` property) and to cut an over-large image with no complaint of any kind, so the
+      picture size is chosen against the button's own client area and the emoji tool falls back to the *word* where
+      there is no emoji font — a button with neither picture nor text is a button nobody can find.
+- [x] **T12.5 [QA]** `StyledComposerTests` gained nine: the size tool's menu is the three sizes and each is set in
+      its own size; the colour tool's menu is the whole palette with every entry's `ForeColor` the colour its name
+      claims; the tick follows the caret, not the last click; **Automatic** sends no colour field rather than the hex
+      it happens to look like; the emoji tool is a face with no word, reachable as `Emoji`, with its picture no
+      bigger than the space showing it; the share tool is a page, named as sharing and hovering as “picture or file”;
+      and **`AFaceIsDrawnWholeWhereverItIsDrawn`** — six faces at four sizes, failing if any ink lands within a pixel
+      of a cell edge, which is the test that the old renderer could not pass at any size. Menus are found through
+      `button.ContextMenuStrip` rather than by reflecting a field, because that is where a menu belongs and it is how
+      a right-click finds it; the two tests of the old cycling behaviour were rewritten to choose from the menus.
+      **A test that measured the same thing three times.** `TheToolsStillFitWhatTheySayAtTheSizeTheyShow` was first
+      written without entering a room — and with nowhere to send, the box is shut, the menu pick does nothing, and
+      the size tool's word was measured at 9 points three times in a row while the test reported that large fits.
+      It fits with 46 of the 58 pixels it is given, which is the fact the test was after; the first version could not
+      have failed. Any UI test that picks something from a menu has to be in a room first, and this one says so in a
+      comment where the next person will read it.
+      `TheArrowSayingAToolOpensAMenuIsAGlyphTheFontHas` asks the font's own glyph table about U+25BC, since a missing
+      glyph comes back as a replacement box roughly the width of the arrow it replaced. One `EmojiPickerTests`
+      assertion moved from the button's `Text` to its `AccessibleName`, and the wireframe-parity test of the input
+      area's words with it. **673 tests** total. Note `docs/notes/the-face-is-the-button.md`; sheet
+      `docs/testing/v1.7-formatting-and-layout-checklist.md` rewritten round the new tools (21 rows, of which 10–11
+      and 20 are the ones only a person can settle).
 
 ---
 

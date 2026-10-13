@@ -39,12 +39,16 @@ public sealed class EmojiPickerTests
 
             var button = Button(form);
 
-            Assert.Equal("Emoji", button.Text);
+            // The face is the button's face now, with no word beside it; the word is what a screen reader reads
+            // and what the hover says, which are the two ways of asking that a picture cannot answer.
+            Assert.Equal("Emoji", button.AccessibleName);
             Assert.True(button.Enabled, "the emoji button is shut while a message could be written");
 
             // The button wears a face drawn by the code that colours them in the transcript: what is clicked and
             // what arrives are the same picture.
             Assert.NotNull(button.Image);
+            Assert.True(button.Image!.Width <= button.ClientSize.Width && button.Image.Height <= button.ClientSize.Height,
+                "the face is bigger than the button showing it, and WinForms cuts what overhangs");
         });
     }
 

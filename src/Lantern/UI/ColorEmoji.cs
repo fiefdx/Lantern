@@ -200,6 +200,20 @@ public static class ColorEmoji
         }
     }
 
+    /// <summary>
+    /// The face, scaled and centred so that the whole of it lands inside a <c>pixels</c> by <c>pixels</c> cell.
+    /// <para>
+    /// An emoji's ink box is not its em box. Drawing at an em of N into a cell of N used to put the ink of a face
+    /// against the last row and column at every size measured (16, 18, 20, 22, 24, 28) and a flag outside both sides,
+    /// which is how "the emoji is cut in half in the toolbar" happened - in the toolbar, in the picker and in the
+    /// transcript alike, since all three ask for this method. There is no baseline offset that fixes it, because the
+    /// ink is taller than the em it was drawn at: the only thing that fits is measuring the ink and drawing to fit.
+    /// </para>
+    /// <para>
+    /// The cell stays exactly <c>pixels</c> square, because the line a face sits in is sized by that number, and a
+    /// picture that came out a different size than it was asked for moves the line under the sentence.
+    /// </para>
+    /// </remarks>
     private static byte[]? Render(string element, int pixels)
     {
         if (typeface is null)
@@ -209,6 +223,18 @@ public static class ColorEmoji
 
         try
         {
+            if (MeasureInk(element, pixels) is not { } measured)
+            {
+                // No ink means no glyph for this element on this machine, which the caller already handles by
+                // writing the characters instead.
+                return null;
+            }
+
+            // One pixel of overhang on every side. The measurement counts a pixel as inked when it is only partly
+            // covered, and the shape carries on into the pixel beyond it - which is the difference between a face
+            // with a pixel of air around it and a face with its antialiasing sawn off along one edge.
+            var ink = new SKRectI(measured.Left - 1, measured.Top - 1, measured.Right + 1, measured.Bottom + 1);
+
             using var bitmap = new SKBitmap(pixels, pixels, SKColorType.Rgba8888, SKAlphaType.Premul);
             using var canvas = new SKCanvas(bitmap);
             canvas.Clear(SKColors.Transparent);
@@ -216,8 +242,20 @@ public static class ColorEmoji
             using var font = new SKFont(typeface, pixels);
             using var paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
 
-            // Baseline a little above the bottom: the font's descenders would otherwise be cut off by the cell.
-            canvas.DrawText(element, 0, pixels * 0.88f, font, paint);
+            // A pixel of air at the edge of the cell. Ink that stops exactly on the last row reads as a line cut
+            // across the face, and it is the antialiasing that reaches the row nobody measured.
+            var margin = pixels >= 8 ? 1f : 0f;
+            var room = pixels - (2 * margin);
+
+            // Never bigger than drawn: a narrow glyph is not a mistake in the font, and inflating it to fill the cell
+            // would make a flag fatter than the same flag in the message beside it.
+            var scale = Math.Min(1f, Math.Min(room / ink.Width, room / ink.Height));
+            var (anchorX, anchorY) = ProbeAnchor(pixels);
+
+            canvas.Translate(margin + ((room - (ink.Width * scale)) / 2f) - (ink.Left * scale),
+                margin + ((room - (ink.Height * scale)) / 2f) - (ink.Top * scale));
+            canvas.Scale(scale);
+            canvas.DrawText(element, anchorX, anchorY, font, paint);
             canvas.Flush();
 
             using var image = SKImage.FromBitmap(bitmap);
@@ -229,5 +267,63 @@ public static class ColorEmoji
         {
             return null;
         }
+    }
+
+    /// <summary>How much bigger the measuring canvas is than the em drawn on it - enough that nothing can be cut by it.</summary>
+    private const int ProbeScale = 4;
+
+    /// <summary>Where the baseline of the measuring canvas starts its text: the middle, with room to hang below.</summary>
+    private static (float X, float Y) ProbeAnchor(int em)
+    {
+        var side = em * ProbeScale;
+
+        return (side / 2f, side / 2f);
+    }
+
+    /// <summary>
+    /// The rectangle this element's ink actually covers when drawn at <paramref name="em"/> on a canvas too big to
+    /// clip it, in that canvas's pixels, or null when the font has nothing to draw.
+    /// </summary>
+    /// <remarks>
+    /// Measured by looking, not by asking the font: these are COLR/CPAL glyphs, whose reported metrics describe the
+    /// typeface as a whole rather than the coloured picture of one emoji, which is exactly the difference that caused
+    /// the clipping. One extra raster and one scan per face per size, then the cache in <see cref="Png"/> means it
+    /// happens once.
+    /// </remarks>
+    private static SKRectI? MeasureInk(string element, int em)
+    {
+        var side = em * ProbeScale;
+        var (x, y) = ProbeAnchor(em);
+
+        using var bitmap = new SKBitmap(side, side, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+
+        using var font = new SKFont(typeface, em);
+        using var paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+
+        canvas.DrawText(element, x, y, font, paint);
+        canvas.Flush();
+
+        var left = side;
+        var top = side;
+        var right = -1;
+        var bottom = -1;
+
+        for (var row = 0; row < side; row++)
+        {
+            for (var column = 0; column < side; column++)
+            {
+                if (bitmap.GetPixel(column, row).Alpha > 0)
+                {
+                    left = Math.Min(left, column);
+                    top = Math.Min(top, row);
+                    right = Math.Max(right, column);
+                    bottom = Math.Max(bottom, row);
+                }
+            }
+        }
+
+        return right < 0 ? null : new SKRectI(left, top, right + 1, bottom + 1);
     }
 }

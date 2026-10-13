@@ -120,8 +120,20 @@ runs. It becomes a `RichTextBox`, and that swap is where the work and the risk a
   partly-styled selection applies to the whole selection, with the button shown pressed only when **every** run in it
   already has the style. Two tests live here: *bold then italic leaves both on*, and *italic then the same italic
   button leaves bold alone*.
-* **The toolbar goes above the box**, which is also the two-line box that was asked for: Bold, Underline, Size,
-  Colour, Emoji, Share — Send stays where it is, because muscle memory around Send is worth more than symmetry.
+* **The toolbar goes above the box**, which is also the two-line box that was asked for: Bold, Italic, Underline,
+  Size, Colour, Emoji, Share — Send stays where it is, because muscle memory around Send is worth more than
+  symmetry, and it stays *off the strip* because it ends a message rather than putting something into one.
+* **Size and colour are menus; bold, italic and underline stay toggles.** The first two used to cycle, which hid
+  five of the six colours behind a click nobody thought to make and made the current size invisible until a person
+  clicked round through all three. A menu is the whole list at once, with a tick on the choice the caret is sitting
+  in, and it is built from the same lists the composer applies, so what is on offer cannot disagree with what is
+  sent. The three that switch on and off stay one click.
+* **Two tools wear a shape instead of a word**: Windows' own smile for the emoji table, and a sheet of paper drawn
+  in code for sharing a file. The words did not go away — they are the accessible name and the tooltip, which are
+  the two ways of asking that a picture cannot answer. Both pictures are sized against the button that shows them,
+  because WinForms neither scales a button's image nor grows the button: it draws what it is given and cuts the
+  rest, silently. Measuring why the face looked cut found something worse than a sizing mistake — see
+  `docs/notes/the-face-is-the-button.md`.
 * **Roughly 30 tests read `Box(form)` as a `TextBox`** and several wireframe-parity tests assert the geometry of the
   input row. They all move together with the control, and that is fine — it is a slow change, not a dangerous one.
   What would be dangerous is the first two bullets, done quietly.

@@ -166,9 +166,8 @@ public partial class ChatForm : Form
         txtMessage.SelectionChanged += (_, _) => ShowToolStates();
         txtMessage.PasteRequested += (_, _) => PastePlain(ClippedText);
 
-        // The button wears one of the faces it offers, drawn by the same code that colours them in the transcript:
-        // the affordance and the result are the same picture, so there is nothing to be surprised by later.
-        btnEmoji.Image = ColorEmoji.Glyph("🙂", 18);
+        SetUpFormatMenus();
+        ShowToolPictures();
 
         // The state this window opens in, said out loud rather than left to be inferred from a room list that
         // happens to be filled in. Scenario 1 asks for these words in the host's bar; the startup scenario
@@ -676,22 +675,132 @@ public partial class ChatForm : Form
     /// <summary>True while the length rule is being applied, since trimming the box is itself a change to it.</summary>
     private bool trimming;
 
+    /// <summary>The three sizes, offered as a menu under the size tool. Built in <see cref="SetUpFormatMenus"/>.</summary>
+    private ContextMenuStrip? menuSizes;
+
+    /// <summary>The palette, offered as a menu under the colour tool. Built in <see cref="SetUpFormatMenus"/>.</summary>
+    private ContextMenuStrip? menuColors;
+
+    /// <summary>
+    /// The two menus the strip carries, built from the lists they show.
+    /// <para>
+    /// Size and colour used to be cycled: one click for the next thing on offer, the rest of the list hidden until a
+    /// person clicked round to it. That left five of the six colours undiscoverable, and there was no way to see
+    /// which of the three sizes was in use without cycling through all of them. Both tools open a menu now, which is
+    /// the whole list at once with a tick on the choice already made.
+    /// </para>
+    /// <para>
+    /// Built here rather than laid out item by item in the designer, because a palette written out in two places is a
+    /// palette that can be edited in one and missed in the other - and the disagreement is a menu saying Green over a
+    /// colour that arrives red.
+    /// </para>
+    /// </summary>
+    private void SetUpFormatMenus()
+    {
+        menuSizes = new ContextMenuStrip(components);
+
+        foreach (var size in ComposerStyle.Sizes)
+        {
+            // Each size written at its own size: three words of one size ask the reader to already know which one
+            // means bigger.
+            var item = new ToolStripMenuItem(ComposerStyle.SizeName(size)) { Tag = size };
+            item.Font = ComposerStyle.SizeFont(txtMessage.Font, size);
+            item.Click += SizeMenuItem_Click;
+            menuSizes.Items.Add(item);
+        }
+
+        btnSize.ContextMenuStrip = menuSizes;
+
+        menuColors = new ContextMenuStrip(components);
+
+        foreach (var ink in ComposerStyle.Palette)
+        {
+            // Each colour written in itself, so that a name and its colour cannot be read in the wrong order.
+            var item = new ToolStripMenuItem(ink.Name) { Tag = ink.Color };
+
+            if (ink.Color is { } colour)
+            {
+                item.ForeColor = colour;
+            }
+
+            item.Click += ColorMenuItem_Click;
+            menuColors.Items.Add(item);
+        }
+
+        btnColor.ContextMenuStrip = menuColors;
+    }
+
+    /// <summary>
+    /// The two tools whose face is a shape rather than a word: a face for the emoji table, a sheet of paper for a
+    /// file. Both pictures are measured against the button that shows them, because WinForms neither scales a
+    /// button's picture nor grows the button - it draws what it is given and cuts the rest, silently, which is how
+    /// a smile arrives as a chin.
+    /// </summary>
+    /// <remarks>
+    /// There is no <c>DisplayStyle</c> on a <see cref="Button"/> - that is a tool strip property - and none is
+    /// needed: the text being empty is the whole of the instruction "picture only", which is why the designer leaves
+    /// these two with no words and the accessible names carry what a picture cannot tell a person.
+    /// </remarks>
+    private void ShowToolPictures()
+    {
+        // The emoji tool wears one of the faces it offers, drawn by the same code that colours them in the
+        // transcript: the affordance and the result are the same picture, so there is nothing to be surprised by
+        // later.
+        if (ColorEmoji.Glyph(EmojiFace, ComposerStyle.PicturePixels(btnEmoji)) is { } face)
+        {
+            btnEmoji.Image = face;
+        }
+        else
+        {
+            // A machine without Windows' emoji font gets the word instead of a blank button: the face was always the
+            // label of a picture this machine can draw, and this one cannot.
+            btnEmoji.Text = "Emoji";
+        }
+
+        btnShare.Image = ToolIcons.Page(ComposerStyle.PicturePixels(btnShare));
+    }
+
+    /// <summary>The face the emoji tool wears. The plain smile, because that is what the tool is for.</summary>
+    private const string EmojiFace = "\U0001F642";
+
     private void BtnBold_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Bold);
 
     private void BtnItalic_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Italic);
 
     private void BtnUnderline_Click(object? sender, EventArgs e) => ToggleFont(FontStyle.Underline);
 
-    private void BtnSize_Click(object? sender, EventArgs e)
+    private void BtnSize_Click(object? sender, EventArgs e) => OpenMenu(menuSizes, btnSize);
+
+    private void BtnColor_Click(object? sender, EventArgs e) => OpenMenu(menuColors, btnColor);
+
+    /// <summary>Opens a tool's menu under the tool. A left click does what right-clicking the button already did.</summary>
+    private static void OpenMenu(ContextMenuStrip? menu, Button tool) =>
+        menu?.Show(tool, new Point(0, tool.Height), ToolStripDropDownDirection.BelowLeft);
+
+    private void SizeMenuItem_Click(object? sender, EventArgs e)
     {
-        brush = brush with { Size = ComposerStyle.NextSize(brush.Size) };
+        // A menu can still be open when a send starts and the strip is greyed out, and a tool that is drawn disabled
+        // but still works is worse than one that is not there.
+        if (sender is not ToolStripMenuItem item || !txtMessage.Enabled)
+        {
+            return;
+        }
+
+        brush = brush with { Size = (int)item.Tag! };
 
         FormatSelection(run => run with { Size = brush.Size });
     }
 
-    private void BtnColor_Click(object? sender, EventArgs e)
+    private void ColorMenuItem_Click(object? sender, EventArgs e)
     {
-        brush = brush with { Color = ComposerStyle.Hex(ComposerStyle.NextColour(ComposerStyle.Colour(brush.Color))) };
+        if (sender is not ToolStripMenuItem item || !txtMessage.Enabled)
+        {
+            return;
+        }
+
+        // Automatic carries no colour, so the run says nothing about colour, which is not the same as saying the
+        // colour it happens to look like here (T12.1): the reader's own window decides that.
+        brush = brush with { Color = ComposerStyle.Hex((Color?)item.Tag) };
 
         FormatSelection(run => run with { Color = brush.Color });
     }
@@ -769,7 +878,24 @@ public partial class ChatForm : Form
         btnSize.Font = ComposerStyle.SizeFont(txtMessage.Font, here.Size);
         btnColor.ForeColor = ComposerStyle.Colour(here.Color) ?? SystemColors.ControlText;
 
+        // And the menus say where they are when they open, for the same reason the buttons do.
+        Mark(menuSizes?.Items, item => (int)item.Tag! == here.Size);
+        Mark(menuColors?.Items, item => ComposerStyle.Hex((Color?)item.Tag) == here.Color);
+
         static void ShowTool(Button tool, bool on) => tool.BackColor = on ? ComposerStyle.ToolOnColor : ComposerStyle.ToolOffColor;
+
+        static void Mark(ToolStripItemCollection? items, Func<ToolStripMenuItem, bool> isCurrent)
+        {
+            if (items is null)
+            {
+                return;
+            }
+
+            foreach (ToolStripMenuItem item in items.OfType<ToolStripMenuItem>())
+            {
+                item.Checked = isCurrent(item);
+            }
+        }
     }
 
     /// <summary>The tools that format the box, so that nothing gets left enabled when the box itself is not.</summary>
