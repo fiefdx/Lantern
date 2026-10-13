@@ -2140,6 +2140,26 @@ public partial class ChatForm : Form
     /// </remarks>
     private void WriteContentRun(string text, Color color, IReadOnlyList<StyledRun>? styles = null)
     {
+        // How tall the tallest letters of this entry are, which is how tall a face standing in it has to be drawn a
+        // box for. RichEdit puts a picture at the top of its line and leaves it there whatever else is on the line,
+        // so a face has to carry its own way down to where the letters stop - see ColorEmoji.InlineRtf.
+        var tallest = rtbChat.Font.Height;
+
+        foreach (var (stretch, run) in StyledRun.Split(text, styles))
+        {
+            // Only the runs with words in them. A run that is nothing but a face does not set the height of a line:
+            // measured, a line of Small words with an ordinary-sized face on it was laid out for the Small words and
+            // the face was expected to stand where they stand, whatever its own font thought it was entitled to.
+            if (!ColorEmoji.Split(stretch).Any(piece => !piece.Emoji))
+            {
+                continue;
+            }
+
+            using var worn = TranscriptStyle.RunFont(rtbChat.Font, run);
+
+            tallest = Math.Max(tallest, worn?.Height ?? rtbChat.Font.Height);
+        }
+
         // Styling first, then faces, so that a face inside a bold run is still one face and not a run that gave up
         // halfway. The styling owns the character counts; the faces are drawn inside whichever stretch they fall in.
         foreach (var (stretch, run) in StyledRun.Split(text, styles))
@@ -2155,7 +2175,7 @@ public partial class ChatForm : Form
 
             foreach (var (piece, emoji) in ColorEmoji.Split(stretch))
             {
-                if (emoji && ColorEmoji.InlineRtf(piece, pixels) is { } rtf)
+                if (emoji && ColorEmoji.InlineRtf(piece, pixels, tallest) is { } rtf)
                 {
                     AppendRtf(rtf);
                 }

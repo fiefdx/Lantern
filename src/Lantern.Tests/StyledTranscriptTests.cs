@@ -182,17 +182,21 @@ public class StyledTranscriptTests
             // that stopped saying what it said on the way to the room.
             var service = new FakeChatService("Haitao");
             using var form = new Lantern.UI.HostForm(service);
+            var chat = Chat(form);
 
             EnterRoom(form);
             Receive(service, Styled("User 2", "Room 1", $"shout {Face}",
                 new StyledRun(6), new StyledRun(1, Size: StyledRun.Large)));
             Receive(service, new TextMessage("User 2", "Room 1", $"shout {Face}"));
 
-            var heights = PictureHeights(form);
+            var faces = Pictures(chat);
 
-            Assert.Equal(2, heights.Count);
-            Assert.True(heights[0] > heights[1],
-                $"the large face was drawn {heights[0]} pixels tall and the ordinary one {heights[1]}");
+            Assert.Equal(2, faces.Count);
+
+            // The ink rather than the picture, because the ink is the face: a picture is a box the face is stood in,
+            // and the box is the height of the line.
+            Assert.True(faces[0].Ink.Height > faces[1].Ink.Height,
+                $"the large face inks {faces[0].Ink.Height} pixels and the ordinary one {faces[1].Ink.Height}");
         });
     }
 
@@ -225,23 +229,84 @@ public class StyledTranscriptTests
     }
 
     [Fact]
+    public void AFaceStandsOnTheLineItsWordsAreOn()
+    {
+        Sta.Run(() =>
+        {
+            // "The emoji icon and the text vertical not aligned." A face in the transcript is a picture, and a
+            // picture goes where the control puts it - which, measured on six lines, is the same place whatever else
+            // is on them: the top of the line. The ink of a face sits 3 pixels in from the top of the picture it
+            // came in, so a face has always ended with its chin 15 pixels down, whether the line it stands among is
+            // 14, 18 or 25 pixels tall. The letters of those lines stop at 13, 16 and 23: two pixels above the bottom
+            // of the line's own height at the room's size and at Large, and one at Small. So a face beside Large
+            // words hung eight pixels in the air, and a small face beside ordinary ones six, and nothing about the
+            // message says which.
+            //
+            // The picture's top is the one thing about it the control will not move, so the picture is made as tall
+            // as the tallest letters on the line and carries its ink two pixels above the bottom of that - which is
+            // where those letters stop, at every size measured. The face is not stretched to fill the box: it is the
+            // same picture of a face at the same size, standing lower. The face is not stretched to fill the box - the same face
+            // beside the same words at two sizes is the same picture of a face, standing lower.
+            var service = new FakeChatService("Haitao");
+            using var form = new Lantern.UI.HostForm(service);
+            var chat = Chat(form);
+
+            EnterRoom(form);
+
+            Receive(service, new TextMessage("User 2", "Room 1", $"words here {Face}"));
+            Receive(service, new TextMessage("User 2", "Room 1", $"words here {Face}")
+            {
+                Styles = [new StyledRun(11, Size: StyledRun.Large), new StyledRun(1)]
+            });
+
+            var ordinary = new Font(chat.Font.FontFamily, chat.Font.Size);
+            var large = new Font(chat.Font.FontFamily, chat.Font.Size + TranscriptStyle.LargeDelta);
+
+            var faces = Pictures(chat);
+
+            Assert.Equal(2, faces.Count);
+
+            // Each face's picture is as tall as the tallest letters on its line, and its ink stands one pixel above
+            // the bottom of that - which is the baseline the line is drawn on.
+            Assert.Equal(ordinary.Height, faces[0].Told);
+            Assert.Equal(large.Height, faces[1].Told);
+
+            Assert.Equal(faces[0].Told - 1, faces[0].Ink.Bottom);
+            Assert.Equal(faces[1].Told - 1, faces[1].Ink.Bottom);
+
+            // And it is the same face both times. Standing on a taller line is not the same instruction as "a
+            // bigger face": a face typed at the room's size stays that size whatever walks past it in Large.
+            Assert.Equal(faces[0].Ink.Size, faces[1].Ink.Size);
+        });
+    }
+
+    [Fact]
     public void ASmallFaceIsDrawnSmallerThanAnOrdinaryOne()
     {
         Sta.Run(() =>
         {
             var service = new FakeChatService("Haitao");
             using var form = new Lantern.UI.HostForm(service);
+            var chat = Chat(form);
 
             EnterRoom(form);
             Receive(service, Styled("User 2", "Room 1", $"quiet {Face}",
                 new StyledRun(6), new StyledRun(1, Size: StyledRun.Small)));
             Receive(service, new TextMessage("User 2", "Room 1", $"quiet {Face}"));
 
-            var heights = PictureHeights(form);
+            var faces = Pictures(chat);
 
-            Assert.Equal(2, heights.Count);
-            Assert.True(heights[0] < heights[1],
-                $"the small face was drawn {heights[0]} pixels tall and the ordinary one {heights[1]}");
+            Assert.Equal(2, faces.Count);
+
+            // The ink, not the picture. A picture is now as tall as the letters it stands among - which these two
+            // lines have in common, the face being the only thing typed Small on one of them - so what is smaller
+            // about a small face is the face.
+            Assert.True(faces[0].Ink.Height < faces[1].Ink.Height,
+                $"the small face inks {faces[0].Ink.Height} pixels and the ordinary one {faces[1].Ink.Height}");
+
+            // And both stand on the bottom of their box, which is where the line's letters stop.
+            Assert.Equal(faces[0].Told - 1, faces[0].Ink.Bottom);
+            Assert.Equal(faces[1].Told - 1, faces[1].Ink.Bottom);
         });
     }
 
@@ -425,6 +490,58 @@ public class StyledTranscriptTests
         return Regex.Matches(chat.SelectedRtf, @"pichgoal\d+[0-9a-f]+(?:\s*[0-9a-f]+)*")
             .Select(m => Regex.Replace(m.Value, @"\s", ""))
             .ToList();
+    }
+
+    /// <summary>
+    /// Each picture the transcript holds: how tall it told RichEdit to be, in device pixels, and the bounds of the
+    /// ink inside it. The height comes out of the RTF because that is what the control is told; the ink is measured
+    /// on the decoded artwork, because the RTF says nothing about where inside a picture the face actually is.
+    /// </summary>
+    private static List<(int Told, Rectangle Ink)> Pictures(RichTextBox chat)
+    {
+        chat.SelectAll();
+
+        var seen = new List<(int, Rectangle)>();
+
+        foreach (Match picture in Regex.Matches(
+            chat.SelectedRtf, @"pichgoal(\d+)((?:\s*[0-9a-f]+)*)"))
+        {
+            var png = Convert.FromHexString(Regex.Replace(picture.Groups[2].Value, @"\s", ""));
+
+            using var stream = new MemoryStream(png);
+            using var image = Image.FromStream(stream);
+
+            // The size is told in twips, which is a hundred andfortieth of an inch: divided by fifteen it is the
+            // device pixels the picture was asked for, and that is the domain the line's own heights are in.
+            seen.Add((int.Parse(picture.Groups[1].Value) / 15, InkOf((Bitmap)image)));
+        }
+
+        return seen;
+    }
+
+    /// <summary>Everything in a picture that is not transparent, antialiasing included.</summary>
+    private static Rectangle InkOf(Bitmap image)
+    {
+        var left = image.Width;
+        var top = image.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < image.Height; y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                if (image.GetPixel(x, y).A > 0)
+                {
+                    left = Math.Min(left, x);
+                    right = Math.Max(right, x);
+                    top = Math.Min(top, y);
+                    bottom = Math.Max(bottom, y);
+                }
+            }
+        }
+
+        return Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
     }
 
     private static List<int> PictureHeights(Form form)

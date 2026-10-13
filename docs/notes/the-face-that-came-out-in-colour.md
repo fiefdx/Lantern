@@ -137,6 +137,70 @@ RichTextBox writes **back out** are not true of the RTF you put in:
 A test comparing a prefix of each picture would therefore have said "three faces, one artwork" and been believed -
 which is exactly the report being investigated. Compare the whole blob, line breaks taken out.
 
+## The face and the line it is not on
+
+The report after that: **"transcript shows mixed size text and emoji icon, the emoji icon and the text vertical not
+aligned."** It was true, it was worse than it looked, and it had been true since colour faces were first put in the
+transcript.
+
+A face in the transcript is a picture, and a picture goes where the control puts it. Six lines were measured - a word
+and a face, with the sizes of the word and of the face varied - and the control puts every picture in the same place,
+which is **the top of the line**, whether the line is 14, 18 or 25 pixels tall:
+
+| the line | where its letters stop | where the face's chin was | and now |
+| --- | --- | --- | --- |
+| ordinary words, ordinary face | 16 | 1 above | 1 above |
+| **Large words**, ordinary face | 23 | **8 above** | 1 above |
+| small words, ordinary face | 13 | 2 below | 2 below |
+| ordinary words, **Large face** | 18 | 3 below | 1 below |
+| ordinary words, **small face** | 16 | **6 above** | 1 above |
+| Large words, Large face | 23 | 2 above | 1 above |
+
+Every face had always ended with its chin 15 pixels below the top of its line, because the artwork is 3 pixels of air
+in from the edge of the picture and the picture is 18 tall. The letters of a line stop at 13, 16 or 23 - two pixels
+above the bottom of the line's own height at the room's size and at Large, one at Small. So an ordinary face beside
+Large words floated eight pixels, a small face beside ordinary words floated six, and only the one case where the face
+and the line happened to agree - the plain message, which is nearly every message - looked right. That is why nobody
+noticed, and why the tests never did: every face in every test was on a line of its own size.
+
+### Where the bottom of a line is, and where GDI refuses to say
+
+The obvious thing to ask is where the baseline is. It was asked, three ways, and none of them answer:
+
+* `FontFamily.GetCellAscent` on Segoe UI gives 14.03 pixels at the room's 9.75 points. The screen says 16.
+* GDI's own `GetTextMetrics` for the same font says `tmAscent` 14, `tmDescent` 3, `tmHeight` 17 - while `Font.Height`
+  for it is 18. Whatever RichEdit lays lines with, it is not those numbers; the baseline it draws on is 16.
+* Drawing the font with `TextRenderer` (which is GDI `DrawText`, the same text engine) and finding the lowest ink puts
+  the baseline at 13 from the top of the drawing rectangle - so the rectangle is not the line either.
+
+What does hold, at every size measured, is a relation between two things the control agrees about: **the letters stop
+two pixels above the bottom of `Font.Height`** - 16 in a line 18 tall, 23 in a line 25 tall, and 13 in a Small line 14
+tall, which is one pixel off the rule and as near as arithmetic about a font comes at 14 pixels. So the arithmetic is
+built on that instead of on a baseline nobody can name.
+
+### The picture is the line, and the face stands on the bottom of it
+
+The picture's top is the one thing about a picture that RichEdit will not move, so the picture is made **as tall as the
+tallest letters on the line** and the face's ink is placed inside it with its last row two pixels above the bottom. The
+face itself is not stretched by a pixel: it is the same picture of a face at the same size, standing lower.
+
+Two details in that are worth more than the rest.
+
+**The tallest *letters*, not the tallest run.** A run that is nothing but a face does not set the height of a line:
+measured, a line of Small words with an ordinary-sized face on it was laid out for the Small words, and the face was
+expected to stand where they stand whatever its own font thought it was entitled to. So the height a face is stood in
+comes from the runs that have words in them, and a message that is nothing but faces falls back to the room's own.
+
+**Air can be cut; ink cannot.** A face taller than the line it is on cannot stand on that line and keep all of itself
+below the top of it. Such a face is stood as near as it gets, and what gets clipped off the top of the artwork is its
+own air - which is nowhere anybody is looking - rather than its crown. That is the difference between the Large face in
+the table hanging 3 pixels below the words beside it instead of 1, and a Large face with its forehead sawn off.
+
+`AFaceStandsOnTheLineItsWordsAreOn` holds the two sizes that were wrong - a face beside Large words, and a small face
+beside ordinary ones - to standing where the ordinary face stands, and it is a test of what the transcript *writes*
+(the picture's height, and the ink's place inside it, both read back out of the control's RTF) rather than of what it
+happens to have painted: what is claimed is a rule about the pictures, and a rule can be read back.
+
 ## What is guaranteed by a test, and what is left to eyes
 
 Tests guarantee: the font read is Windows' own; a rasterised face has real hue and more than eight shades in it; a

@@ -622,11 +622,36 @@ it: the way back out to their own folder, and any sign that a transfer is still 
 
       `ThreeFacesTogetherAreThreePicturesAndNotOne` failed twice before it was believed, and the second failure was the
       test's own: a RichTextBox does not write a picture's hex back out the way it was put in - it breaks it into
-      **lines** (`\pichgoal270 
-89504e47`), and the first ~200 hex digits of two different faces are identical because
+      **lines** (`\pichgoal270`, a line break, then the hex), and the first ~200 hex digits of two different faces are identical because
       they are the PNG magic and the `IHDR`/`sRGB`/`gAMA`/`pHYs` chunks of two 18x18 RGBA files. Comparing a prefix of
       each picture therefore reports "three faces, one artwork" - the report under investigation, manufactured by the
       test. It compares whole blobs now. **693 tests**, 0 warnings.
+
+- [x] **T12.6 [ui,qa] fixed once more (the transcript, not the box)** - "transcript shows mixed size text and emoji
+      icon, the emoji icon and the text vertical not aligned". True, and true since colour faces went into the
+      transcript: a face there is a picture, and RichEdit puts every picture at **the top of its line** - measured on
+      six lines, the same placement whether the line was 14, 18 or 25 pixels tall. A face's ink is 3 pixels of air in
+      from the edge of its picture, so every face finished with its chin 15 pixels down while the letters of those
+      lines stop at 13, 16 and 23. An ordinary face beside Large words therefore floated **8 pixels**, a small face
+      beside ordinary words **6**, and only the case where face and line happen to be the same size - which is nearly
+      every message, and every face in every test - looked right.
+
+      Asking where the baseline is was tried and does not work: `FontFamily.GetCellAscent` says 14.03 for the room's
+      Segoe UI 9.75pt, GDI's `GetTextMetrics` says `tmAscent` 14 with `tmHeight` 17 for a font whose `Font.Height` is
+      18, and GDI `DrawText` puts the ink's last row at 13 from the top of its rectangle. The screen says 16. What
+      does hold at every size measured is that **letters stop two pixels above the bottom of `Font.Height`** (16 of
+      18, 23 of 25, and 13 of 14 at Small - one off the rule, which is as near as font arithmetic gets at 14 pixels),
+      so the picture is made as tall as the line's tallest letters and the ink is set two above the bottom of that.
+      The face is never stretched: same picture, same size, standing lower.
+
+      Two details carry the rest. A run that is **nothing but a face does not set a line's height** - measured, a Small
+      line with an ordinary face on it was laid out for the Small words - so the box a face stands in comes from the
+      runs with words in them. And a face taller than its line cannot stand on it and stay below the top of it, so such
+      a face is stood as near as it gets with **its own air clipped rather than its crown** - which is why a Large face
+      on an ordinary line hangs 1 pixel instead of 3 and still has a forehead. `AFaceStandsOnTheLineItsWordsAreOn`
+      reads both wrong sizes back out of the control's RTF - the height it was told, and where the ink sits inside it -
+      and `ALargeFaceIsDrawnLargerThanAnOrdinaryOne`/`ASmallFaceIsDrawnSmallerThanAnOrdinaryOne` were re-expressed to
+      measure the ink rather than the picture, because the picture is now the line. **694 tests**, 0 warnings.
 
 
 ---

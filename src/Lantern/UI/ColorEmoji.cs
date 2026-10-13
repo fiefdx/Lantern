@@ -109,33 +109,50 @@ public static class ColorEmoji
     }
 
     /// <summary>
-    /// The RTF that puts these emoji into a RichTextBox at <paramref name="pixels"/> tall, or null when this
-    /// machine cannot produce a colour face - in which case the caller writes the characters instead.
+    /// The RTF that puts these emoji into a RichTextBox, each one <paramref name="pixels"/> across and standing on
+    /// the bottom of a box <paramref name="tall"/> tall, or null when this machine cannot produce a colour face - in
+    /// which case the caller writes the characters instead.
     /// </summary>
     /// <remarks>
-    /// One picture per text element, even when several arrive together. A cell is square because that is what an
-    /// emoji is, and two faces in a row are two cells: drawing both into one cell would either squash them or put
-    /// the second one outside the bitmap, where the person typing them would wait some time for it to appear.
-    /// Several of those cells go into <b>one</b> RTF document rather than being concatenated as several, which is
-    /// the difference between three faces arriving and one arriving - see <see cref="RtfPicture.Document"/>.
+    /// One picture per text element, even when several arrive together. Two faces in a row are two cells: drawing
+    /// both into one cell would either squash them or put the second one outside the bitmap, where the person typing
+    /// them would wait some time for it to appear. Several of those cells go into <b>one</b> RTF document rather than
+    /// being concatenated as several, which is the difference between three faces arriving and one arriving - see
+    /// <see cref="RtfPicture.Document"/>.
+    /// <para>
+    /// <b>Why the box is asked for separately from the face.</b> A picture goes where its control puts it, and the
+    /// one thing RichEdit will not do is set a picture down on the line's baseline: measured on six lines, the top of
+    /// every picture landed on the top of the line it was on, whether that line was 14, 18 or 25 pixels tall. A face
+    /// 18 tall therefore always ended 15 pixels down, while the letters of the line it was standing among always ended
+    /// one pixel above that line's own height - 13, 17, 24. Beside Large words that is a face eight pixels in the
+    /// air; a small face beside ordinary words is six in the air the other way, and nothing about the message tells a
+    /// person which they are looking at.
+    /// </para>
+    /// <para>
+    /// So rather than work out where the baseline is - which GDI's own metrics do not say, measured - the picture is
+    /// made as tall as the tallest letters on the line and carries its ink near the bottom of that. Two pixels above
+    /// the bottom of a line's height is where letters stop: 16 down on a line 18 tall and 23 down on a line 25 tall,
+    /// measured, which is the room's own size and Large both. At Small the same arithmetic leaves a face one pixel
+    /// high, which is as near as arithmetic about a font gets at 14 pixels. The face is not stretched to fill the box:
+    /// it is the same picture of a face at the same size, standing lower.
+    /// </para>
     /// </remarks>
-    public static string? InlineRtf(string text, int pixels)
+    public static string? InlineRtf(string text, int pixels, int tall)
     {
         var groups = new List<string>();
 
         foreach (var element in Elements(text))
         {
-            if (Png(element, pixels) is not { } png)
+            if (CachedGlyph(element, pixels) is not { } face)
             {
                 // All or nothing. Half a sentence in colour and half in outline, with no way to tell why, reads as
                 // a rendering fault rather than as a machine that cannot do colour.
                 return null;
             }
 
-            using var stream = new MemoryStream(png);
-            using var bitmap = Image.FromStream(stream);
+            using var standing = Stand(face, tall);
 
-            if (RtfPicture.Group(bitmap) is not { } group)
+            if (RtfPicture.Group(standing) is not { } group)
             {
                 return null;
             }
@@ -145,6 +162,48 @@ public static class ColorEmoji
 
         return groups.Count == 0 ? null : RtfPicture.Document(groups);
     }
+
+    /// <summary>
+    /// The same face, in a picture <c>max(its own height, <paramref name="tall"/>)</c> tall, with the last row of its
+    /// ink two pixels above the bottom of <paramref name="tall"/> - which is where the letters of the line it stands
+    /// among stop.
+    /// </summary>
+    /// <remarks>
+    /// A face <i>bigger</i> than the letters around it gets the box it asked for rather than the line's: such a face is
+    /// the tallest thing on its line, the line is built around it, and shrinking a Large face to fit an ordinary line
+    /// would be taking the Large back off it. It still stands on the same rule, which on its own line is where it
+    /// always stood.
+    /// </remarks>
+    private static Bitmap Stand(Face face, int tall)
+    {
+        var across = face.Image.Width;
+
+        // Never shorter than the face itself, or the face would be cut, and never shorter than one pixel because a
+        // zero-high canvas is not a bitmap.
+        var box = Math.Max(across, Math.Max(1, tall));
+
+        var canvas = new Bitmap(across, box);
+
+        using var g = Graphics.FromImage(canvas);
+
+        // Where to put the artwork so that the last row of its ink lands two pixels above the bottom of the line's
+        // height. Not two above the bottom of the artwork, which is air: a face comes out of the font with air under
+        // it, and air stands on nothing.
+        var stand = tall - 2 - (face.Ink.Bottom - 1);
+
+        // A face taller than the line it is on cannot stand on the line and keep all of itself below the top of it,
+        // so it stands as near as it can without any ink being cut: the artwork's own air is what gets clipped, and
+        // a face's air is nowhere anybody is looking.
+        g.DrawImageUnscaled(face.Image, 0, Math.Max(-face.Ink.Top, stand));
+
+        return canvas;
+    }
+
+    /// <summary>
+    /// Faces on a line of their own size: the box they stand in is the face, which is what every message written in
+    /// one size used to be before standing on a line of other people's letters was a thing that had to be asked about.
+    /// </summary>
+    public static string? InlineRtf(string text, int pixels) => InlineRtf(text, pixels, pixels);
 
     /// <summary>
     /// A face as an image a control can hold - a button's icon, a tile in the picker - or null when this machine
