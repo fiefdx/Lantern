@@ -178,6 +178,77 @@ public sealed class WireframeParityTests
         });
     }
 
+    /// <summary>
+    /// The three columns finish on one line.
+    /// </summary>
+    /// <remarks>
+    /// Reported as it is seen: <b>"the bottom border of input area has too much padding or margin making it a
+    /// little higher than others."</b> Three pixels, which is nothing to describe and unmistakable on a screen,
+    /// because the thing it lines up is two borders that were drawn to line up. The outer table gives all three
+    /// columns the same bottom; a list spends its default three pixels of cell margin and finishes there; and the
+    /// input area spent six - three below the input panel and three again below the box. What a person calls the
+    /// bottom border of the window is really three panes ending together, so it is measured on the screen, in
+    /// pixels, and not in the margins anybody set.
+    /// </remarks>
+    [Fact]
+    public void TheThreeColumnsEndOnTheSameLine()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+
+            form.Show();
+            Pump();
+
+            var rooms = Find(form, "lstRooms");
+            var members = Find(form, "lstMembers");
+            var box = Find(form, "txtMessage");
+            var send = Find(form, "btnSend");
+
+            // On the screen, and not in each control's own coordinates: these four are not siblings, and a bottom
+            // is measured in the parent - which is how "three pixels too high" first reads as 485.
+            var roomsBottom = Bottom(rooms);
+            var membersBottom = Bottom(members);
+            var boxBottom = Bottom(box);
+
+            // Bottoms rather than heights. The columns hold different things and are different widths, but their
+            // last line is one line, and that is what the eye checks when it decides a window is untidy.
+            Assert.True(
+                roomsBottom == boxBottom,
+                $"the message box ends {roomsBottom - boxBottom} px above the rooms list, so the input area does not finish where the rooms do");
+
+            Assert.True(
+                membersBottom == boxBottom,
+                $"the message box ends {membersBottom - boxBottom} px above the members list, so the input area does not finish where the members do");
+
+            // Send is in the input area's last row beside the box, so its edge is that same edge. Said separately
+            // because a margin added to one of the two is this same report, arriving again.
+            Assert.True(
+                Bottom(send) == boxBottom,
+                $"Send finishes {Bottom(send) - boxBottom} px away from the message box");
+
+            // And the transcript still takes whatever the window has over: shortening the input area by three
+            // pixels is allowed to give those three to the conversation, not to open a gap under it.
+            var transcript = Find(form, "rtbChat");
+            var input = Find(form, "pnlInput");
+
+            Assert.True(transcript.Bottom <= input.Top + 1, "a gap opened between the transcript and the input area");
+        });
+    }
+
+    /// <summary>
+    /// Where a control's bottom edge is on the screen.
+    /// </summary>
+    /// <remarks>
+    /// Its <b>outer</b> edge, which is what a person means by a bottom border, and its <see cref="Control.Bounds"/>
+    /// rather than its client area: a list and a rich text box are both drawn with a two-pixel frame and a button
+    /// with a one-pixel one, so measured by client area Send would sit a pixel off whatever else was lined up.
+    /// The bounds are in the parent's coordinates, so the parent is what maps them on to the screen - these four
+    /// panes are not siblings, and a bottom measured in the parent is how "three pixels too high" first read as 485.
+    /// </remarks>
+    private static int Bottom(Control control)
+        => control.Parent!.RectangleToScreen(control.Bounds).Bottom;
+
     [Fact]
     public void TheToolsDoNotFallOnOneAnotherWhenTheWindowIsAtItsNarrowest()
     {

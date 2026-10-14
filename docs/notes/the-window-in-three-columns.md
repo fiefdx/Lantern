@@ -130,3 +130,55 @@ means — and what is asserted instead is that Send is beside the box rather tha
 
 Nothing in `Core`, `Transport` or `Domain` moved: this is the window, and the window had never been the part at
 risk. **664 tests, no warnings.**
+## And the three columns end on one line
+
+Reported later by somebody looking at the window rather than at the code: **"make its bottom border the same level
+as room list and member list bottom borders - currently the bottom border of input area has too much padding or
+margin, making it a little higher than others."**
+
+Three pixels. That is nothing to describe, which is why the report is written in words like "a little higher"
+instead of numbers, and it is a real complaint: what is being lined up is the three bottom borders that a person
+reads as the bottom edge of the window, and three panes stopping at three different heights makes a window look
+unfinished without anybody being able to say why.
+
+### Measured, on the screen
+
+The first measurement reported a gap of **485 pixels**, which was the measurement being wrong rather than the
+window: `Bottom` is in the parent's coordinates, and these four controls are not siblings - the list's parent is a
+column panel, the box's parent is the input panel. Only the screen is a frame of reference they all share, so
+everything about this bug is measured in `RectangleToScreen`, which is also why the assertion below asks the
+*parent* to do the mapping. And the outer edge, not the client area: a list and a rich text box are drawn with a
+two-pixel frame and a button with a one-pixel one, so a client-area comparison would have put Send a pixel off
+something that was already right.
+
+| Bottom border | before | after |
+|:--|:--|:--|
+| Rooms list | 689 | 689 |
+| Message box | **686** | 689 |
+| Send | 687 | 689 |
+| Members list | 689 | 689 |
+
+The middle column was spending two margins where the other two spend none. The lists are docked into plain panels,
+and their bottom borders land on those panels' bottoms; the chatting area spent three pixels below `pnlInput` and
+three again below the box. So `pnlInput`, `txtMessage` and `btnSend` carry no bottom margin now, and all four edges
+are on one line - and the three pixels went into the message box, which is the only thing in the window that gained
+anything by the change.
+
+```
+pnlInput.Margin   = new Padding(3, 3, 3, 0);   // was the default 3,3,3,3
+txtMessage.Margin = new Padding(3, 3, 3, 0);   // was the default 3,3,3,3
+btnSend.Margin    = new Padding(3, 3, 3, 0);
+```
+
+### Looked at as well as measured
+
+The bottom of a real window was photographed and the frame lines found in the pixels: rooms list, message box and
+members list all end at the same row, with Send one pixel below rather than three above. Which is the right way
+round for this report - a person comparing two borders notices the one that is *not* where the others are.
+
+`WireframeParityTests.TheThreeColumnsEndOnTheSameLine` is the assertion: the box's bottom border equals the rooms
+list's and the members list's, Send's equals the box's, and the transcript still meets the input area with no gap
+opened between them - because shortening the input area by three pixels is meant to hand those three to the
+conversation, not to leave a stripe of empty panel under it.
+
+**711 tests, no warnings.**

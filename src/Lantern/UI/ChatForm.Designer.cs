@@ -232,6 +232,12 @@ partial class ChatForm
         pnlInput.Controls.Add(btnSend, 1, 1);
         pnlInput.Dock = DockStyle.Fill;
         pnlInput.Location = new Point(3, 453);
+        // No margin under the input area. The rooms list and the members list each spend one default cell margin
+        // below themselves and stop, so their borders sit three pixels above the bottom of the window; the input
+        // area was spending two - one below this panel and another below the box - and finished six pixels above.
+        // Three pixels is nothing to describe and unmistakable on a screen, because what it mislines is the three
+        // bottom borders that a person reads as one line under the window (see WireframeParityTests).
+        pnlInput.Margin = new Padding(3, 3, 3, 0);
         pnlInput.Name = "pnlInput";
         pnlInput.RowCount = 2;
         pnlInput.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
@@ -464,6 +470,9 @@ partial class ChatForm
         //
         txtMessage.Dock = DockStyle.Fill;
         txtMessage.HideSelection = false;
+        // Nothing under the box either, for the same reason as the panel above: the bottom edge of this window is
+        // three panes finishing together, and the box is one of them.
+        txtMessage.Margin = new Padding(3, 3, 3, 0);
         txtMessage.Location = new Point(3, 39);
         txtMessage.Multiline = true;
         txtMessage.Name = "txtMessage";
@@ -476,6 +485,7 @@ partial class ChatForm
         // btnSend
         //
         btnSend.Dock = DockStyle.Fill;
+        btnSend.Margin = new Padding(3, 3, 3, 0);
         btnSend.Location = new Point(512, 39);
         btnSend.Name = "btnSend";
         btnSend.Size = new Size(85, 54);
