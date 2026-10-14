@@ -192,6 +192,16 @@ takes seconds on the radio's clock, so a window hands the stopping over rather t
 Nothing in `UI/` references `Transport/`; nothing in `Domain/` references either. That is why the loopback build
 and the Bluetooth build are the same program.
 
+### The lantern on the window
+
+One drawing - `Media/icon_trans.png`, a lantern with a Bluetooth flame in it - is shown in four places that ask for
+four different sizes: Explorer's listing of `Lantern.exe` and the taskbar jump list (which read a resource baked
+into the executable at build time), a taskbar button, a title bar's corner and the alt-tab strip (which read the
+window's `Icon` at run time). So `tools/make_icon.py` turns the art into a seven-frame `Media/icon.ico` (16, 24, 32,
+48, 64, 128, 256 pixels, smallest frame first), the build puts that inside the executable as its `ApplicationIcon`,
+and a copy is left beside the program for `AppIcon` to hand to each of the six windows - which is also how the
+picture is changed: replace the PNG, run the tool, rebuild (`docs/notes/the-lantern-on-the-window.md`).
+
 ## 5. Known limitations
 
 Said plainly, because a limitation found by a marker is worse than one admitted in the report.

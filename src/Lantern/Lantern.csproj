@@ -17,6 +17,12 @@
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- The lantern, inside the executable. This is the picture Explorer shows for Lantern.exe, the one a
+         taskbar jump list shows, and the one a window falls back to if nobody hands it another - none of which
+         can be fixed at run time, because it is a resource baked into the file at build time. The frames are
+         chosen and written by tools/make_icon.py, which says why a single 1254-pixel picture is not enough. -->
+    <ApplicationIcon>Media\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +36,14 @@
          replacing a file changes the sound without changing the code - and so that the sound does not
          depend on whoever set up this machine having left the Windows sound scheme alone. -->
     <Content Include="Media\*.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+
+    <!-- The same picture, beside the program as well as inside it, so that the windows can be given their icon
+         by AppIcon and a person can change it without a rebuild - the reason the sounds are files too (F10).
+         The two PNGs it was made from are deliberately not copied: 2.6 MB of art nobody reads at run time.
+         See tools/make_icon.py and docs/notes/the-lantern-on-the-window.md. -->
+    <Content Include="Media\icon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

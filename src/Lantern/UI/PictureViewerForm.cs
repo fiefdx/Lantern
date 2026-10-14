@@ -203,6 +203,8 @@ public partial class PictureViewerForm : Form
 
     private void SetUp()
     {
+        AppIcon.Apply(this);
+
         Text = picture.FileName.Length == 0 ? "Picture" : picture.FileName;
 
         image = picture.ToImage();

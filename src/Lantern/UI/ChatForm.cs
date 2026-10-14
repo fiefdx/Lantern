@@ -166,6 +166,12 @@ public partial class ChatForm : Form
     /// </summary>
     private void SetUp()
     {
+        // The lantern in the corner. Every window asks for it once, in the constructor path it shares with its
+        // design-surface twin, and says nothing when this machine was not given the picture - see AppIcon for why
+        // it is a file beside the program rather than a resource inside it, and why the executable needs its own
+        // copy of the same picture for the taskbar and Explorer to show at all.
+        AppIcon.Apply(this);
+
         // How long a message may be is said here rather than left to the control. A RichTextBox does not hold a
         // text box to its <c>MaxLength</c> - it accepts what it is handed anyway - and it counts UTF-16 units, which
         // is not the ruler this program's limit is measured in: a face is one character and two units (v1.4). So

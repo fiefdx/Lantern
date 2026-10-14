@@ -32,6 +32,8 @@ public partial class ConfirmDialog : Form
 
     private void Present(string title, string message)
     {
+        AppIcon.Apply(this);
+
         Text = title;
         lblMessage.Text = message;
     }

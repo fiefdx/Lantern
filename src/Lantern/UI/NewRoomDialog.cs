@@ -47,6 +47,8 @@ public partial class NewRoomDialog : Form
 
     private void Present(string title, string initial)
     {
+        AppIcon.Apply(this);
+
         Text = title;
         btnOk.Text = string.IsNullOrEmpty(initial) ? "OK" : "Save";
         txtRoomName.Text = initial;

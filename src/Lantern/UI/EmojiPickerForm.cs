@@ -66,6 +66,10 @@ public partial class EmojiPickerForm : Form
     public EmojiPickerForm()
     {
         InitializeComponent();
+
+        // The other constructor chains through here, so this is the one place the table's own window is built.
+        AppIcon.Apply(this);
+
         BuildTiles();
     }
 

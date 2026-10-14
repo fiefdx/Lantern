@@ -67,6 +67,8 @@ public partial class StartupForm : Form
     /// </summary>
     private void SetUp()
     {
+        AppIcon.Apply(this);
+
         txtNickname.Text = Environment.UserName;
         lstServers.Items.Clear();
 
