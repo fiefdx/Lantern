@@ -171,6 +171,103 @@ public sealed class PictureOnScreenTests
         });
     }
 
+    [Fact]
+    public void ADoubleClickOnTheFarSideOfAThumbnailOpensTheViewer()
+    {
+        // "not every time I double click a image shared in the transcript can open the image viewer window,
+        // sometimes there is no reaction at all." There is a line inside a photograph where the control stops
+        // answering for it. Measured on a 140 x 90 thumbnail: every click in its left 100 pixels reports the
+        // picture's own character, and every click in the right third reports the character AFTER it - which the
+        // rule for opening a picture can only read as "not on the picture". So a photo was openable by clicking
+        // the left two thirds of it, and by nothing you could do to the right third, which is the sort of thing
+        // that gets reported as "sometimes" because it depends on where the hand happened to land.
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new HostForm(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", Red(140, 90)));
+
+            // A 140 x 90 photo is under the 160 pixel edge, so it is shown at exactly 140 x 90.
+            var corner = ThumbnailCorner(form, "sunset.png");
+
+            DoubleClickTranscriptAt(form, corner.X + 136, corner.Y + 45);
+
+            var opened = form.OwnedForms.OfType<PictureViewerForm>().ToList();
+
+            Assert.Single(opened);
+
+            opened[0].Close();
+        });
+    }
+
+    [Fact]
+    public void ADoubleClickBelowAThumbnailOpensNothing()
+    {
+        // The other side of the same rule, and the reason the answer is not "open the photo whenever the character
+        // after it is reported": a thumbnail makes its line as tall as itself, so there is a band of empty
+        // transcript under the photo that belongs to no words, and a click down there is a click on nothing.
+        // Doing something there would be the same fault pointed the other way.
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new HostForm(service);
+
+            form.Show();
+            Rooms(form).SelectedIndex = 0;
+            service.SimulateIncoming(new PictureMessage("User 2", "Room 1", "sunset.png", Red(140, 90)));
+            service.SimulateIncoming(new TextMessage("User 2", "Room 1", "the next entry"));
+
+            var corner = ThumbnailCorner(form, "sunset.png");
+
+            DoubleClickTranscriptAt(form, corner.X + 70, corner.Y + 90 + 18);
+
+            Assert.Equal(0, form.OwnedForms.Count(f => f is PictureViewerForm));
+        });
+    }
+
+    /// <summary>
+    /// The top-left pixel of a photo's own thumbnail, which is where its character is.
+    /// </summary>
+    private static Point ThumbnailCorner(Control form, string file)
+    {
+        var rtb = (RichTextBox)Find(form, "rtbChat")!;
+        var words = rtb.Text.IndexOf(file, StringComparison.Ordinal);
+
+        Assert.True(words >= 0, $"there is no {file} in the transcript");
+
+        // The thumbnail goes on the line below the entry's words.
+        var photo = rtb.GetFirstCharIndexFromLine(rtb.GetLineFromCharIndex(words) + 1);
+
+        Assert.True(photo > words, "the line under the caption is not the photo's");
+
+        return rtb.GetPositionFromCharIndex(photo);
+    }
+
+    /// <summary>Raises the transcript's double-click at a pixel, by the control's own coordinates.</summary>
+    private static void DoubleClickTranscriptAt(Control form, int x, int y)
+    {
+        var rtb = (RichTextBox)Find(form, "rtbChat")!;
+
+        var raise = typeof(Control).GetMethod(
+            "OnMouseDoubleClick", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(raise);
+
+        raise!.Invoke(rtb, new object?[]
+        {
+            new MouseEventArgs(MouseButtons.Left, 2, x, y, 0),
+        });
+
+        for (var i = 0; i < 8; i++)
+        {
+            Application.DoEvents();
+            Thread.Sleep(20);
+        }
+    }
+
     // ------------------------------------------------------------------ harness
 
     /// <summary>

@@ -103,7 +103,15 @@ public partial class ChatForm : Form
     private readonly Dictionary<Guid, string> sentFrom = [];
 
     /// <summary>One picture message, and the span of transcript it occupies: from its first character to just past its last.</summary>
-    private sealed record PictureSpan(int Start, int End, PictureMessage Picture);
+    /// <summary>
+    /// Where an entry was written, and where its thumbnail went.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Cell"/> is the picture's own character, or -1 when there was no picture to write; <see cref="Across"/>
+    /// and <see cref="Down"/> are the box that character's picture was asked to fill. The transcript answers "what is
+    /// under this click" in characters, and a photograph is not answerable in characters - see <see cref="PictureAtPixel"/>.
+    /// </remarks>
+    private sealed record PictureSpan(int Start, int End, PictureMessage Picture, int Cell, int Across, int Down);
 
     /// <summary>
     /// The picture windows this window has open (F14). One per picture, so looking at the same photo twice
@@ -1712,7 +1720,62 @@ public partial class ChatForm : Form
     /// that nobody can actually look at is only half a feature.
     /// </summary>
     private void RtbChat_MouseDoubleClick(object? sender, MouseEventArgs e)
-        => TryOpenPictureAt(rtbChat.GetCharIndexFromPosition(e.Location));
+    {
+        var caret = rtbChat.GetCharIndexFromPosition(e.Location);
+
+        var picture = pictures.LastOrDefault(s => caret >= s.Start && caret < s.End)
+            ?? PictureAtPixel(e.Location);
+
+        if (picture is not null)
+        {
+            OpenPicture(picture.Picture);
+        }
+    }
+
+    /// <summary>
+    /// The picture whose thumbnail is drawn under this pixel, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "not every time I double click a image shared in the transcript can open the image viewer window, sometimes
+    /// there is no reaction at all." It was true, and which times it was true is the interesting part. A picture in
+    /// a RichTextBox is one character, and the control is asked which character a click is on. Measured on a
+    /// 140 x 90 thumbnail, sitting alone on its own line at the end of its entry: every click in the left 100 pixels
+    /// reported the picture's own character, and every click in the right 35 of them reported the character after
+    /// it. The character after it is one past the end of the entry, so the rule for opening a picture - which is
+    /// quite right to be strict, because a photo that opens when nobody pointed at it is worse than one that does
+    /// not - read those clicks as not being on the photo at all. Nothing happened, and whether anything happened
+    /// depended on where the hand landed within a photograph, which is not a thing anybody can see happening.
+    /// </para>
+    /// <para>
+    /// So the question is asked of the pixels too, in the box the thumbnail was written into. That is why the span
+    /// remembers the box: it is knowable once, when the picture is drawn, and asking again would mean decoding the
+    /// photograph to measure it on every double click.
+    /// </para>
+    /// <para>
+    /// The box is the photograph and not the line it is on, which is what keeps the empty band under a tall photo
+    /// doing nothing: that band belongs to the photo's line but not to the photo, and a click there is a click on
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    private PictureSpan? PictureAtPixel(Point at)
+    {
+        // RTF measures a picture in twips at 96 dots to the inch, so the box the transcript asked for is this many
+        // dots on this screen.
+        var each = rtbChat.DeviceDpi / 96d;
+
+        return pictures.LastOrDefault(picture => picture.Cell >= 0 && Covers(picture, at, each));
+    }
+
+    private bool Covers(PictureSpan picture, Point at, double each)
+    {
+        var corner = rtbChat.GetPositionFromCharIndex(picture.Cell);
+
+        return at.X >= corner.X
+            && at.X < corner.X + Math.Round(picture.Across * each)
+            && at.Y >= corner.Y
+            && at.Y < corner.Y + Math.Round(picture.Down * each);
+    }
 
     // ------------------------------------------------------ saving a shared thing
     //
@@ -1793,6 +1856,15 @@ public partial class ChatForm : Form
             // control has a caret, and a right click puts that caret where the click happened. Ask it too before
             // deciding nothing was pointed at.
             (picture, file) = SharedAt(rtbChat.SelectionStart);
+        }
+
+        if (picture is null && rtbChat.ClientRectangle.Contains(point))
+        {
+            // The photo's own pixels, for the same reason a double click needs them: past its middle the control
+            // stops reporting the picture's character. A menu is allowed to be generous about where an entry still
+            // is, so it was never the thing that went wrong loudly - but the right third of a photograph could not
+            // be saved either, which is the same fault wearing a quieter hat.
+            picture = PictureAtPixel(point);
         }
 
         pointedPicture = picture;
@@ -2091,12 +2163,22 @@ public partial class ChatForm : Form
             // to be a picture at all still leaves its entry in the transcript (see RtfPicture).
             WriteRun(Environment.NewLine, content);
 
-            if (RtfPicture.InlineFor(picture) is { } rtf)
+            // Where the thumbnail's own character goes, and how big a box it is drawn in: both are only knowable
+            // here, in the moment of writing it, and both are needed later to point at it.
+            var cell = -1;
+            var across = 0;
+            var down = 0;
+
+            if (RtfPicture.InlineFor(picture) is { } shot)
             {
-                AppendRtf(rtf);
+                cell = TranscriptEnd;
+                across = shot.Across;
+                down = shot.Down;
+
+                AppendRtf(shot.Rtf);
             }
 
-            pictures.Add(new PictureSpan(start, TranscriptEnd, picture));
+            pictures.Add(new PictureSpan(start, TranscriptEnd, picture, cell, across, down));
         }
         else if (message is FileMessage file)
         {

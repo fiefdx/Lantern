@@ -111,10 +111,18 @@ public static class RtfPicture
     }
 
     /// <summary>
-    /// RTF for a picture message's thumbnail, or null when there is no decodable image to show. The
-    /// thumbnail is disposed here: the caller gets text, not a bitmap to look after.
+    /// A picture message's thumbnail as RTF, with the box in pixels that RTF tells the control to draw it in, or
+    /// null when there is no decodable image to show. The thumbnail is disposed here: the caller gets text, not a
+    /// bitmap to look after.
     /// </summary>
-    public static string? InlineFor(PictureMessage message)
+    /// <remarks>
+    /// The box comes back with the text because whoever puts a photograph into a transcript is the same person who
+    /// then has to know where its edges are. A double click arrives in pixels and RichEdit stops answering for an
+    /// inline picture once the click is past its middle, so whether a click was on a photograph is not a question
+    /// the character index can answer on its own - and asking it later means decoding the photograph again to
+    /// measure it, which is the sort of thing that turns a double click into a wait on a big image.
+    /// </remarks>
+    public static Thumbnail? InlineFor(PictureMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
@@ -127,11 +135,20 @@ public static class RtfPicture
 
         try
         {
-            return Inline(thumbnail);
+            return Inline(thumbnail) is { } rtf
+                ? new Thumbnail(rtf, thumbnail.Width, thumbnail.Height)
+                : null;
         }
         finally
         {
             thumbnail.Dispose();
         }
     }
+
+    /// <summary>
+    /// The RTF that draws a thumbnail, and how big a box in pixels it asks for. The box is what the RTF asks for
+    /// rather than what the control ends up drawing, which at anything but 96 dots to the inch is a different
+    /// number of dots - see <see cref="TwipsPerPixel"/>.
+    /// </summary>
+    public sealed record Thumbnail(string Rtf, int Across, int Down);
 }

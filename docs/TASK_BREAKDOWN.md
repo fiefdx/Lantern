@@ -663,7 +663,29 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       - `TheTableOffersNothingThatIsMoreThanOneFace` asserts it over every entry and names the pair that taught it.
       Reading them is untouched: `IsEmoji` still says yes to a joined family and the transcript still writes one picture
       for one grapheme, because another machine may send one and being unable to read it would be a fault, not a
-      policy. **697 tests**, 0 warnings.
+      policy. **697 tests**, 0 warnings. Note `docs/notes/the-face-that-came-out-in-colour.md`; sheet row 30.
+
+- [x] **fix(ui) [ui,qa] (v1.7)** - "not every time I double click a image shared in the transcript can open the image
+      viewer window, sometimes there is no reaction at all". A thumbnail is an inline picture, which is to say **one
+      character**, and opening it has always been one question: which character is this click on. Measured on a real
+      transcript with a 140 × 90 photo whose character is 158 and whose entry ends at 159: clicks at +2, +35 and +70
+      all report 158, and clicks at **+105 and +138 report 159** - one past the end of the entry, which the strict rule
+      for opening a picture can only read as "not on the picture". So the left two thirds of a photograph opened the
+      viewer and the right third did nothing, and that line is invisible because it is not a line in the photograph, it
+      is a line in how the control divides the picture's box. `ADoubleClickInTheMiddleOfAThumbnailOpensTheViewer` has
+      been clicking +70 since v1.3.1, which is on the answering side of a boundary nobody knew was there.
+
+      `caret <= span.End` is not the fix: the character after a thumbnail is the line break before the next entry, and
+      clicks in the empty band **under** a tall photo report that character too - so the fix would open a photograph
+      from the strip of nothing beneath it, the same fault pointed the other way. The question is about pixels, so the
+      span now remembers the **box** as well as the characters: the picture's own character (`Cell`, or -1 when there
+      was no image to draw) and the size in pixels it was asked to fill - knowable once, when the thumbnail is written,
+      because working it out later means decoding the photograph again on the way to showing it. Hence
+      `RtfPicture.InlineFor` hands back the RTF *and the size it asked for*. Scaled by `DeviceDpi / 96`, and the hit area
+      is the photograph and not its line, which is what `ADoubleClickBelowAThumbnailOpensNothing` holds. The right-click
+      menu had the identical hole - **Save picture to…** unreachable from the right third of a photo - invisible only
+      because the menu's rule is generous enough to hide it; `PictureAtPixel` now sits behind both.
+      **697 tests**, 0 warnings. Note `docs/notes/the-right-third-of-a-photograph.md`; sheet row 31.
 
 
 ---
