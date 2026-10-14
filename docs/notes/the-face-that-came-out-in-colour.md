@@ -201,6 +201,30 @@ beside ordinary ones - to standing where the ordinary face stands, and it is a t
 (the picture's height, and the ink's place inside it, both read back out of the control's RTF) rather than of what it
 happens to have painted: what is claimed is a rule about the pictures, and a rule can be read back.
 
+## Two tiles that were not faces
+
+The table of faces had 48 entries, and the last row ended with a joined family (👨‍👩‍👧) and the flag of Vietnam (🇻🇳). They
+had not arrived there by accident: they were chosen *because* they are each one character by the ruler a message is
+counted with - one grapheme cluster, `ValidationRules.Length` of 1 - and putting them on the table was a way of proving
+the counting was right. `TheTableIsATableAndEveryTileIsOneCharacter` says so about every entry, and they passed.
+
+They were still wrong, for a reason no counting test could see. The faces on these tiles are drawn **here**: this
+program reads the colour tables out of the emoji font and paints a code point at a time. Composing three people and
+two zero-width joiners into a family, or two regional-indicator letters into a flag, is work a font engine does - and
+it is not the work this code does. So those two tiles did not show a family and a flag. They showed a crowd of
+strangers, and the letters V and N.
+
+That is a rule about the table rather than about the two faces, and the difference matters, so the rule is what is
+asserted: an entry is **one code point, or one code point and the variation selector** that asks for the picture rather
+than the monochrome one. `TheTableOffersNothingThatIsMoreThanOneFace` asserts that over the whole table, and names the
+two that taught it, so that adding a joined family back is refused by a test rather than by memory.
+
+What did *not* change is the understanding of them. `ColorEmoji.IsEmoji` still answers yes to a joined family, and the
+transcript still writes one picture for one grapheme - `AJoinedFamilyIsOneFaceAndNotThree` in the box's own tests, and
+the theory in `ColorEmojiTests` that calls both of them emoji, are both still standing and both still pass. Somebody
+else's machine may send a family, and a program that could not read it would have a fault rather than a policy. The
+palette is a different matter: what it offers is a promise about what it can draw.
+
 ## What is guaranteed by a test, and what is left to eyes
 
 Tests guarantee: the font read is Windows' own; a rasterised face has real hue and more than eight shades in it; a

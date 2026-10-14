@@ -30,6 +30,15 @@ public partial class EmojiPickerForm : Form
     /// What is on offer, written as escapes rather than as pictures in the source: a table of emoji in a source file
     /// is unreadable to the person who has to review it, and invisible to a diff.
     /// </summary>
+    /// <remarks>
+    /// Every entry is <b>one code point</b>, or one code point and the variation selector that asks for the picture
+    /// rather than the monochrome one. That is not fussiness about counting: the faces on these tiles are drawn here,
+    /// out of the font's colour tables, one code point at a time, and a face that is really several code points put
+    /// together - a family joined by zero-width joiners, a flag made of two regional letters - arrives as several
+    /// strangers rather than as one face. The joined family and the flag of Vietnam were on this table until somebody
+    /// looked at the last row; they are still understood by <see cref="ColorEmoji.IsEmoji"/> and by the transcript,
+    /// because a message from another machine may contain them, and understanding is not the same as offering.
+    /// </remarks>
     public static readonly IReadOnlyList<string> Elements =
     [
         "\U0001F600", "\U0001F603", "\U0001F609", "\U0001F60D", "\U0001F970", "\U0001F618", "\U0001F60E", "\U0001F914",
@@ -38,7 +47,6 @@ public partial class EmojiPickerForm : Form
         "\u2764\uFE0F", "\U0001F494", "\U0001F496", "\U0001F4AF", "\U0001F525", "\u2B50", "\U0001F389", "\u2728",
         "\U0001F355", "\u2615", "\U0001F37A", "\U0001F382", "\U0001F436", "\U0001F431", "\U0001F327\uFE0F", "\u26BD",
         "\U0001F697", "\u2708\uFE0F", "\U0001F3E0", "\U0001F4BB", "\U0001F4F1", "\U0001F3B5",
-        "\U0001F468\u200D\U0001F469\u200D\U0001F467", "\U0001F1FB\U0001F1F3",   // 👨‍👩‍👧 and 🇻🇳: one tile, one character
     ];
 
     /// <summary>Raised with the face that was chosen, just before this window closes.</summary>

@@ -653,6 +653,18 @@ it: the way back out to their own folder, and any sign that a transfer is still 
       and `ALargeFaceIsDrawnLargerThanAnOrdinaryOne`/`ASmallFaceIsDrawnSmallerThanAnOrdinaryOne` were re-expressed to
       measure the ink rather than the picture, because the picture is now the line. **694 tests**, 0 warnings.
 
+- [x] **T11.2 [ui,qa] fixed** - "remove the last row last two emojies". The table's last row ended with a joined
+      family and the flag of Vietnam, and they had been put there on purpose: each is one character by the ruler a
+      message is counted with, which is exactly what `TheTableIsATableAndEveryTileIsOneCharacter` checks. Counting was
+      never the problem. The faces on the tiles are drawn **here**, out of the font's colour tables, one code point at
+      a time - and a family is three people plus two zero-width joiners, and a flag is two regional-indicator letters.
+      Composition into one face is a font engine's work, so those tiles showed a crowd and two letters. The rule now
+      belongs to the table rather than to the two faces: **one code point, or one code point and a variation selector**
+      - `TheTableOffersNothingThatIsMoreThanOneFace` asserts it over every entry and names the pair that taught it.
+      Reading them is untouched: `IsEmoji` still says yes to a joined family and the transcript still writes one picture
+      for one grapheme, because another machine may send one and being unable to read it would be a fault, not a
+      policy. **697 tests**, 0 warnings.
+
 
 ---
 

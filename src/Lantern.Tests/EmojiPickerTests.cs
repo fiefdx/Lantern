@@ -118,6 +118,31 @@ public sealed class EmojiPickerTests
     }
 
     [Fact]
+    public void TheTableOffersNothingThatIsMoreThanOneFace()
+    {
+        // "remove the last row last two emojies." They were a joined family (three people and two zero-width
+        // joiners) and a country flag (a pair of regional indicator letters), and they were on the table because
+        // they are one character by the ruler a message is counted with - which is true, and is not the same thing
+        // as being one face. This program draws its own colour faces out of the font's colour tables, one code
+        // point at a time, so what arrived on those two tiles was three strangers and two letters.
+        Assert.DoesNotContain("\U0001F468\u200D\U0001F469\u200D\U0001F467", EmojiPickerForm.Elements);
+        Assert.DoesNotContain("\U0001F1FB\U0001F1F3", EmojiPickerForm.Elements);
+
+        // The rule, rather than the two faces: one code point, or one code point and the variation selector that
+        // asks for the picture rather than the monochrome one. Nothing else on the table can be more than one face
+        // drawn by one call, and if somebody adds a joined family again this says so.
+        foreach (var element in EmojiPickerForm.Elements)
+        {
+            var points = element.EnumerateRunes().Select(r => r.Value).ToList();
+
+            var oneFace = points.Count == 1
+                || (points.Count == 2 && points[1] == 0xFE0F);
+
+            Assert.True(oneFace, $"{element} is {points.Count} code points, which is more than one tile can hold");
+        }
+    }
+
+    [Fact]
     public void ATileIsADrawnColourFaceAndNotAnOutlineOne()
     {
         Sta.Run(() =>
