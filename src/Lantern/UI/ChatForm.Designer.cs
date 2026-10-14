@@ -232,12 +232,14 @@ partial class ChatForm
         pnlInput.Controls.Add(btnSend, 1, 1);
         pnlInput.Dock = DockStyle.Fill;
         pnlInput.Location = new Point(3, 453);
-        // No margin under the input area. The rooms list and the members list each spend one default cell margin
-        // below themselves and stop, so their borders sit three pixels above the bottom of the window; the input
-        // area was spending two - one below this panel and another below the box - and finished six pixels above.
-        // Three pixels is nothing to describe and unmistakable on a screen, because what it mislines is the three
-        // bottom borders that a person reads as one line under the window (see WireframeParityTests).
-        pnlInput.Margin = new Padding(3, 3, 3, 0);
+        // No margin around the input area beyond the one above it. Its two columns already carry their own three
+        // pixels, which is exactly what the transcript above them carries - so the box, the tools and Send line up
+        // with the conversation on both sides, and the middle column is one column wide rather than a column with a
+        // narrower box sitting inside it. This panel was spending a margin of its own on top of those, which put the
+        // whole input area three pixels in from the transcript on each side and three pixels above the bottom of the
+        // window. Three pixels is nothing to describe and unmistakable on a screen, because what it mislines is the
+        // edges a person reads as the shape of the window (see WireframeParityTests).
+        pnlInput.Margin = new Padding(0, 3, 0, 0);
         pnlInput.Name = "pnlInput";
         pnlInput.RowCount = 2;
         pnlInput.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));

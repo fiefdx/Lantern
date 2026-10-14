@@ -236,6 +236,10 @@ public sealed class WireframeParityTests
         });
     }
 
+    /// <summary>A control's outer rectangle on the screen, which is the only frame these panes share.</summary>
+    private static Rectangle OnScreen(Control control)
+        => control.Parent!.RectangleToScreen(control.Bounds);
+
     /// <summary>
     /// Where a control's bottom edge is on the screen.
     /// </summary>
@@ -247,7 +251,60 @@ public sealed class WireframeParityTests
     /// panes are not siblings, and a bottom measured in the parent is how "three pixels too high" first read as 485.
     /// </remarks>
     private static int Bottom(Control control)
-        => control.Parent!.RectangleToScreen(control.Bounds).Bottom;
+        => OnScreen(control).Bottom;
+
+    /// <summary>
+    /// The input area is as wide as the conversation above it.
+    /// </summary>
+    /// <remarks>
+    /// The same report, sideways: <b>"make input editor left and right borders align with the transcript area
+    /// left/right borders - currently the input area has too much padding or margin making it a little narrow than
+    /// others."</b> Two margins again, one under the input panel and one inside it, so the middle column's bottom
+    /// row started three pixels in from the transcript on the left and ended three pixels short on the right. A
+    /// transcript with a narrower box under it reads as a text box that has been indented for no reason, and a
+    /// person notices that even when they cannot say what it is - which is why this is written down as geometry
+    /// rather than left to be noticed again.
+    /// </remarks>
+    [Fact]
+    public void TheInputAreaIsAsWideAsTheTranscript()
+    {
+        Sta.Run(() =>
+        {
+            using var form = new Lantern.UI.HostForm(new FakeChatService("Haitao"));
+
+            form.Show();
+            Pump();
+
+            var transcript = Find(form, "rtbChat");
+            var strip = Find(form, "pnlFormat");
+            var box = Find(form, "txtMessage");
+            var send = Find(form, "btnSend");
+
+            // The box's left edge is the transcript's left edge, and Send's right edge is the transcript's right
+            // edge: together those are the two sides of the middle column, and the conversation and the means of
+            // joining it are one column wide.
+            Assert.True(
+                OnScreen(box).Left == OnScreen(transcript).Left,
+                $"the message box starts {OnScreen(box).Left - OnScreen(transcript).Left} px in from the transcript");
+
+            Assert.True(
+                OnScreen(send).Right == OnScreen(transcript).Right,
+                $"the row of input ends {OnScreen(transcript).Right - OnScreen(send).Right} px short of the transcript's right edge");
+
+            // The tools are part of the same area, so they span it too. Left alone, they sit three pixels inside a
+            // column that is already three pixels inside another, which is a strip of tools nobody can say why.
+            Assert.True(
+                OnScreen(strip).Left == OnScreen(transcript).Left,
+                $"the tool strip starts {OnScreen(strip).Left - OnScreen(transcript).Left} px in from the transcript");
+
+            Assert.True(
+                OnScreen(strip).Right == OnScreen(transcript).Right,
+                $"the tool strip ends {OnScreen(transcript).Right - OnScreen(strip).Right} px short of the transcript");
+
+            // Widening the box must not shove anything out or overlap the two that share its row.
+            Assert.True(OnScreen(box).Right <= OnScreen(send).Left + 1, "the wider box has moved under Send");
+        });
+    }
 
     [Fact]
     public void TheToolsDoNotFallOnOneAnotherWhenTheWindowIsAtItsNarrowest()

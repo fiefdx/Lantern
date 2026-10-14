@@ -182,3 +182,36 @@ opened between them - because shortening the input area by three pixels is meant
 conversation, not to leave a stripe of empty panel under it.
 
 **711 tests, no warnings.**
+## The same report, sideways
+
+Which is to say: it was noticed again, in the other direction. **"make input editor left and right borders align
+with the transcript area left/right borders - currently the input area has too much padding or margin making it a
+little narrow than others."**
+
+It was the same two margins. `pnlInput` was spending one of its own outside the input area and the area spends
+another inside it, so the box, the tools and Send all started three pixels to the right of the conversation above
+them and ended three pixels short of it - which reads as a message box indented for no reason. The middle column
+already carried three pixels of margin around the transcript, so the input area needs none of its own:
+`pnlInput.Margin = new Padding(0, 3, 0, 0)`, and the three pixels its children already carry are exactly what lines
+them up.
+
+| Middle column | before | after |
+|:--|:--|:--|
+| Transcript (no frame of its own) | 202 .. 802 | 202 .. 802 |
+| Tool strip | 205 .. 799 | **202 .. 802** |
+| Message box | **205** .. 711 | 202 .. 714 |
+| Send | 723 .. **799** | 720 .. 802 |
+
+The transcript is drawn with `BorderStyle.None`, so on the left there is no line to line up with - what a person
+sees is the conversation's edge and the box's frame. Measured in the photograph rather than in the control's own
+numbers, the conversation's white runs from 202 to 801, the box's frame is at 202, and Send's frame ends at 801. The
+frame is two pixels thick, so the *text* inside the box starts a little further in than the text in the transcript -
+that is what "the borders line up" costs and what it means, and it is not what the report was about.
+
+`WireframeParityTests.TheInputAreaIsAsWideAsTheTranscript` says it: the box's left edge is the transcript's left
+edge, Send's right edge is the transcript's right edge, the tool strip spans the same two, and the wider box has not
+moved under Send. Note what those assertions are built from - each control's bounds mapped on to the screen by its
+own parent, which is the only frame of reference a list, a panel and a text box share (see the three-pixels-that-was
+485 above).
+
+**712 tests, no warnings.**
