@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Lantern.Core;
 using Lantern.Domain;
 using Xunit;
@@ -12,6 +13,26 @@ namespace Lantern.Tests;
 /// </summary>
 public sealed class IncomingFileUiTests
 {
+    private const uint WmLButtonDown = 0x0201;
+
+    private const uint WmLButtonUp = 0x0202;
+
+    private const int MkLButton = 0x0001;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT pt);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+
+        public int Y;
+    }
+
     [Fact]
     public void AnIncomingFileIsOfferedWithoutTakingOverTheWindow()
     {
@@ -79,6 +100,74 @@ public sealed class IncomingFileUiTests
             Assert.Equal(-1, form.FileProgressPercent);
 
             form.Dispose();
+        });
+    }
+
+    /// <summary>
+    /// The two buttons of the offer strip, reached the way a person reaches them: a mouse message put down at
+    /// the pixel the strip claims they are on.
+    /// </summary>
+    /// <remarks>
+    /// Everything else in this file answers a strip with <see cref="Button.PerformClick"/>, which tells the
+    /// button to do its job and reports back. That is the right amount of politeness for testing what a button
+    /// <i>does</i>, and it is no test at all of whether a pointer can <i>reach</i> it - and this project has
+    /// been bitten by that difference before (v1.7: the right third of every photograph in the transcript was
+    /// dead, because the character Windows reports under a click past the middle of a picture is the character
+    /// after it, and every test in that file was clicking programmatically). The strip is a good candidate for
+    /// the same kind of hole: it spends its life invisible, and then appears across the top of a window that
+    /// was already full, in a panel that docks itself and reflows its own buttons.
+    /// </remarks>
+    [Fact]
+    public void AMouseClickOnTheOfferStripReachesItsTwoButtons()
+    {
+        Sta.Run(() =>
+        {
+            var service = new FakeChatService("Haitao");
+            using var form = new IncomingForm(service);
+
+            form.Show();
+
+            // The pixel check below asks Windows who owns a point on the screen, which is only meaningful if this
+            // window is the one on top at that moment.
+            form.TopMost = true;
+            form.BringToFront();
+            form.Activate();
+
+            // Anywhere plausible. The imaginary service only records where the person said; nothing is written
+            // here, because the file is never completed in this test.
+            form.Folder = Path.Combine(Path.GetTempPath(), "lantern-offer-strip-" + Guid.NewGuid().ToString("N"));
+
+            var offered = service.SimulateIncomingFile("notes.txt", 4096);
+
+            var save = (Button)Find(form, "btnFileSave");
+            var decline = (Button)Find(form, "btnFileDecline");
+
+            Assert.True(save.Visible, "a file was offered and the strip came up without a Save to… button");
+            Assert.True(save.Enabled, "the file cannot be answered: Save to… is greyed out");
+            Assert.True(decline.Visible, "a file was offered and the strip came up without a Decline button");
+            Assert.True(decline.Enabled, "the file cannot be refused: Decline is greyed out");
+
+            ClickWithMouse(form, save);
+
+            // The folder chosen is the answer, and the file keeps its own name inside it.
+            var request = Assert.Single(service.SaveRequests);
+            Assert.Equal(offered, request.Job);
+            Assert.Equal(Path.Combine(form.Folder, "notes.txt"), request.Path);
+
+            // Answered, so no longer offered.
+            Assert.Empty(form.FileOfferText);
+
+            var second = service.SimulateIncomingFile("big.iso", 4_000_000);
+
+            Assert.Contains("big.iso", form.FileOfferText, StringComparison.Ordinal);
+
+            ClickWithMouse(form, decline);
+
+            // The strip going away is not the decline. The bytes have to be stopped, or the person who was
+            // sending them goes on sending them to somebody who has already said no.
+            Assert.True(second.Cancel.IsCancellationRequested, "the strip came down but nobody told the sender");
+            Assert.Empty(form.FileOfferText);
+            Assert.Contains("turned down big.iso", form.StatusText, StringComparison.Ordinal);
         });
     }
 
@@ -455,6 +544,39 @@ public sealed class IncomingFileUiTests
         // Show() first, or the click does nothing: a button that has never been given a handle does not
         // think it is on a window.
         ((Button)control).PerformClick();
+    }
+
+    /// <summary>
+    /// Left-clicks the middle of a control with mouse messages, as a pointer does, rather than asking the
+    /// control to click itself.
+    /// </summary>
+    /// <remarks>
+    /// Two things are checked, because a click that works has two parts: who is actually at that pixel, and what
+    /// happens when the message gets there. Windows does not pass a mouse message from a parent to a child - the
+    /// message pump asks who owns the pixel and addresses the message to that window, in that window's own
+    /// coordinates - so the messages below go to the button's handle, at the middle of it.
+    /// </remarks>
+    private static void ClickWithMouse(Control form, Control button)
+    {
+        var box = button.RectangleToScreen(button.ClientRectangle);
+        var onScreen = new Point(box.Left + box.Width / 2, box.Top + box.Height / 2);
+
+        // Who Windows says owns that pixel. This is the one part of the test that needs the window to actually be
+        // the window the person is looking at, so the form is put on top for the duration - and it is the part
+        // worth the trouble, because a button the message pump never addresses is a button whose handler is
+        // never asked, however correct that handler is.
+        Assert.Equal(button.Handle, WindowFromPoint(new POINT { X = onScreen.X, Y = onScreen.Y }));
+
+        var lParam = (IntPtr)(((box.Height / 2) << 16) | (ushort)(box.Width / 2));
+
+        SendMessage(button.Handle, WmLButtonDown, (IntPtr)MkLButton, lParam);
+        SendMessage(button.Handle, WmLButtonUp, IntPtr.Zero, lParam);
+
+        for (var i = 0; i < 20; i++)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+        }
     }
 
     private static Control Find(Control parent, string name)
