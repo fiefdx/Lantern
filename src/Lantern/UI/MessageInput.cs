@@ -11,9 +11,11 @@ namespace Lantern.UI;
 /// <para>
 /// What is here is what only the control can do, and all three of those are workarounds for something a RichEdit
 /// window cannot be asked to do politely: take a paste as plain words rather than as rich text, show the colour
-/// faces the font has but GDI will not render (<see cref="FaceOverlay"/>), and say what an empty box is for - a
-/// <see cref="RichTextBox"/> has no placeholder of any kind, and the only place anything can be painted on it is
-/// the paint message, since <c>OnPaint</c> is never called (see <see cref="PaintOverlay"/>).
+/// faces the font has but GDI will not render - which takes two things, uninking the outline glyph the control
+/// insists on drawing (<see cref="RenewInk"/>) and painting Windows' own face over the gap left behind
+/// (<see cref="FaceOverlay"/>) - and saying what an empty box is for, since a <see cref="RichTextBox"/> has no
+/// placeholder of any kind and the only place anything can be painted on it is the paint message, because
+/// <c>OnPaint</c> is never called (see <see cref="PaintOverlay"/>).
 /// </para>
 /// </summary>
 public class MessageInput : RichTextBox
@@ -29,7 +31,7 @@ public class MessageInput : RichTextBox
     /// <para>
     /// The first window message this project has ever sent, and it is here for one reason: a RichTextBox will not
     /// say what a stretch of its own text is wearing unless that stretch is highlighted, and highlighting the middle
-    /// of somebody's sentence makes that window draw itself again. See <see cref="MeasureInk"/>.
+    /// of somebody's sentence makes that window draw itself again. See <see cref="RenewInk"/>.
     /// </para>
     /// </summary>
     private const int WmHideSelection = 0x043F;
@@ -59,6 +61,27 @@ public class MessageInput : RichTextBox
     private bool measuring;
 
     /// <summary>
+    /// The piece of the box whose ink may need putting right, because it arrived since it was last looked after or
+    /// somebody wrote formatting over it.
+    /// <para>
+    /// Worth carrying: a face costs about a millisecond to look after, and doing it to every face in the box on
+    /// every keystroke measured <b>8 ms a key</b> for a sentence with six of them in it, which is a box that lags
+    /// while it is typed in. Only new characters and newly formatted ones can need it, so the box diffs its own
+    /// text - a walk over a string, costing nothing next to a message to the control - and asks about the piece that
+    /// changed. <c>dirtyAll</c> is how a box that has not yet looked at any of itself, or has been asked before it
+    /// had a window to ask about, says so.
+    /// </para>
+    /// </summary>
+    private bool dirtyAll = true;
+
+    private int dirtyFrom;
+
+    private int dirtyTo;
+
+    /// <summary>The text as it was the last time its ink was accounted for, which is what the diff is against.</summary>
+    private string seen = string.Empty;
+
+    /// <summary>
     /// Whether the box is in the middle of reading what its own lines are wearing.
     /// <para>
     /// A <see cref="RichTextBox"/> has one font of its own and stores the rest itself, and the only way to ask what
@@ -79,7 +102,7 @@ public class MessageInput : RichTextBox
     /// floats above them with its outline showing underneath.
     /// </para>
     /// <para>
-    /// <b>Read out of what <see cref="MeasureInk"/> found, and never measured here.</b> This is called from the
+    /// <b>Read out of what <see cref="RenewInk"/> found, and never measured here.</b> This is called from the
     /// paint, and measuring is not something that can be done from a paint - see there.
     /// </para>
     /// </summary>
@@ -101,7 +124,8 @@ public class MessageInput : RichTextBox
     }
 
     /// <summary>
-    /// Looks at the box's own ink now, and remembers how tall the tallest thing on each line is.
+    /// Looks at the box's own ink now: takes the ink off the outline glyphs under its faces, and remembers how tall
+    /// the tallest thing on each line is.
     /// <para>
     /// <b>Now, and not when the window next paints - which is the whole point of this method existing.</b> Asked
     /// what a stretch of text is wearing, a RichTextBox answers only about what is highlighted, so measuring means
@@ -118,9 +142,35 @@ public class MessageInput : RichTextBox
     /// highlighting invisible, the window has nothing to redraw, and the paints a reading used to cause are not
     /// merely fewer but none - measured, zero, against two per highlight when it is shown.
     /// </para>
+    /// <para>
+    /// <b>Taking the ink off the outline glyphs happens here too, in the same window.</b> It is the same kind of
+    /// work - the box putting its own faces right by talking to the control about them, which means selecting, which
+    /// means the selection has to be hidden and put back - and doing it in a second window would cost a second
+    /// repaint of the box on every keystroke to change nothing. See <see cref="BlankOutlineGlyphs"/> for what is
+    /// written and why that is the way it is written.
+    /// </para>
     /// </summary>
-    public void MeasureInk()
+    /// <summary>Passes no stretch, which is how the callers that know nothing about formatting ask for a box to
+    /// look after its own ink.</summary>
+    public const int Nowhere = -1;
+
+    public void RenewInk() => RenewInk(Nowhere, Nowhere);
+
+    /// <summary>
+    /// As <see cref="RenewInk()"/>, and additionally puts the blank back on any face in the stretch whose
+    /// formatting was just written over - which is what keeps <see cref="InputFormatting"/> from putting the
+    /// control's outline face back under a face it passed on the way to making a word bold.
+    /// </summary>
+    public void RenewInk(int writtenFrom, int writtenTo)
     {
+        if (writtenFrom >= 0)
+        {
+            // A stretch to look at. When the box has not been through yet at all, dirtyAll says so, and one stretch
+            // is no reason to stop believing it.
+            dirtyFrom = Math.Min(dirtyFrom, Math.Max(0, writtenFrom));
+            dirtyTo = Math.Max(dirtyTo, writtenTo);
+        }
+
         if (measuring || !IsHandleCreated)
         {
             return;
@@ -136,6 +186,15 @@ public class MessageInput : RichTextBox
 
         try
         {
+            var from = dirtyAll ? 0 : dirtyFrom;
+            var to = dirtyAll ? TextLength : dirtyTo;
+
+            BlankOutlineGlyphs(from, to);
+
+            dirtyAll = false;
+            dirtyFrom = int.MaxValue;
+            dirtyTo = 0;
+
             // Every display line of what is there, which is not every line a person may have typed: a wrapped
             // paragraph is several display lines, and each has its own tallest ink.
             for (var line = 0; line <= GetLineFromCharIndex(TextLength); line++)
@@ -154,6 +213,94 @@ public class MessageInput : RichTextBox
             SendMessage(Handle, WmHideSelection, 0, 0);
 
             measuring = false;
+        }
+    }
+
+    /// <summary>
+    /// Makes every face in the box a character with nothing drawn on it, so that the only face the box shows is the
+    /// one <see cref="FaceOverlay"/> paints.
+    /// <para>
+    /// "should only render the colorful icon, not the black white icon ... only put a empty placeholder then render
+    /// the colorful icon over the empty placeholder." What the box did was let RichEdit draw the monochrome outline -
+    /// measured off the screen, a black face 12 pixels square for a 9 point face, drawn by the control itself in the
+    /// text colour, with eyes and a mouth in it - and then paint a colour face over it. Two drawings of the same
+    /// face, in two sizes and two shapes, lined up by arithmetic about an advance. It looked right and was one pixel
+    /// from looking wrong, and the outline is square while the patch put over it is round, so what survived at the
+    /// corners was precisely the black somebody was asking to have taken away.
+    /// </para>
+    /// <para>
+    /// <b>The character is not touched.</b> It stays one text element, counted by <see cref="Domain.ValidationRules"/>,
+    /// sent as itself, deleteable with one backspace, and it is still where the caret goes. Only its ink goes away.
+    /// </para>
+    /// <para>
+    /// <b>Why the text colour, when the control has a "hide character" effect.</b> It does, since RichEdit 3.0
+    /// (<c>CFE_HIDDEN</c>, <c>0x100</c>), and it was tried, and what it hides is the character's <em>place</em> as
+    /// well as its ink: measured, a line reading <c>a</c> <c>face</c> <c>b</c> had its characters at x 1, 8 and 28,
+    /// and after hiding the face every one of them was at x 1. A hidden character takes no room, which is the right
+    /// behaviour for hidden text and the wrong one for a face that is very much there - the advance is what the face
+    /// is painted into, what the caret walks over, and what the box measures a line's ink with. Colour is the other
+    /// way: positions measured before and after are identical, the format sticks to the character through edits and
+    /// word wrap, and the caret sitting after a blank face still reads back black, so what gets typed next is
+    /// visible.
+    /// </para>
+    /// <para>
+    /// The colour is the box's own background, which is not a claim about the text and is therefore not read back as
+    /// one - see <see cref="InputFormatting"/>, whose reader drops the colour of any character that is a face. The
+    /// patch <see cref="FaceOverlay"/> still puts down first is kept as well: it is what covers a face that arrived
+    /// with ink of its own, from a paste or an undo, in the moment before this method has been round it again.
+    /// </para>
+    /// <para>
+    /// <b>And the blank is put back on the faces only.</b> A character's formatting is what the next character typed
+    /// after it inherits, which is how a box knows to carry on bold; and it means that the character typed after a
+    /// face would inherit the blank and arrive invisible - measured, <c>WhatIsTypedAfterAFaceIsInkedNormally</c> was
+    /// written first and failed first, which is the only reason it is not in the next release. So every stretch of
+    /// words that begins just after a face is asked what it is wearing, and given back the box's own ink if it turns
+    /// out to have picked up the blank instead. That is one read per face rather than one per character, which is
+    /// what makes it affordable on a keystroke; and since the repair writes the ordinary colour onto the first
+    /// character of the stretch, whatever is typed after it inherits that and the sentence heals itself from there.
+    /// Nothing else in the box is offered the background colour as ink, and the colour tools do not offer it either -
+    /// their six inks are red, orange, green, blue, purple and pink (see <see cref="ComposerStyle"/>).
+    /// </para>
+    /// </summary>
+    private void BlankOutlineGlyphs(int from, int to)
+    {
+        var blank = BackColor;
+        var wasFace = false;
+
+        // Every element is walked, because knowing whether the character at a position follows a face is knowing what
+        // it is - which costs a string, not a message to the control. Only the ones inside the piece that changed
+        // are ever touched.
+        foreach (var (at, element) in Elements(0, TextLength))
+        {
+            var face = ColorEmoji.IsEmoji(element);
+
+            // Words nowhere near a face are none of this method's business, and not looking at them at all is what
+            // keeps it affordable: reading a colour costs a message to the control, writing one costs a redraw of
+            // the run, and this is asked on every keystroke. So the only questions are asked of faces and of the one
+            // character that starts just after one.
+            if (at < to && at + element.Length > from && (face || wasFace))
+            {
+                Select(at, element.Length);
+
+                var wears = SelectionColor.ToArgb();
+
+                if (face)
+                {
+                    // A face already wearing the blank is left exactly where it is, which is what makes a box of
+                    // nothing but faces cost one message a face rather than two.
+                    if (wears != blank.ToArgb())
+                    {
+                        SelectionColor = blank;
+                    }
+                }
+                else if (wears == blank.ToArgb())
+                {
+                    // Words that have picked up a face's blank, which is words nobody can see.
+                    SelectionColor = ForeColor;
+                }
+            }
+
+            wasFace = face;
         }
     }
 
@@ -269,7 +416,7 @@ public class MessageInput : RichTextBox
         var edges = Edges(from, to);
         var points = best;
 
-        // The selection is hidden, and the caret put back, by the caller: see MeasureInk for why both are needed.
+        // The selection is hidden, and the caret put back, by the caller: see RenewInk for why both are needed.
         Look(0, edges.Count - 1);
 
         return points;
@@ -468,9 +615,58 @@ public class MessageInput : RichTextBox
 
         // New words, other words' ink coming in, or words going away: either way a line may be wearing something it
         // was not before, and a face painted to the wrong baseline is a face floating in the line. Measured here
-        // rather than in the paint, which is what the paint would otherwise spend its time doing - MeasureInk.
-        MeasureInk();
+        // rather than in the paint, which is what the paint would otherwise spend its time doing - RenewInk. And a
+        // face that has just arrived has an outline glyph on it, which is the other half of what RenewInk does.
+        // What needs looking at is the piece that changed, which is what the diff below says. A keystroke in the
+        // middle of a sentence is two characters of it, and the forty faces elsewhere in the box are left alone.
+        NoteWhatChanged();
+        RenewInk();
         Invalidate();
+    }
+
+    /// <summary>
+    /// Adds the difference between the text and the text this box last accounted for to the piece that needs its ink
+    /// put right.
+    /// </summary>
+    /// <remarks>
+    /// Common prefix, common suffix, and everything between them, which is exactly what an insertion, a deletion,
+    /// a paste or an undo did - and it is done on strings rather than by asking the control, because that is the
+    /// difference between a microsecond and a millisecond per character. Anything that cannot be accounted for
+    /// leaves <see cref="dirtyAll"/> set, which is the honest answer rather than a wrong one.
+    /// </remarks>
+    private void NoteWhatChanged()
+    {
+        var now = Text;
+
+        if (!IsHandleCreated)
+        {
+            // Nothing has been put right yet, and there is no window to put it right in.
+            seen = now;
+            dirtyAll = true;
+
+            return;
+        }
+
+        var start = 0;
+
+        while (start < seen.Length && start < now.Length && seen[start] == now[start])
+        {
+            start++;
+        }
+
+        var then = seen.Length;
+        var ends = now.Length;
+
+        while (then > start && ends > start && seen[then - 1] == now[ends - 1])
+        {
+            then--;
+            ends--;
+        }
+
+        dirtyFrom = Math.Min(dirtyFrom, start);
+        dirtyTo = Math.Max(dirtyTo, ends);
+
+        seen = now;
     }
 
     /// <summary>The caret moving changes where the faces go, and which of them are on a selection.</summary>
@@ -494,7 +690,7 @@ public class MessageInput : RichTextBox
 
         // Reflowing moves the lines as well as the faces on them: what was one display line becomes two, and each
         // of those has its own tallest ink.
-        MeasureInk();
+        RenewInk();
         Invalidate();
     }
 
@@ -503,7 +699,7 @@ public class MessageInput : RichTextBox
     {
         base.OnFontChanged(e);
 
-        MeasureInk();
+        RenewInk();
     }
 
     /// <summary>
@@ -515,7 +711,7 @@ public class MessageInput : RichTextBox
     {
         base.OnHandleCreated(e);
 
-        MeasureInk();
+        RenewInk();
     }
 
     /// <summary>

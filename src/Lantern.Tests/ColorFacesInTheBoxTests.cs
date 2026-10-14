@@ -37,6 +37,104 @@ public class ColorFacesInTheBoxTests
     private static readonly Color Beneath = Color.FromArgb(0x80, 0x80, 0x80);
 
     [Fact]
+    public void TheBoxDoesNotInkTheOutlineGlyphUnderAFace()
+    {
+        // "for input widget when render emoji, should only render the colorful icon, not the black white icon ... not
+        // render the black white icon only put a empty placeholder then render the colorful icon over the empty
+        // placeholder." The box has let RichEdit draw the monochrome outline since the first colour face, and has
+        // painted over it. That is fine until the two disagree by a pixel - the outline is square-ish and the patch
+        // over it is round, so what survives at the edges is exactly the black that was meant to be gone.
+        // So the character stays: one text element, counted, sent, caret-able. What changes is that the box no longer
+        // inks it. The placeholder is empty because nothing was drawn in it.
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"hi {Face} there";
+
+            Assert.Equal(box.BackColor.ToArgb(), InkAt(box, 3).ToArgb());
+        });
+    }
+
+    [Fact]
+    public void WordsBesideAFaceAreStillInkedInTheColourTheyWereTypedIn()
+    {
+        // The blank belongs to faces and to nothing else: a box that whitened its own words would be a box with an
+        // invisible sentence, which is the same report pointed in the opposite direction.
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"hi {Face} there";
+
+            Assert.Equal(box.ForeColor.ToArgb(), InkAt(box, 0).ToArgb());
+            Assert.Equal(box.ForeColor.ToArgb(), InkAt(box, 6).ToArgb());
+        });
+    }
+
+    [Fact]
+    public void PuttingColourOnAStretchThatHasAFaceInItLeavesTheFaceBlank()
+    {
+        // Writing a style in this box writes the colour of every character in it, which is what puts the outline back
+        // under a face that was blank a moment ago. Formatting a sentence and then losing the blank in its middle is
+        // the same fault as never having blanked it, and it arrives later, which makes it worse.
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"say {Face} now";
+            box.Select(0, box.TextLength);
+
+            InputFormatting.ApplyToSelection(box, run => run with { Color = "#C00000" });
+
+            Assert.Equal(Color.FromArgb(0xC0, 0x00, 0x00).ToArgb(), InkAt(box, 0).ToArgb());
+            Assert.Equal(box.BackColor.ToArgb(), InkAt(box, 4).ToArgb());
+        });
+    }
+
+    [Fact]
+    public void AFaceInTheBoxClaimsNoColourForTheWire()
+    {
+        // The blank is furniture, and furniture does not go on the wire: a message whose emoji arrives as "#FFFFFF"
+        // says the person painted those faces white, which nobody has ever done or been asked to do. It also costs
+        // run boundaries, because a face in the middle of some red text now has a colour that is not its neighbours'.
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = $"go {Face} now";
+
+            var runs = InputFormatting.RunsOf(box, 0, box.TextLength);
+
+            Assert.NotEmpty(runs);
+            Assert.All(runs, run => Assert.Null(run.Color));
+        });
+    }
+
+    [Fact]
+    public void WhatIsTypedAfterAFaceIsInkedNormally()
+    {
+        // Blankening a character is one thing; blankening the caret that sits behind it is another, and would be
+        // invisible typing. Measured on the control, the caret after a blank face reads black - which is worth
+        // holding to, because it is not the way a character format is usually expected to behave.
+        Sta.Run(() =>
+        {
+            using var form = Shown();
+            var box = Box(form);
+
+            box.Text = Face;
+            box.Select(box.TextLength, 0);
+            box.SelectedText = "x";
+
+            Assert.Equal(box.ForeColor.ToArgb(), InkAt(box, box.Text.Length - 1).ToArgb());
+        });
+    }
+
+    [Fact]
     public void TheBoxPaintsAFaceInTheColoursWindowsDraws()
     {
         Sta.Run(() =>
@@ -353,6 +451,13 @@ public class ColorFacesInTheBoxTests
 
             // And a line of faces alone is never asked at all.
             Assert.Equal(0, Looks(box, string.Concat(Enumerable.Repeat(Face, 12))));
+
+            // Faces are selected, though, and which of the two things that means is still forbidden is worth saying
+            // out loud. The box now highlights each face to take its ink off, which is a write and asks the cheap
+            // question; what it must never do again is ask a face what it is wearing. More touches than faces is
+            // that fault coming back, and twelve faces are inked with twelve touches.
+            Assert.Equal(1, TouchesOfFaces(box, $"{Face} hello there and here and there too and here and here and here"));
+            Assert.Equal(12, TouchesOfFaces(box, string.Concat(Enumerable.Repeat(Face, 12))));
         });
     }
 
@@ -385,7 +490,7 @@ public class ColorFacesInTheBoxTests
 
             var before = box.Paints;
 
-            box.MeasureInk();
+            box.RenewInk();
 
             // Counted the moment the reading finishes, before this test asks for a repaint of its own: what is
             // being denied is that the reading draws anything while it is going on.
@@ -659,24 +764,46 @@ public class ColorFacesInTheBoxTests
     /// the one question about itself that a RichTextBox has to be asked, and the one that can quietly cost more than
     /// the painting it is serving.
     /// </summary>
-    private static int Looks(MessageInput box, string text)
+    private static int Looks(MessageInput box, string text) => Asking(box, text, aboutFaces: false);
+
+    /// <summary>How many times the box highlights a face - which, since the blank, is once per face and no more.</summary>
+    private static int TouchesOfFaces(MessageInput box, string text) => Asking(box, text, aboutFaces: true);
+
+    private static int Asking(MessageInput box, string text, bool aboutFaces)
     {
         // Setting the text measures the box too, which is the point of setting it that way: the reading belongs to
         // the change rather than to the paint, so this counts the reading asked for on its own.
-        box.Text = text;
+        //
+        // It is set twice, and the reason is the box's own economy: since a change only puts the ink of the piece
+        // that changed back to rights, a line typed after a line would leave the earlier faces untouched and make
+        // this look cheaper than it is. Empty first, and the whole line is new.
+        box.Text = string.Empty;
 
         var at = box.SelectionStart;
         var length = box.SelectionLength;
 
         var looks = 0;
 
-        void Counted(object? sender, EventArgs e) => looks++;
+        void Counted(object? sender, EventArgs e)
+        {
+            var selected = box.SelectedText;
+
+            // Highlighting a face to take its ink off is not asking it what it is wearing, and the two have to be
+            // counted apart: the dear question is the one whose highlight crosses a face and then asks the control
+            // about its font, which costs an order of magnitude more and answers nothing truthfully.
+            if (selected.Length > 0 && ColorEmoji.IsEmoji(selected) == aboutFaces)
+            {
+                looks++;
+            }
+        }
 
         box.SelectionChanged += Counted;
 
         try
         {
-            box.MeasureInk();
+            // The line arriving is what is measured, not a reading asked for afterwards: a box that has already
+            // looked at a face has nothing left to say about it, and this is about what arriving costs.
+            box.Text = text;
         }
         finally
         {
@@ -685,6 +812,27 @@ public class ColorFacesInTheBoxTests
         }
 
         return looks;
+    }
+
+    /// <summary>
+    /// What the control says the character at <paramref name="at"/> is inked with, with the whole of its text element
+    /// highlighted rather than one UTF-16 unit of it.
+    /// </summary>
+    private static Color InkAt(MessageInput box, int at)
+    {
+        var start = box.SelectionStart;
+        var length = box.SelectionLength;
+
+        try
+        {
+            box.Select(at, System.Globalization.StringInfo.GetNextTextElement(box.Text, at).Length);
+
+            return box.SelectionColor;
+        }
+        finally
+        {
+            box.Select(start, length);
+        }
     }
 
     private static Bitmap Painted(RichTextBox box)

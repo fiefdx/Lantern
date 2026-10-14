@@ -1139,6 +1139,14 @@ public partial class ChatForm : Form
         // Assigning to the selection is what an insertion is: it replaces anything highlighted, and leaves the caret
         // after the face so the next one can be clicked straight after it.
         txtMessage.SelectedText = element;
+
+        // The brush goes back on the caret. A face is now a character with nothing drawn on it, and what gets typed
+        // next inherits the character to its left - so choosing red, then clicking a face, then typing would have
+        // produced words in the colour of the paper. The box heals that by itself
+        // (MessageInput.BlankOutlineGlyphs); this is the version where the person's own ink never goes missing in
+        // the first place, which is the difference between a repair and a rule.
+        InputFormatting.SetPending(txtMessage, brush);
+
         return caret + element.Length;
     }
 

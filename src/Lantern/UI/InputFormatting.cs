@@ -65,12 +65,17 @@ public static class InputFormatting
             }
         });
 
-        // Sizes moved. A box that paints faces over its own characters places them on the baseline of the line,
-        // and the line's baseline belongs to the tallest ink on it - so a line that has just been made larger has
-        // just moved the ground every face on it stands on.
+        // Two things put right by the box looking at itself again. Sizes moved: a box that paints faces over its own
+        // characters places them on the baseline of the line, and the line's baseline belongs to the tallest ink on
+        // it, so a line that has just been made larger has just moved the ground every face on it stands on. And
+        // every character in the stretch has just had a colour written on it - including any face in it, which is
+        // inked with the background precisely so that the control will not draw its outline face there, and stays
+        // that way only until something writes over it again (see MessageInput.BlankOutlineGlyphs).
         if (box is MessageInput input)
         {
-            input.MeasureInk();
+            // Just this stretch, which is where the ink was just written. The box would otherwise have to walk every
+            // face it holds, and a face costs about a millisecond to look at.
+            input.RenewInk(from, from + count);
         }
     }
 
@@ -133,7 +138,10 @@ public static class InputFormatting
                     break;
                 }
 
-                box.Select(at, 1);
+                // The whole text element, not one UTF-16 unit of it. Half a surrogate pair is not a character that
+                // anything recognises, and it is the difference between reading a face as a face - which wears no
+                // colour, whatever the box had to ink it with - and reading half of one as a colour claim.
+                box.Select(at, e.GetTextElement().Length);
 
                 var flags = Read(box);
 
@@ -176,13 +184,19 @@ public static class InputFormatting
         var font = box.SelectionFont ?? box.Font;
         var colour = box.SelectionColor;
 
+        // A face is not inked by the box at all: the box paints its own face over the character, and hides the one
+        // the control would draw by inking the character with the background. That colour is furniture, and a
+        // message that arrived in the room saying its emoji were white would be saying something nobody had said -
+        // and would split a run of coloured words in two on the way. So a face is read as wearing no colour.
+        var furniture = ColorEmoji.IsEmoji(box.SelectedText);
+
         return new StyledRun(
             0,
             font.Style.HasFlag(FontStyle.Bold),
             font.Style.HasFlag(FontStyle.Italic),
             font.Style.HasFlag(FontStyle.Underline),
             SizeLevel(box, font.Size),
-            colour.ToArgb() == box.ForeColor.ToArgb() ? null : ComposerStyle.Hex(colour));
+            furniture || colour.ToArgb() == box.ForeColor.ToArgb() ? null : ComposerStyle.Hex(colour));
     }
 
     /// <summary>Writes a run onto the highlighted character, taking the control's own font when nothing is claimed.</summary>

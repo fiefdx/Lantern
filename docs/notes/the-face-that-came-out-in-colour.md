@@ -237,3 +237,47 @@ One thing no test can settle is what a person sees when the room is full of face
 daylight — whether they are the right size, whether the line they sit on is still comfortable, and whether the other
 machine, running v1.5 over a real Bluetooth link, shows them in colour too. That is
 `docs/testing/v1.5-colour-emoji-checklist.md`.
+
+## And the outline underneath was still there
+
+[//]: # (people-told: the box drew its own black-and-white face first)
+
+The patch was an eraser before it was a brush. It rubbed a round hole in the box and painted the colour face in the
+hole, and the hole was there because underneath every face the control had drawn its own - the black-and-white outline
+glyph from the fallback font, which Segoe UI Emoji supplies for every one of these characters and RichEdit 4.1 draws
+without being asked. Round, because the eraser had been square and a square over a round thing leaves four corners of
+outline showing, which is what people were describing.
+
+It is gone now, and the faces are drawn on paper that was never inked.
+
+**What was tried first was hiding the character.** `CFE_HIDDEN` (0x100) is real, is honoured rather than merely stored
+by this control, and is documented as "used for hidden text in a RichEdit". Measured, it does hide the glyph - and it
+also takes the character's width away: every position on the line, including the ones before the hidden character,
+came back as `x = 1`. A hidden character is text the control keeps but does not lay out, and a face that has been
+taken out of the line has nothing for a patch to be placed on, the caret has nowhere to stand, and the next character
+is butted up against the last. So the character stays, drawn, and is drawn in the colour of the paper.
+
+That is `MessageInput.BlankOutlineGlyphs`: every face in the box wears `BackColor`, and `FaceOverlay` still puts its
+round eraser down first, which is what covers a face that arrives with ink of its own from a paste or an undo in the
+moment before the box has been round it again.
+
+**The catch was that formatting is what the next character inherits.** A box knows to carry on bold because the
+character to the left of the caret is bold, and now the character to the left of a caret that sits after a face was
+wearing the colour of the paper - so `hello ` + face + typed letters produced letters nobody could see. Two things fix
+it. The box asks what the one character that starts just after a face is wearing, and gives it back the box's own ink
+if it has picked up the blank instead; and the emoji picker puts the brush back on the caret after it has inserted a
+face, so a sentence begun in red after a smiley stays in red rather than being healed into black. That is one question
+per face rather than one per character, which is the difference between a repair nobody notices and a box that cannot
+be typed in.
+
+**And it is done only where it is needed.** Looking after a face costs about a millisecond - the control is asked, and
+a highlight that crosses a face is one of the dear questions - so blanking every face in the box on every keystroke
+measured **8 ms a key** for a sentence holding six of them, which is a box that lags while it is typed in. So the box
+diffs its own text (common prefix, common suffix: a walk over a string, which costs nothing next to a message to the
+control) and puts the blank back on the piece that changed. Measured now: a letter typed in a line with no faces in it
+**2.3 ms**, a letter typed immediately after a face **4.4 ms**, a letter typed at the end of a line with a face back
+at the beginning of it **2.8 ms** - the faces elsewhere in the box cost a keystroke nothing.
+
+Nothing else in the box is offered the background colour as ink, and neither is the person: the six inks the colour
+tools offer are red, orange, green, blue, purple and pink, none of them the colour of paper, which is what makes a
+blank a blank rather than a colour that means something.
