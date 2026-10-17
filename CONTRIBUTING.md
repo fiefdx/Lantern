@@ -4,20 +4,31 @@ Working rules for this repository (task **T0.1**).
 
 ## Branch rules
 
-* `main` is the only long-lived branch. It must always build clean and run.
+* `master` is the only long-lived branch. It must always build clean and run.
+  It was called `main` until 2026-10-17, when the branch was renamed with
+  `git branch -m main master`; nothing else about the rules changed. Commits
+  and notes written before that date say `main`, and they are not wrong - that
+  is what the trunk was called then.
 * Branch names: `m<n>-t<n>.<n>-<short-slug>`, e.g. `m0-t0.4-startup-form`.
 * One task per branch. Keep branches short-lived (a task should be one PR).
-* Integrate by **squash merge** through a pull request; `main` stays linear.
-* Never force-push to `main`. Never commit `bin/`, `obj/` or `rooms.json`.
+* Integrate by **squash merge** through a pull request; `master` stays linear.
+* Never force-push to `master`. Never commit `bin/`, `obj/` or `rooms.json`.
 * If a task will take more than half a day, push a draft PR early so the
   backup owner can see the direction.
+* No remote is configured in the working copy this rename was done in. When the
+  repository is pushed somewhere, change that place's default branch to
+  `master` **first** - on GitHub: Settings -> Branches -> Default branch - and
+  only then delete its `main` (`git push origin --delete main`). The other way
+  round leaves everybody pulling a branch that no longer exists.
 
 ## Definition of Done (group contract)
 
 A task is done only when it:
 
 1. compiles without warnings,
-2. runs from the current `main` branch,
+2. runs from the current `master` branch. (The contract and the proposal call
+   it the "main" branch, which means the trunk - not a branch named `main`;
+   this repository's trunk is `master`),
 3. has been tested by someone who did **not** write it,
 4. has a short note explaining how to use it (put it in `docs/notes/<task>.md`
    or in the PR description, then link it here).
