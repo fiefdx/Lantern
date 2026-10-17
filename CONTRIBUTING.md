@@ -15,11 +15,22 @@ Working rules for this repository (task **T0.1**).
 * Never force-push to `master`. Never commit `bin/`, `obj/` or `rooms.json`.
 * If a task will take more than half a day, push a draft PR early so the
   backup owner can see the direction.
-* No remote is configured in the working copy this rename was done in. When the
-  repository is pushed somewhere, change that place's default branch to
+* This working copy does have a remote: `origin` is
+  `git@github.com:fiefdx/Lantern`, and `master` tracks `origin/master`.
+  The rename itself was local - `git branch -m` only ever moves the name you
+  have - so the remote had to be dealt with separately, and as far as this copy
+  can tell it has been: a fetch here has produced `refs/remotes/origin/master`
+  and nothing else, which means the trunk out there is called `master` too.
+* Where a remote still has a `main`, change that place's default branch to
   `master` **first** - on GitHub: Settings -> Branches -> Default branch - and
   only then delete its `main` (`git push origin --delete main`). The other way
-  round leaves everybody pulling a branch that no longer exists.
+  round leaves everybody pulling a branch that no longer exists. Branch
+  protection and any CI trigger follow the name, not the commits, so re-point
+  those at `master` in the same sitting. Teammates rename their own copy with
+  `git fetch origin && git branch -m main master && git branch --set-upstream-to=origin/master`.
+  (Correction, same day: the first version of this section said no remote was
+  configured. It was written from a `git remote -v` that came back empty, and the
+  remote appeared while the commit was being made - the remote exists.)
 
 ## Definition of Done (group contract)
 
